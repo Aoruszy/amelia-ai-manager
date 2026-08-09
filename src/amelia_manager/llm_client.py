@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import httpx
+from typing import Any
 
 
 class LLMError(RuntimeError):
@@ -21,7 +22,13 @@ class GeminiClient:
         self.timeout = timeout
         self.transport = transport
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        response_mime_type: str | None = None,
+        response_schema: dict[str, Any] | None = None,
+    ) -> str:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
             f"{self.model}:generateContent"
@@ -34,6 +41,10 @@ class GeminiClient:
                 "maxOutputTokens": 350,
             },
         }
+        if response_mime_type:
+            payload["generationConfig"]["responseMimeType"] = response_mime_type
+        if response_schema:
+            payload["generationConfig"]["responseSchema"] = response_schema
         async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
             try:
                 response = await client.post(url, json=payload, headers={"x-goog-api-key": self.api_key})

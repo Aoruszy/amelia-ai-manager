@@ -14,6 +14,15 @@ class HumanDecisionLLM:
         return '{"intent":"complaint","reply":"Передам менеджеру, чтобы посмотрели детали.","needs_human":true,"confidence":0.8}'
 
 
+class RecordingDecisionLLM:
+    def __init__(self):
+        self.kwargs = None
+
+    async def generate(self, prompt: str, **kwargs) -> str:
+        self.kwargs = kwargs
+        return '{"reply":"Да, подскажу","needs_human":false,"confidence":0.9}'
+
+
 def test_parse_model_decision_from_json_object():
     decision = parse_model_decision('{"reply":"Да, подскажу","needs_human":false,"case_patch":{"budget":5000}}')
 
@@ -36,6 +45,22 @@ async def test_engine_uses_reply_from_structured_model_decision():
 
     assert action.kind == "send"
     assert action.messages == ["Подскажите, пожалуйста, имя пациента."]
+
+
+@pytest.mark.asyncio
+async def test_engine_requests_structured_model_decision_schema():
+    llm = RecordingDecisionLLM()
+
+    await ConversationEngine(llm).handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: хочу букет"],
+        stage="new_lead",
+    )
+
+    assert llm.kwargs["response_mime_type"] == "application/json"
+    schema = llm.kwargs["response_schema"]
+    assert schema["type"] == "object"
+    assert "reply" in schema["properties"]
 
 
 @pytest.mark.asyncio

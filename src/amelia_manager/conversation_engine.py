@@ -10,17 +10,18 @@ from amelia_manager.emoji_variation import vary_reply_emoji
 from amelia_manager.humanizer import split_into_telegram_messages
 from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
-from amelia_manager.model_decision import parse_model_decision
+from amelia_manager.model_decision import ModelDecision, parse_model_decision
 from amelia_manager.order_card import OrderCard
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 from amelia_manager.safety import check_reply_safety
+from amelia_manager.structured_generation import generate_with_optional_schema
 
 
 class LLM(Protocol):
-    async def generate(self, prompt: str) -> str: ...
+    async def generate(self, prompt: str, **kwargs) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -125,7 +126,11 @@ class ConversationEngine:
             order_card_context=_format_order_card_context(order_card) if order_card else None,
         )
         try:
-            reply = await self.llm.generate(prompt)
+            reply = await generate_with_optional_schema(
+                self.llm,
+                prompt,
+                response_schema=ModelDecision.model_json_schema(),
+            )
         except LLMError:
             fallback = deterministic_order_reply(
                 next_step,
@@ -185,7 +190,11 @@ class ConversationEngine:
                     + ", ".join(safety.reasons)
                     + "\nПерепиши ответ коротко, естественно и без нарушения. Не объясняй правила."
                 )
-                retry_reply = await self.llm.generate(rewrite_prompt)
+                retry_reply = await generate_with_optional_schema(
+                    self.llm,
+                    rewrite_prompt,
+                    response_schema=ModelDecision.model_json_schema(),
+                )
                 retry_decision = parse_model_decision(retry_reply)
                 if retry_decision is not None:
                     retry_reply = retry_decision.reply

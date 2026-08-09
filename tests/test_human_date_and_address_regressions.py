@@ -19,6 +19,15 @@ class BadAddressLLM:
         return '{"fulfillment_type":"delivery","budget":7000,"address":"Хочу букет до 7000"}'
 
 
+class RecordingExtractorLLM:
+    def __init__(self):
+        self.kwargs = None
+
+    async def generate(self, prompt: str, **kwargs):
+        self.kwargs = kwargs
+        return '{"budget":5000}'
+
+
 class FailingLLM:
     async def generate(self, prompt: str) -> str:
         raise LLMError("boom")
@@ -156,6 +165,18 @@ async def test_llm_address_is_validated_before_merge():
     assert state.fulfillment_type == "delivery"
     assert state.budget == 7000
     assert state.address is None
+
+
+@pytest.mark.asyncio
+async def test_llm_extractor_requests_structured_json_schema():
+    llm = RecordingExtractorLLM()
+
+    await extract_order_state_with_llm(llm, ["Клиент: букет до 5000"], today=date(2026, 8, 9))
+
+    assert llm.kwargs["response_mime_type"] == "application/json"
+    schema = llm.kwargs["response_schema"]
+    assert schema["type"] == "object"
+    assert "budget" in schema["properties"]
 
 
 @pytest.mark.asyncio

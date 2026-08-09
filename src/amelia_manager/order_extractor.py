@@ -9,10 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.order_card import OrderCard, merge_order_state
 from amelia_manager.order_state import OrderState, extract_order_state
+from amelia_manager.structured_generation import generate_with_optional_schema
 
 
 class LLM(Protocol):
-    async def generate(self, prompt: str) -> str: ...
+    async def generate(self, prompt: str, **kwargs) -> str: ...
 
 
 class ExtractedOrderState(BaseModel):
@@ -50,7 +51,11 @@ async def extract_order_state_with_llm(
 ) -> OrderState:
     regex_state = extract_order_state(recent_messages, today=today, timezone_name=timezone_name)
     try:
-        raw = await llm.generate(_build_extraction_prompt(recent_messages, company_profile=company_profile))
+        raw = await generate_with_optional_schema(
+            llm,
+            _build_extraction_prompt(recent_messages, company_profile=company_profile),
+            response_schema=ExtractedOrderState.model_json_schema(),
+        )
         llm_state = ExtractedOrderState.model_validate(_parse_json_object(raw)).to_state()
         if llm_state.address and not looks_like_address(llm_state.address):
             llm_state = OrderState(**{**llm_state.__dict__, "address": None})
