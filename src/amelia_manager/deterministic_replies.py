@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+import re
+
+from amelia_manager.client_order_summary import format_client_order_summary
+from amelia_manager.order_card import OrderCard
+from amelia_manager.order_policy import NextStep
+
+
+def deterministic_order_reply(
+    next_step: NextStep,
+    card: OrderCard | None,
+    *,
+    recent_messages: list[str] | None = None,
+    stock_context: str | None = None,
+) -> str | None:
+    if card and card.is_ready_for_admin_request():
+        return format_client_order_summary(card)
+
+    stock_reply = _stock_fallback(recent_messages or [], stock_context or "")
+    if stock_reply:
+        return stock_reply
+
+    replies = {
+        "ask_budget": "Подскажите, на какой бюджет ориентируемся? 🌸",
+        "ask_bouquet_preferences": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
+        "ask_fulfillment_type": "Хорошо, по букету поняла. Это будет доставка или самовывоз?",
+        "ask_date": "На какое число нужен букет?",
+        "ask_pickup_time": "К какому времени удобно забрать букет самовывозом с Сергеева, 61?",
+        "ask_delivery_time": "К какому времени или в какой интервал доставить букет?",
+        "ask_delivery_address": "Подскажите адрес доставки, пожалуйста.",
+        "ask_sender_contacts": "Подскажите ваше имя и номер телефона для связи по заказу.",
+        "ask_recipient_contacts": "Подскажите имя и номер телефона получателя.",
+        "ask_payment_or_confirm_pickup": "Данные по самовывозу записала. Как удобнее оплатить: переводом/картой или на месте?",
+        "ask_anonymous_or_payment": "Подскажите, доставка будет анонимной или можно сказать от кого букет? И какой способ оплаты удобен?",
+    }
+    return replies.get(next_step.code)
+
+
+def _stock_fallback(recent_messages: list[str], stock_context: str) -> str | None:
+    if not stock_context or "— нет" not in stock_context:
+        return None
+    last = recent_messages[-1].lower().replace("ё", "е") if recent_messages else ""
+    if not any(word in last for word in ("есть", "налич", "пионы", "пион")):
+        return None
+    for item in re.findall(r"-\s*([^\n—]+)\s*—\s*нет", stock_context.lower().replace("ё", "е")):
+        name = item.strip()
+        stem = name[:5]
+        if stem and stem in last:
+            return f"{name} на сегодня нет. Могу подобрать похожий нежный вариант — подскажите, на какой бюджет ориентируемся?"
+    return None

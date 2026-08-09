@@ -1,0 +1,194 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Protocol
+
+from amelia_manager.client_order_summary import format_client_order_summary
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
+from amelia_manager.deterministic_replies import deterministic_order_reply
+from amelia_manager.emoji_variation import vary_reply_emoji
+from amelia_manager.humanizer import split_into_telegram_messages
+from amelia_manager.intent import is_greeting_only
+from amelia_manager.llm_client import LLMError
+from amelia_manager.order_card import OrderCard
+from amelia_manager.order_policy import get_next_step
+from amelia_manager.order_state import extract_order_state
+from amelia_manager.prompts import build_manager_prompt
+from amelia_manager.risk import RiskLevel, classify_risk
+from amelia_manager.safety import check_reply_safety
+
+
+class LLM(Protocol):
+    async def generate(self, prompt: str) -> str: ...
+
+
+@dataclass(frozen=True)
+class ConversationAction:
+    kind: str
+    messages: list[str]
+    risk_level: RiskLevel
+    safety_reasons: list[str] = field(default_factory=list)
+
+
+class ConversationEngine:
+    def __init__(self, llm: LLM, *, company_profile: CompanyProfile | None = None) -> None:
+        self.llm = llm
+        self.company_profile = company_profile or load_company_profile("amelia_flowers")
+
+    async def handle_messages(
+        self,
+        *,
+        client_summary: str,
+        recent_messages: list[str],
+        stage: str,
+        stock_context: str | None = None,
+        order_card: OrderCard | None = None,
+    ) -> ConversationAction:
+        last_client_text = _last_client_text(recent_messages)
+        risk_level = classify_risk(last_client_text)
+        if is_greeting_only(last_client_text):
+            return ConversationAction(
+                kind="send",
+                messages=["Здравствуйте 🙂 Чем могу помочь?"],
+                risk_level=risk_level,
+            )
+
+        if risk_level == RiskLevel.HIGH:
+            return ConversationAction(
+                kind="human_takeover",
+                messages=[
+                    "Понимаю вас. Передам вопрос ответственному менеджеру, чтобы посмотрели детали и вернулись с решением."
+                ],
+                risk_level=risk_level,
+            )
+
+        if order_card and order_card.client_summary_sent and _is_thanks_only(last_client_text):
+            return ConversationAction(
+                kind="send",
+                messages=["Спасибо, ждём вас 🌸"],
+                risk_level=risk_level,
+            )
+
+        if order_card and order_card.is_ready_for_admin_request():
+            if order_card.client_summary_sent:
+                return ConversationAction(
+                    kind="human_review",
+                    messages=["Передам менеджеру, чтобы вам ответили по заказу корректно."],
+                    risk_level=risk_level,
+                    safety_reasons=["ready_order_already_summarized"],
+                )
+            return ConversationAction(
+                kind="send",
+                messages=[format_client_order_summary(order_card, company_profile=self.company_profile)],
+                risk_level=risk_level,
+            )
+
+        order_state = order_card or extract_order_state(recent_messages)
+        next_step = get_next_step(order_state)
+
+        prompt = build_manager_prompt(
+            client_summary=client_summary,
+            recent_messages=recent_messages,
+            stage=stage,
+            risk_level=risk_level,
+            next_step_instruction=next_step.instruction,
+            stock_context=stock_context,
+            company_profile=self.company_profile,
+            order_card_context=_format_order_card_context(order_card) if order_card else None,
+        )
+        try:
+            reply = await self.llm.generate(prompt)
+        except LLMError:
+            fallback = deterministic_order_reply(
+                next_step,
+                order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context,
+            )
+            if fallback:
+                return ConversationAction(
+                    kind="send",
+                    messages=[fallback],
+                    risk_level=risk_level,
+                    safety_reasons=["llm_error_fallback"],
+                )
+            return ConversationAction(
+                kind="human_review",
+                messages=["Сейчас передам менеджеру, чтобы вам ответили по заказу корректно."],
+                risk_level=risk_level,
+                safety_reasons=["llm_error"],
+            )
+        safety = check_reply_safety(reply)
+        if not safety.is_safe:
+            try:
+                rewrite_prompt = (
+                    prompt
+                    + "\n\nТвой прошлый ответ нарушил правило безопасности: "
+                    + ", ".join(safety.reasons)
+                    + "\nПерепиши ответ коротко, естественно и без нарушения. Не объясняй правила."
+                )
+                retry_reply = await self.llm.generate(rewrite_prompt)
+                retry_safety = check_reply_safety(retry_reply)
+                if retry_safety.is_safe:
+                    return ConversationAction(
+                        kind="send",
+                        messages=_finalize_messages(retry_reply),
+                        risk_level=risk_level,
+                    )
+                safety = retry_safety
+            except LLMError:
+                safety = safety
+            return ConversationAction(
+                kind="human_review",
+                messages=["Передам менеджеру, чтобы точно проверить и ответить вам корректно."],
+                risk_level=risk_level,
+                safety_reasons=safety.reasons,
+            )
+
+        return ConversationAction(
+            kind="send",
+            messages=_finalize_messages(reply),
+            risk_level=risk_level,
+        )
+
+
+def _last_client_text(recent_messages: list[str]) -> str:
+    if not recent_messages:
+        return ""
+    last = recent_messages[-1].strip()
+    prefix = "Клиент:"
+    if last.lower().startswith(prefix.lower()):
+        return last[len(prefix):].strip()
+    return last
+
+
+def _is_thanks_only(text: str) -> bool:
+    normalized = text.lower().replace("ё", "е").strip(" !?.")
+    return normalized in {"спасибо", "спс", "благодарю", "хорошо спасибо", "ок спасибо"}
+
+
+def _format_order_card_context(card: OrderCard) -> str:
+    lines: list[str] = []
+    if card.fulfillment_type:
+        lines.append(f"- Формат: {'доставка' if card.fulfillment_type == 'delivery' else 'самовывоз'}")
+    if card.delivery_date:
+        lines.append(f"- Дата: {card.delivery_date}")
+    if card.delivery_time:
+        lines.append(f"- Время: {card.delivery_time}")
+    if card.budget:
+        lines.append(f"- Бюджет: {card.budget} ₽")
+    if card.colors:
+        lines.append(f"- Пожелания: {', '.join(card.colors)}")
+    if card.address:
+        lines.append(f"- Адрес: {card.address}")
+    if card.sender_name or card.sender_phone:
+        lines.append(f"- Отправитель: {card.sender_name or 'не указано'}, {card.sender_phone or 'не указано'}")
+    if card.recipient_name or card.recipient_phone:
+        lines.append(f"- Получатель: {card.recipient_name or 'не указано'}, {card.recipient_phone or 'не указано'}")
+    if card.payment_method:
+        lines.append(f"- Оплата: {card.payment_method}")
+    return "\n".join(lines) if lines else "- пока пусто"
+
+
+def _finalize_messages(reply: str) -> list[str]:
+    return [vary_reply_emoji(message, seed=len(message)) for message in split_into_telegram_messages(reply)]
