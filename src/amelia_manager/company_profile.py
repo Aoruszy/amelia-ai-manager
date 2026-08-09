@@ -56,6 +56,8 @@ class CompanyProfile:
     product_categories: tuple[str, ...] = field(default_factory=tuple)
     faq: dict[str, str] = field(default_factory=dict)
     timezone_name: str = "Europe/Kaliningrad"
+    stock_terms: tuple[str, ...] = ("в наличии",)
+    alternative_offer_text: str = "могу предложить близкий вариант"
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]
@@ -77,6 +79,8 @@ _DEFAULT_PROFILES = {
         nearest_delivery_time="от 1 часа после оформления",
         free_delivery_from=5000,
         delivery_city_price=400,
+        stock_terms=("пионы", "редкие", "в наличии", "точно есть"),
+        alternative_offer_text="могу предложить близкий вариант по стилю",
         product_categories=_DEFAULT_CATEGORIES,
         services=[
             "букеты",

@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
+
 
 class RiskLevel(StrEnum):
     LOW = "low"
@@ -92,8 +94,6 @@ _CATEGORY_PATTERNS: tuple[tuple[RiskCategory, RiskLevel, tuple[re.Pattern[str], 
         RiskCategory.STOCK_UNCERTAINTY,
         RiskLevel.MEDIUM,
         (
-            re.compile(r"\bредк(?:ие|их|ий|ий)\b"),
-            re.compile(r"\bпионы?\b"),
             re.compile(r"\bв\s+наличии\b"),
             re.compile(r"\bточно\s+есть\b"),
         ),
@@ -101,8 +101,13 @@ _CATEGORY_PATTERNS: tuple[tuple[RiskCategory, RiskLevel, tuple[re.Pattern[str], 
 )
 
 
-def assess_risk(text: str) -> RiskAssessment:
+def assess_risk(text: str, *, company_profile: CompanyProfile | None = None) -> RiskAssessment:
     normalized = text.lower().replace("ё", "е")
+    profile = company_profile or load_company_profile("amelia_flowers")
+    for term in profile.stock_terms:
+        term_pattern = re.escape(term.lower().replace("ё", "е"))
+        if re.search(rf"\b{term_pattern}\w*\b", normalized):
+            return RiskAssessment(level=RiskLevel.MEDIUM, category=RiskCategory.STOCK_UNCERTAINTY, matched=term)
     for category, level, patterns in _CATEGORY_PATTERNS:
         for pattern in patterns:
             match = pattern.search(normalized)

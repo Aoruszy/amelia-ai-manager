@@ -105,6 +105,16 @@ def merge_order_state(existing: OrderCard, state: OrderState) -> OrderCard:
     )
 
 
+def merge_order_patch(existing: OrderCard, patch: dict[str, Any]) -> OrderCard:
+    if not patch:
+        return existing
+    allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
+    cleaned = {key: value for key, value in patch.items() if key in allowed and value not in (None, "", [], {})}
+    if not cleaned:
+        return existing
+    return OrderCard.from_dict({**existing.to_dict(), **cleaned})
+
+
 def _merge_list(left: list[str], right: list[str]) -> list[str]:
     result = list(left)
     for item in right:

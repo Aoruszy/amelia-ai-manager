@@ -58,14 +58,17 @@ _UNSUPPORTED_PAYMENT_CONFIRMATION_PATTERNS = (
 )
 
 
-def check_reply_safety(reply: str) -> SafetyResult:
+def check_reply_safety(reply: str, *, stock_context: str | None = None) -> SafetyResult:
     normalized = reply.lower().replace("ё", "е")
     reasons: list[str] = []
 
     if any(pattern in normalized for pattern in _IDENTITY_PATTERNS):
         reasons.append("identity_disclosure")
-    if any(pattern in normalized for pattern in _STOCK_PROMISE_PATTERNS):
+    stock_promise = any(pattern in normalized for pattern in _STOCK_PROMISE_PATTERNS)
+    if stock_promise and not _stock_promise_supported_by_context(normalized, stock_context):
         reasons.append("unverified_stock_promise")
+    if _contradicts_unavailable_stock(normalized, stock_context):
+        reasons.append("stock_context_contradiction")
     if any(pattern in normalized for pattern in _EXACT_DELIVERY_PATTERNS):
         reasons.append("exact_delivery_guarantee")
     if any(pattern in normalized for pattern in _UNSUPPORTED_PHOTO_PROMISE_PATTERNS):
@@ -80,3 +83,30 @@ def check_reply_safety(reply: str) -> SafetyResult:
         reasons.append("pickup_recipient_question")
 
     return SafetyResult(is_safe=not reasons, reasons=reasons)
+
+
+def _stock_promise_supported_by_context(reply: str, stock_context: str | None) -> bool:
+    if not stock_context:
+        return False
+    available = []
+    for line in stock_context.lower().replace("ё", "е").splitlines():
+        match = re.search(r"-\s*([^—-]+)\s*[—-]\s*(?!нет\b)(.+)", line)
+        if match:
+            available.append(match.group(1).strip())
+    return any(item and item in reply for item in available)
+
+
+def _contradicts_unavailable_stock(reply: str, stock_context: str | None) -> bool:
+    if not stock_context:
+        return False
+    unavailable = []
+    for line in stock_context.lower().replace("ё", "е").splitlines():
+        match = re.search(r"-\s*([^—-]+)\s*[—-]\s*нет\b", line)
+        if match:
+            unavailable.append(match.group(1).strip())
+    if not unavailable:
+        return False
+    promises_availability = any(pattern in reply for pattern in _STOCK_PROMISE_PATTERNS)
+    if not promises_availability:
+        return False
+    return any(item and item in reply for item in unavailable)

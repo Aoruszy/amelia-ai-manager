@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
@@ -15,7 +16,7 @@ from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.llm_client import GeminiClient
-from amelia_manager.order_card import OrderCard, merge_order_state
+from amelia_manager.order_card import OrderCard, merge_order_patch, merge_order_state
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
 from amelia_manager.order_state import extract_order_state
@@ -252,6 +253,42 @@ def _latest_order_start_index(recent_messages: list[str]) -> int | None:
     return latest_start_index
 
 
+def derive_client_state(card: OrderCard, *, last_client_text: str) -> tuple[str, str]:
+    if card.is_ready_for_admin_request() or card.client_summary_sent or card.admin_request_sent:
+        stage = "order_ready"
+    elif any(
+        [
+            card.budget,
+            card.colors,
+            card.fulfillment_type,
+            card.delivery_date,
+            card.delivery_time,
+            card.address,
+            card.sender_phone,
+        ]
+    ):
+        stage = "order_in_progress"
+    else:
+        stage = "new_lead"
+    parts: list[str] = []
+    if card.budget:
+        parts.append(f"бюджет {card.budget}")
+    if card.fulfillment_type:
+        parts.append("самовывоз" if card.fulfillment_type == "pickup" else "доставка")
+    if card.delivery_date:
+        parts.append(f"дата {card.delivery_date}")
+    if card.delivery_time:
+        parts.append(f"время {card.delivery_time}")
+    if card.colors:
+        parts.append("пожелания: " + ", ".join(card.colors))
+    if card.address:
+        parts.append(f"адрес {card.address}")
+    if card.sender_name or card.sender_phone:
+        parts.append(f"контакт клиента {card.sender_name or ''} {card.sender_phone or ''}".strip())
+    summary = "; ".join(parts) if parts else (last_client_text[:160] if last_client_text else "")
+    return stage, summary[:500]
+
+
 def build_admin_order_request_if_needed(
     repo: SQLiteRepository,
     *,
@@ -300,6 +337,24 @@ def event_text_with_media_placeholder(event) -> str:
     return "\n".join([part for part in [text, *placeholders] if part])
 
 
+class SenderUsernameCache:
+    def __init__(self, *, max_size: int = 1000) -> None:
+        self.max_size = max_size
+        self._items: OrderedDict[int, str | None] = OrderedDict()
+
+    def set(self, sender_id: int, username: str | None) -> None:
+        self._items[sender_id] = username
+        self._items.move_to_end(sender_id)
+        while len(self._items) > self.max_size:
+            self._items.popitem(last=False)
+
+    def get(self, sender_id: int) -> str | None:
+        if sender_id not in self._items:
+            return None
+        self._items.move_to_end(sender_id)
+        return self._items[sender_id]
+
+
 class PerSenderDebounceProcessor:
     """Buffers rapid incoming messages and processes one serialized turn per sender."""
 
@@ -308,8 +363,10 @@ class PerSenderDebounceProcessor:
         *,
         buffer_seconds: float,
         process_turn: Callable[[int, list[str]], Awaitable[None]],
+        first_buffer_seconds: float | None = None,
     ) -> None:
         self.buffer_seconds = buffer_seconds
+        self.first_buffer_seconds = buffer_seconds if first_buffer_seconds is None else first_buffer_seconds
         self.process_turn = process_turn
         self._buffers: dict[int, list[str]] = {}
         self._tasks: dict[int, asyncio.Task[None]] = {}
@@ -331,8 +388,10 @@ class PerSenderDebounceProcessor:
             await asyncio.gather(*tasks)
 
     async def _run_sender(self, sender_id: int) -> None:
+        first_turn = True
         while True:
-            await asyncio.sleep(self.buffer_seconds)
+            await asyncio.sleep(self.first_buffer_seconds if first_turn else self.buffer_seconds)
+            first_turn = False
             async with self._lock:
                 messages = self._buffers.pop(sender_id, [])
             if messages:
@@ -414,7 +473,7 @@ async def run_listener(settings: Settings) -> None:
             f"anonymized_orders={cleanup_result.anonymized_orders}"
         )
 
-    sender_usernames: dict[int, str | None] = {}
+    sender_usernames = SenderUsernameCache(max_size=1000)
 
     async def process_customer_turn(sender_id: int, texts: list[str]) -> None:
         username = sender_usernames.get(sender_id)
@@ -453,6 +512,14 @@ async def run_listener(settings: Settings) -> None:
             stock_context=stock_context,
             order_card=order_card,
         )
+
+        if action.order_patch:
+            active_order_for_patch = repo.get_active_order(client_id=db_client.id)
+            if active_order_for_patch:
+                order_card = merge_order_patch(active_order_for_patch.card, action.order_patch)
+                repo.update_order_card(order_id=active_order_for_patch.id, card=order_card)
+        stage, summary = derive_client_state(order_card, last_client_text="\n".join(texts))
+        repo.update_client_state(client_id=db_client.id, stage=stage, summary=summary)
 
         client_label = f"@{username} / {sender_id}" if username else str(sender_id)
         active_order = repo.get_active_order(client_id=db_client.id)
@@ -499,6 +566,7 @@ async def run_listener(settings: Settings) -> None:
 
     debounce_processor = PerSenderDebounceProcessor(
         buffer_seconds=settings.message_buffer_seconds,
+        first_buffer_seconds=min(settings.message_buffer_seconds, 2),
         process_turn=process_customer_turn,
     )
 
@@ -520,7 +588,7 @@ async def run_listener(settings: Settings) -> None:
             await client.send_message(sender_id, ack)
             return
 
-        sender_usernames[sender_id] = getattr(sender, "username", None)
+        sender_usernames.set(sender_id, getattr(sender, "username", None))
         await debounce_processor.enqueue(sender_id=sender_id, text=incoming.text)
 
     await client.start(phone=settings.telegram_phone)

@@ -29,6 +29,10 @@ class ConversationAction:
     messages: list[str]
     risk_level: RiskLevel
     safety_reasons: list[str] = field(default_factory=list)
+    order_patch: dict[str, object] = field(default_factory=dict)
+    intent: str | None = None
+    next_step: str | None = None
+    confidence: float | None = None
 
 
 class ConversationEngine:
@@ -46,7 +50,7 @@ class ConversationEngine:
         order_card: OrderCard | None = None,
     ) -> ConversationAction:
         last_client_text = _last_client_text(recent_messages)
-        risk = assess_risk(last_client_text)
+        risk = assess_risk(last_client_text, company_profile=self.company_profile)
         risk_level = risk.level
         if is_greeting_only(last_client_text):
             return ConversationAction(
@@ -78,7 +82,11 @@ class ConversationEngine:
                 risk_level=risk_level,
             )
 
-        cautious_reply = _cautious_reply_for_medium_risk(risk.category, stock_context=stock_context)
+        cautious_reply = _cautious_reply_for_medium_risk(
+            risk.category,
+            stock_context=stock_context,
+            company_profile=self.company_profile,
+        )
         if cautious_reply:
             return ConversationAction(kind="send", messages=[cautious_reply], risk_level=risk_level)
 
@@ -139,18 +147,36 @@ class ConversationEngine:
                 risk_level=risk_level,
                 safety_reasons=["llm_error"],
             )
-        safety = check_reply_safety(reply)
+        safety = check_reply_safety(reply, stock_context=stock_context)
         decision = parse_model_decision(reply)
+        action_metadata: dict[str, object] = {}
         if decision is not None:
             reply = decision.reply
+            action_metadata = {
+                "order_patch": dict(decision.case_patch),
+                "intent": decision.intent,
+                "next_step": decision.next_step,
+                "confidence": decision.confidence,
+            }
+            if decision.confidence is not None and decision.confidence < 0.5:
+                return ConversationAction(
+                    kind="human_review",
+                    messages=_finalize_messages(reply),
+                    risk_level=risk_level,
+                    safety_reasons=["low_model_confidence"],
+                    intent=decision.intent,
+                    next_step=decision.next_step,
+                    confidence=decision.confidence,
+                )
             if decision.needs_human:
                 return ConversationAction(
                     kind="human_review",
                     messages=_finalize_messages(reply),
                     risk_level=risk_level,
                     safety_reasons=["model_decision_needs_human"],
+                    **action_metadata,
                 )
-            safety = check_reply_safety(reply)
+            safety = check_reply_safety(reply, stock_context=stock_context)
         if not safety.is_safe:
             try:
                 rewrite_prompt = (
@@ -170,7 +196,7 @@ class ConversationEngine:
                             risk_level=risk_level,
                             safety_reasons=["model_decision_needs_human"],
                         )
-                retry_safety = check_reply_safety(retry_reply)
+                retry_safety = check_reply_safety(retry_reply, stock_context=stock_context)
                 if retry_safety.is_safe:
                     return ConversationAction(
                         kind="send",
@@ -191,6 +217,7 @@ class ConversationEngine:
             kind="send",
             messages=_finalize_messages(reply),
             risk_level=risk_level,
+            **action_metadata,
         )
 
 
@@ -217,13 +244,19 @@ def _is_media_only(text: str) -> bool:
     return text.strip().lower() == "[media]"
 
 
-def _cautious_reply_for_medium_risk(category: RiskCategory, *, stock_context: str | None) -> str | None:
+def _cautious_reply_for_medium_risk(
+    category: RiskCategory,
+    *,
+    stock_context: str | None,
+    company_profile: CompanyProfile | None = None,
+) -> str | None:
+    profile = company_profile or load_company_profile("amelia_flowers")
     if category == RiskCategory.DISCOUNT:
         return "По скидке уточню у менеджера, чтобы не пообещать лишнего. Могу пока подобрать вариант под ваш бюджет."
     if category == RiskCategory.OUT_OF_AREA_DELIVERY:
         return "По такой доставке лучше уточню у менеджера: зависит от адреса и времени. Напишите, пожалуйста, куда и на когда нужно."
     if category == RiskCategory.STOCK_UNCERTAINTY and not stock_context:
-        return "По наличию лучше уточню у менеджера, чтобы не пообещать лишнего. Могу предложить близкий вариант по стилю."
+        return f"По наличию лучше уточню у менеджера, чтобы не пообещать лишнего. {profile.alternative_offer_text}."
     return None
 
 

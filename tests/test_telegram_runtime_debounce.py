@@ -1,10 +1,11 @@
 import asyncio
+import time
 
 import pytest
 
 from amelia_manager.db.repository import SQLiteRepository
 from amelia_manager.order_card import OrderCard
-from amelia_manager.telegram_runtime import PerSenderDebounceProcessor, build_admin_order_request_if_needed
+from amelia_manager.telegram_runtime import PerSenderDebounceProcessor, SenderUsernameCache, build_admin_order_request_if_needed
 
 
 @pytest.mark.asyncio
@@ -116,3 +117,36 @@ async def test_process_turn_exception_does_not_drop_followup_messages_or_kill_se
     await processor.wait_idle()
 
     assert attempts == [["сломайся"], ["следующее"]]
+
+
+@pytest.mark.asyncio
+async def test_single_message_uses_short_initial_delay_not_full_buffer():
+    processed: list[list[str]] = []
+
+    async def process_turn(sender_id: int, messages: list[str]) -> None:
+        processed.append(messages)
+
+    processor = PerSenderDebounceProcessor(
+        buffer_seconds=1.0,
+        first_buffer_seconds=0.01,
+        process_turn=process_turn,
+    )
+    started = time.monotonic()
+
+    await processor.enqueue(sender_id=123, text="одиночное")
+    await processor.wait_idle()
+
+    assert processed == [["одиночное"]]
+    assert time.monotonic() - started < 0.25
+
+
+def test_sender_username_cache_is_bounded():
+    cache = SenderUsernameCache(max_size=2)
+
+    cache.set(1, "one")
+    cache.set(2, "two")
+    cache.set(3, "three")
+
+    assert cache.get(1) is None
+    assert cache.get(2) == "two"
+    assert cache.get(3) == "three"
