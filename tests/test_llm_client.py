@@ -7,7 +7,8 @@ from amelia_manager.llm_client import GeminiClient, LLMError
 @pytest.mark.asyncio
 async def test_gemini_client_extracts_text_from_response():
     def handler(request: httpx.Request) -> httpx.Response:
-        assert "key=test-key" in str(request.url)
+        assert "key=" not in str(request.url)
+        assert request.headers["x-goog-api-key"] == "test-key"
         body = request.read().decode()
         assert "Привет" in body
         return httpx.Response(

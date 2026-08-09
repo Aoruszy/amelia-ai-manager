@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import sqlite3
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Iterator
 
 from amelia_manager.stock import StockItem, StockStatus
 from amelia_manager.order_card import OrderCard
@@ -210,6 +212,14 @@ class SQLiteRepository:
             for row in rows
         ]
 
+    def get_latest_daily_stock(self) -> tuple[date | None, list[StockItem]]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT MAX(stock_date) AS stock_date FROM daily_stock").fetchone()
+        if row is None or row["stock_date"] is None:
+            return None, []
+        stock_date = date.fromisoformat(row["stock_date"])
+        return stock_date, self.list_daily_stock(stock_date=stock_date)
+
     def get_active_order(self, *, client_id: int) -> OrderRecord | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -254,10 +264,17 @@ class SQLiteRepository:
                 (status, client_id),
             )
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
-        return conn
+        conn.execute("PRAGMA busy_timeout = 30000")
+        conn.execute("PRAGMA journal_mode = WAL")
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
     @staticmethod
     def _client_from_row(row: sqlite3.Row) -> ClientRecord:

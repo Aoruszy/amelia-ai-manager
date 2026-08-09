@@ -244,20 +244,22 @@ def build_admin_order_request_if_needed(
     *,
     order: OrderRecord,
     client_label: str,
+    mark_sent: bool = True,
 ) -> str | None:
     if order.card.admin_request_sent or not order.card.is_ready_for_admin_request():
         return None
     text = format_admin_order_request(order_id=order.id, client_label=client_label, card=order.card)
-    repo.update_order_card(
-        order_id=order.id,
-        card=OrderCard.from_dict(
-            {
-                **order.card.to_dict(),
-                "admin_request_sent": True,
-                "client_summary_sent": True,
-            }
-        ),
-    )
+    if mark_sent:
+        repo.update_order_card(
+            order_id=order.id,
+            card=OrderCard.from_dict(
+                {
+                    **order.card.to_dict(),
+                    "admin_request_sent": True,
+                    "client_summary_sent": True,
+                }
+            ),
+        )
     return text
 
 
@@ -369,11 +371,12 @@ async def run_listener(settings: Settings) -> None:
             client_id=db_client.id,
             recent_messages=recent_messages,
         )
+        stock_date, stock_items = repo.get_latest_daily_stock()
         stock_context = build_stock_context(
-            items=repo.list_daily_stock(stock_date=date.today()),
+            items=stock_items,
             colors=order_card.colors,
             desired_text="\n".join(recent_messages),
-            stock_date=date.today(),
+            stock_date=stock_date,
         )
 
         action = await engine.handle_messages(
@@ -386,12 +389,12 @@ async def run_listener(settings: Settings) -> None:
 
         client_label = f"@{getattr(sender, 'username', None)} / {sender_id}" if getattr(sender, "username", None) else str(sender_id)
         active_order = repo.get_active_order(client_id=db_client.id)
-        if active_order:
+        if active_order and settings.auto_reply_enabled:
             admin_order_text = build_admin_order_request_if_needed(repo, order=active_order, client_label=client_label)
             if admin_order_text:
                 await client.send_message(settings.admin_chat_id, admin_order_text)
 
-        if action.kind in {"human_takeover", "human_review"}:
+        if settings.auto_reply_enabled and action.kind in {"human_takeover", "human_review"}:
             await client.send_message(
                 settings.admin_chat_id,
                 format_admin_notification(

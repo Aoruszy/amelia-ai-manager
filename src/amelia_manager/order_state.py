@@ -80,14 +80,35 @@ def _extract_occasion(text: str) -> str | None:
 
 
 def _extract_budget(text: str) -> int | None:
-    patterns = [r"бюджет\s*(\d[\d\s]*)", r"до\s*(\d[\d\s]*)"]
+    thousand_match = re.search(r"(?:тысяч\w*|тыс\.?)\s+на\s+(\d{1,3})\b|\bна\s+(\d{1,3})\s*(?:тысяч\w*|тыс\.?)\b", text)
+    if thousand_match:
+        return int(thousand_match.group(1) or thousand_match.group(2)) * 1000
+
+    separated_match = re.search(r"\b(?:бюджет|до|за|на сумму|в пределах)\s*(\d{1,3})[ .](\d{3})\b", text)
+    if separated_match:
+        return int(separated_match.group(1) + separated_match.group(2))
+
+    patterns = [r"\bбюджет\s*(\d[\d\s]*)\b", r"\bдо\s*(\d[\d\s]*)(?!\s*[:.])\b"]
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
-            return int(re.sub(r"\D", "", match.group(1)))
-    standalone_amounts = [int(value) for value in re.findall(r"(?<!\d)([1-9]\d{3,5})(?!\d)", text)]
+            value = int(re.sub(r"\D", "", match.group(1)))
+            if value >= 1000:
+                return value
+    standalone_amounts = [
+        int(match.group(1))
+        for match in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", text)
+        if not _looks_like_year_in_date(text, match.start(), match.end())
+    ]
     return standalone_amounts[-1] if standalone_amounts else None
-    return None
+
+
+def _looks_like_year_in_date(text: str, start: int, end: int) -> bool:
+    year = int(text[start:end])
+    if year < 1900 or year > 2100:
+        return False
+    before = text[max(0, start - 20):start]
+    return bool(re.search(r"(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+$", before))
 
 
 def _extract_colors(text: str) -> list[str]:
@@ -136,11 +157,14 @@ def _extract_delivery_date(text: str) -> str | None:
     if tomorrow_index > today_index:
         return "tomorrow"
     month_match = re.search(
-        r"\b([1-9]|[12]\d|3[01])\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b",
+        r"\b([1-9]|[12]\d|3[01])\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+(20\d{2}))?\b",
         text,
     )
     if month_match:
-        return f"{int(month_match.group(1))} {month_match.group(2)}"
+        value = f"{int(month_match.group(1))} {month_match.group(2)}"
+        if month_match.group(3):
+            value += f" {month_match.group(3)}"
+        return value
     return None
 
 

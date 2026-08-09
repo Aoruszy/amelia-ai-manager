@@ -24,7 +24,7 @@ class GeminiClient:
     async def generate(self, prompt: str) -> str:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.model}:generateContent?key={self.api_key}"
+            f"{self.model}:generateContent"
         )
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -36,7 +36,7 @@ class GeminiClient:
         }
         async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
             try:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers={"x-goog-api-key": self.api_key})
             except httpx.HTTPError as exc:
                 raise LLMError("Gemini request failed before response") from exc
 
