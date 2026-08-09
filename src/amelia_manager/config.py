@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None
     llm_api_key: str | None = None
     llm_model: str = "gemini-flash-lite-latest"
-    llm_extractor_enabled: bool = False
+    llm_extractor_enabled: bool = True
 
     # App
     app_env: str = "development"

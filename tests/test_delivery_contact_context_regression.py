@@ -17,7 +17,7 @@ def test_delivery_contacts_follow_manager_questions_when_recipient_comes_before_
     )
 
     assert state.address == "Гайдара 172"
-    assert state.delivery_date == "15 августа"
+    assert state.delivery_date == "2026-08-15"
     assert state.delivery_time == "18:00"
     assert state.recipient_name == "Ольга"
     assert state.recipient_phone == "89990000011"

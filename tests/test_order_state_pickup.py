@@ -29,7 +29,7 @@ def test_extracts_pickup_flow_fields_from_long_real_dialog():
 
     assert state.budget == 5000
     assert state.fulfillment_type == "pickup"
-    assert state.delivery_date == "today"
+    assert state.delivery_date == "2026-08-09"
     assert state.delivery_time == "18:00"
     assert state.sender_name == "Даниил"
     assert state.sender_phone == "89990000006"

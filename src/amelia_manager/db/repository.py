@@ -102,6 +102,9 @@ class SQLiteRepository:
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(client_id) REFERENCES clients(id)
                 );
+
+                CREATE INDEX IF NOT EXISTS idx_messages_client_id ON messages(client_id);
+                CREATE INDEX IF NOT EXISTS idx_orders_client_status ON orders(client_id, status);
                 """
             )
 

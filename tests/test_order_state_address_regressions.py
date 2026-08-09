@@ -9,7 +9,7 @@ def test_delivery_address_does_not_capture_delivery_date_time_line():
         "Клиент: ул. Озерная 7",
     ])
 
-    assert state.delivery_date == "tomorrow"
+    assert state.delivery_date == "2026-08-10"
     assert state.delivery_time == "11:00"
     assert state.address == "ул. Озерная 7"
 

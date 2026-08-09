@@ -7,7 +7,7 @@ def test_extracts_specific_august_date_and_cream_color():
         "Клиент: Букет до 10000 рублей, по цветам нежно белый, кремовый",
     ])
 
-    assert state.delivery_date == "12 августа"
+    assert state.delivery_date == "2026-08-12"
     assert state.delivery_time == "12:00"
     assert state.budget == 10000
     assert state.fulfillment_type == "pickup"

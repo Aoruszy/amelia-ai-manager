@@ -1,6 +1,12 @@
 from amelia_manager.db.repository import SQLiteRepository
 
 
+def _index_names(repo: SQLiteRepository) -> set[str]:
+    with repo._connect() as conn:
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'").fetchall()
+    return {row["name"] for row in rows}
+
+
 def test_repository_creates_client_and_persists_messages(tmp_path):
     repo = SQLiteRepository(tmp_path / "test.sqlite3")
     repo.initialize()
@@ -59,3 +65,10 @@ def test_repository_list_messages_returns_latest_messages_in_chronological_order
         "message 14",
         "message 15",
     ]
+
+
+def test_repository_initializes_hot_path_indexes(tmp_path):
+    repo = SQLiteRepository(tmp_path / "test.sqlite3")
+    repo.initialize()
+
+    assert {"idx_messages_client_id", "idx_orders_client_status"} <= _index_names(repo)

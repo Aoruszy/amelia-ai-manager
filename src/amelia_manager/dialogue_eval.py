@@ -7,8 +7,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
-from amelia_manager.llm_client import LLMError
+from amelia_manager.llm_client import GeminiClient, LLMError
 from amelia_manager.order_card import OrderCard
 from amelia_manager.risk import RiskLevel
 from amelia_manager.safety import check_reply_safety
@@ -17,6 +18,20 @@ from amelia_manager.safety import check_reply_safety
 class DeterministicEvalLLM:
     async def generate(self, prompt: str) -> str:
         raise LLMError("dialogue eval uses deterministic fallback")
+
+
+class CachedEvalLLM:
+    def __init__(self, llm: Any, *, scenario_id: str, cache: dict[str, str]) -> None:
+        self.llm = llm
+        self.scenario_id = scenario_id
+        self.cache = cache
+
+    async def generate(self, prompt: str) -> str:
+        if self.scenario_id in self.cache:
+            return self.cache[self.scenario_id]
+        reply = await self.llm.generate(prompt)
+        self.cache[self.scenario_id] = reply
+        return reply
 
 
 @dataclass(frozen=True)
@@ -35,11 +50,18 @@ class DialogueScenario:
     notes: str = ""
 
 
-async def run_dialogue_eval(scenarios: list[DialogueScenario] | None = None) -> dict[str, Any]:
+async def run_dialogue_eval(
+    scenarios: list[DialogueScenario] | None = None,
+    *,
+    llm: Any | None = None,
+    cache_path: str | Path | None = None,
+) -> dict[str, Any]:
     cases = scenarios or build_default_scenarios()
-    engine = ConversationEngine(DeterministicEvalLLM())
+    cache = _load_cache(cache_path)
     results = []
     for scenario in cases:
+        scenario_llm = CachedEvalLLM(llm, scenario_id=scenario.id, cache=cache) if llm is not None else DeterministicEvalLLM()
+        engine = ConversationEngine(scenario_llm)
         action = await engine.handle_messages(
             client_summary="Eval клиент",
             recent_messages=scenario.recent_messages,
@@ -61,6 +83,7 @@ async def run_dialogue_eval(scenarios: list[DialogueScenario] | None = None) -> 
                 "notes": scenario.notes,
             }
         )
+    _write_cache(cache_path, cache)
     failed = sum(1 for result in results if not result["passed"])
     return {
         "summary": {
@@ -73,12 +96,36 @@ async def run_dialogue_eval(scenarios: list[DialogueScenario] | None = None) -> 
     }
 
 
-async def write_dialogue_eval_report(path: str | Path, scenarios: list[DialogueScenario] | None = None) -> dict[str, Any]:
-    report = await run_dialogue_eval(scenarios)
+async def write_dialogue_eval_report(
+    path: str | Path,
+    scenarios: list[DialogueScenario] | None = None,
+    *,
+    llm: Any | None = None,
+    cache_path: str | Path | None = None,
+) -> dict[str, Any]:
+    report = await run_dialogue_eval(scenarios, llm=llm, cache_path=cache_path)
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
+
+
+def _load_cache(cache_path: str | Path | None) -> dict[str, str]:
+    if cache_path is None:
+        return {}
+    path = Path(cache_path)
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {str(key): str(value) for key, value in data.items() if isinstance(value, str)}
+
+
+def _write_cache(cache_path: str | Path | None, cache: dict[str, str]) -> None:
+    if cache_path is None:
+        return
+    path = Path(cache_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _evaluate_checks(
@@ -180,10 +227,20 @@ def build_default_scenarios() -> list[DialogueScenario]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run deterministic dialogue-quality evals and write a JSON report.")
+    parser = argparse.ArgumentParser(description="Run dialogue-quality evals and write a JSON report.")
     parser.add_argument("--output", default="reports/dialogue_eval_report.json", help="Path to JSON report")
+    parser.add_argument("--live", action="store_true", help="Run against the configured live Gemini model instead of deterministic fallback")
+    parser.add_argument("--cache", default="reports/dialogue_eval_live_cache.json", help="Raw live LLM reply cache path")
     args = parser.parse_args()
-    report = asyncio.run(write_dialogue_eval_report(args.output))
+    llm = None
+    cache_path = None
+    if args.live:
+        settings = Settings()
+        if not settings.llm_api_key:
+            raise SystemExit("LLM_API_KEY is required for --live")
+        llm = GeminiClient(api_key=settings.llm_api_key, model=settings.llm_model)
+        cache_path = args.cache
+    report = asyncio.run(write_dialogue_eval_report(args.output, llm=llm, cache_path=cache_path))
     print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
     if report["summary"]["failed"]:
         raise SystemExit(1)

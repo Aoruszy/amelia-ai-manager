@@ -47,7 +47,7 @@ def test_rich_new_order_does_not_merge_old_ready_card(tmp_path):
 
     assert active.id != old_order.id
     assert card.budget == 10000
-    assert card.delivery_date == "12 августа"
+    assert card.delivery_date == "2026-08-12"
     assert card.delivery_time == "12:00"
     assert card.fulfillment_type == "pickup"
     assert card.colors == ["белый", "кремовый", "нежный стиль"]

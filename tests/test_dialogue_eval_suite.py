@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from amelia_manager.dialogue_eval import build_default_scenarios, run_dialogue_eval, write_dialogue_eval_report
+from amelia_manager.dialogue_eval import DialogueScenario, build_default_scenarios, run_dialogue_eval, write_dialogue_eval_report
 
 
 @pytest.mark.asyncio
@@ -40,3 +40,34 @@ async def test_dialogue_eval_report_is_machine_readable_json(tmp_path):
     assert loaded["summary"]["total"] >= 30
     assert loaded["summary"]["failed"] == 0
     assert {"id", "category", "passed", "checks", "output"}.issubset(loaded["results"][0])
+
+
+class CountingLiveLLM:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def generate(self, prompt: str) -> str:
+        self.calls += 1
+        return "Подскажите, пожалуйста, бюджет."
+
+
+@pytest.mark.asyncio
+async def test_live_dialogue_eval_uses_llm_and_caches_raw_replies(tmp_path):
+    cache_path = tmp_path / "live_cache.json"
+    llm = CountingLiveLLM()
+    scenarios = [
+        DialogueScenario(
+            "live-budget-question",
+            "order_flow",
+            ["Клиент: Нужен букет"],
+            must_contain=("бюджет",),
+        )
+    ]
+
+    first = await run_dialogue_eval(scenarios, llm=llm, cache_path=cache_path)
+    second = await run_dialogue_eval(scenarios, llm=llm, cache_path=cache_path)
+
+    assert first["summary"]["failed"] == 0
+    assert second["summary"]["failed"] == 0
+    assert llm.calls == 1
+    assert json.loads(cache_path.read_text(encoding="utf-8"))["live-budget-question"] == "Подскажите, пожалуйста, бюджет."

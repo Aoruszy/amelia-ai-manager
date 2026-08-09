@@ -97,3 +97,22 @@ async def test_rapid_ready_order_messages_create_one_admin_request(tmp_path):
 
     assert len(admin_requests) == 1
     assert repo.get_active_order(client_id=client.id).card.admin_request_sent is True
+
+
+@pytest.mark.asyncio
+async def test_process_turn_exception_does_not_drop_followup_messages_or_kill_sender_loop():
+    attempts: list[list[str]] = []
+
+    async def process_turn(sender_id: int, messages: list[str]) -> None:
+        attempts.append(messages)
+        if messages == ["сломайся"]:
+            raise RuntimeError("temporary failure")
+
+    processor = PerSenderDebounceProcessor(buffer_seconds=0.01, process_turn=process_turn)
+
+    await processor.enqueue(sender_id=123, text="сломайся")
+    await processor.wait_idle()
+    await processor.enqueue(sender_id=123, text="следующее")
+    await processor.wait_idle()
+
+    assert attempts == [["сломайся"], ["следующее"]]

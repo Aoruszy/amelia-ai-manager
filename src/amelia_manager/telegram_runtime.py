@@ -47,6 +47,7 @@ def update_active_order_from_messages(
     *,
     client_id: int,
     recent_messages: list[str],
+    company_profile: CompanyProfile | None = None,
 ) -> OrderCard:
     active = repo.get_active_order(client_id=client_id)
     latest_text = _last_client_text(recent_messages)
@@ -59,7 +60,10 @@ def update_active_order_from_messages(
         active = None
     order = active or repo.get_or_create_active_order(client_id=client_id)
     messages_for_extraction = _messages_for_order_extraction(order.card, recent_messages)
-    extracted = extract_order_state(messages_for_extraction)
+    extracted = extract_order_state(
+        messages_for_extraction,
+        timezone_name=(company_profile or load_company_profile("amelia_flowers")).timezone_name,
+    )
     card = merge_order_state(order.card, extracted)
     repo.update_order_card(order_id=order.id, card=card)
     return card
@@ -107,13 +111,16 @@ async def update_active_order_from_messages_with_optional_llm(
             recent_messages=recent_messages,
             company_profile=company_profile,
         )
-    return update_active_order_from_messages(repo, client_id=client_id, recent_messages=recent_messages)
+    return update_active_order_from_messages(
+        repo,
+        client_id=client_id,
+        recent_messages=recent_messages,
+        company_profile=company_profile,
+    )
 
 
 def should_use_llm_extractor(settings: Settings, *, company_profile: CompanyProfile | None = None) -> bool:
-    if bool(getattr(settings, "llm_extractor_enabled", False)):
-        return True
-    return bool(company_profile and company_profile.business_type != "florist")
+    return bool(getattr(settings, "llm_extractor_enabled", False))
 
 
 def should_start_new_order(latest_client_text: str, existing_card: OrderCard) -> bool:
@@ -329,7 +336,10 @@ class PerSenderDebounceProcessor:
             async with self._lock:
                 messages = self._buffers.pop(sender_id, [])
             if messages:
-                await self.process_turn(sender_id, messages)
+                try:
+                    await self.process_turn(sender_id, messages)
+                except Exception as exc:  # noqa: BLE001 - keep listener alive after a failed turn
+                    print(f"Failed to process Telegram turn for sender_id={sender_id}: {exc!r}")
             async with self._lock:
                 if not self._buffers.get(sender_id):
                     self._tasks.pop(sender_id, None)

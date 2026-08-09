@@ -3,7 +3,7 @@ from amelia_manager.config import Settings
 from amelia_manager.telegram_runtime import should_use_llm_extractor
 
 
-def test_llm_extractor_stays_disabled_for_amelia_when_config_disabled():
+def test_llm_extractor_can_be_disabled_for_amelia_when_config_disabled():
     settings = Settings(llm_extractor_enabled=False)
     profile = CompanyProfile(
         company_name="Amelia Flowers",
@@ -16,7 +16,7 @@ def test_llm_extractor_stays_disabled_for_amelia_when_config_disabled():
     assert should_use_llm_extractor(settings, company_profile=profile) is False
 
 
-def test_llm_extractor_auto_enabled_for_non_florist_profiles():
+def test_llm_extractor_explicit_disabled_applies_to_non_florist_profiles():
     settings = Settings(llm_extractor_enabled=False)
     profile = CompanyProfile(
         company_name="Dental Plus",
@@ -26,4 +26,4 @@ def test_llm_extractor_auto_enabled_for_non_florist_profiles():
         tone="спокойный",
     )
 
-    assert should_use_llm_extractor(settings, company_profile=profile) is True
+    assert should_use_llm_extractor(settings, company_profile=profile) is False

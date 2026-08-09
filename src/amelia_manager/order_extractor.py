@@ -57,7 +57,7 @@ async def extract_order_state_with_llm(
 
 def _build_extraction_prompt(recent_messages: list[str], *, company_profile: CompanyProfile | None = None) -> str:
     if company_profile is None or company_profile.business_type == "florist":
-        field_block = "Поля: occasion, budget, colors, forbidden_flowers, fulfillment_type(delivery/pickup), delivery_date(today/tomorrow), delivery_time(HH:MM), address, sender_name, sender_phone, recipient_name, recipient_phone, payment_method(transfer/cash/crypto), postcard_text, anonymous, photo_report_requested, custom_fields."
+        field_block = "Поля: occasion, budget, colors, forbidden_flowers, fulfillment_type(delivery/pickup), delivery_date(ISO YYYY-MM-DD), delivery_time(HH:MM), address, sender_name, sender_phone, recipient_name, recipient_phone, payment_method(transfer/cash/crypto), postcard_text, anonymous, photo_report_requested, custom_fields."
     else:
         custom_fields: list[str] = []
         for fields in company_profile.required_fields.values():

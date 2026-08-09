@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 @dataclass(frozen=True)
@@ -38,7 +40,7 @@ class OrderState:
         return self.postcard_text
 
 
-def extract_order_state(messages: list[str]) -> OrderState:
+def extract_order_state(messages: list[str], *, today: date | None = None, timezone_name: str = "Europe/Kaliningrad") -> OrderState:
     client_messages = [_strip_role(message) for message in messages if _is_client_message(message)]
     text = "\n".join(client_messages).lower().replace("ё", "е")
     context_text = "\n".join(_strip_role(message) for message in messages).lower().replace("ё", "е")
@@ -48,6 +50,7 @@ def extract_order_state(messages: list[str]) -> OrderState:
     recipient_phone = contacts.get("recipient_phone") or _extract_recipient_phone(original)
     sender_name = contacts.get("sender_name") or _extract_sender_name(original, exclude_phone=recipient_phone)
     sender_phone = contacts.get("sender_phone") or _extract_sender_phone(original, exclude_phone=recipient_phone)
+    reference_date = today or datetime.now(ZoneInfo(timezone_name)).date()
 
     return OrderState(
         occasion=_extract_occasion(text),
@@ -55,7 +58,7 @@ def extract_order_state(messages: list[str]) -> OrderState:
         colors=_extract_colors(text),
         forbidden_flowers=_extract_forbidden_flowers(text),
         fulfillment_type=_extract_fulfillment_type(text),
-        delivery_date=_extract_delivery_date(context_text),
+        delivery_date=_extract_delivery_date(context_text, today=reference_date),
         delivery_time=_extract_delivery_time(text),
         address=_extract_address(original),
         sender_name=sender_name,
@@ -94,27 +97,54 @@ def _extract_occasion(text: str) -> str | None:
 
 
 def _extract_budget(text: str) -> int | None:
-    thousand_match = re.search(r"(?:тысяч\w*|тыс\.?)\s+на\s+(\d{1,3})\b|\bна\s+(\d{1,3})\s*(?:тысяч\w*|тыс\.?)\b", text)
-    if thousand_match:
-        return int(thousand_match.group(1) or thousand_match.group(2)) * 1000
+    candidates: list[tuple[int, int]] = []
 
-    separated_match = re.search(r"\b(?:бюджет|до|за|на сумму|в пределах)\s*(\d{1,3})[ .](\d{3})\b", text)
-    if separated_match:
-        return int(separated_match.group(1) + separated_match.group(2))
+    for match in re.finditer(r"\b(?:тысяч\w*|тыс\.?)\s+на\s+(\d{1,3})\b", text):
+        candidates.append((match.start(), int(match.group(1)) * 1000))
 
-    patterns = [r"\bбюджет\s*(\d[\d\s]*)\b", r"\bдо\s*(\d[\d\s]*)(?!\s*[:.])\b"]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            value = int(re.sub(r"\D", "", match.group(1)))
-            if value >= 1000:
-                return value
-    standalone_amounts = [
-        int(match.group(1))
-        for match in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", text)
-        if not _looks_like_year_in_date(text, match.start(), match.end())
-    ]
-    return standalone_amounts[-1] if standalone_amounts else None
+    for match in re.finditer(r"\b(?:бюджет|до|за|на|на сумму|в пределах)?\s*(\d{1,3})\s*(?:тысяч\w*|тыс\.?)\b", text):
+        candidates.append((match.start(1), int(match.group(1)) * 1000))
+
+    for match in re.finditer(r"\b(\d{1,3})\s*[кk]\b", text):
+        candidates.append((match.start(1), int(match.group(1)) * 1000))
+
+    word_numbers = {
+        "одна": 1,
+        "один": 1,
+        "две": 2,
+        "два": 2,
+        "три": 3,
+        "четыре": 4,
+        "пять": 5,
+        "шесть": 6,
+        "семь": 7,
+        "восемь": 8,
+        "девять": 9,
+        "десять": 10,
+        "одиннадцать": 11,
+        "двенадцать": 12,
+        "тринадцать": 13,
+        "четырнадцать": 14,
+        "пятнадцать": 15,
+        "шестнадцать": 16,
+        "семнадцать": 17,
+        "восемнадцать": 18,
+        "девятнадцать": 19,
+        "двадцать": 20,
+    }
+    for match in re.finditer(r"\b(" + "|".join(word_numbers) + r")\s+(?:тысяч\w*|тыс\.?)\b", text):
+        candidates.append((match.start(1), word_numbers[match.group(1)] * 1000))
+
+    for match in re.finditer(r"\b(?:бюджет|до|за|на сумму|в пределах)\s*(\d{1,3})[ .](\d{3})\b", text):
+        candidates.append((match.start(1), int(match.group(1) + match.group(2))))
+
+    for match in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", text):
+        if not _looks_like_year_in_date(text, match.start(), match.end()):
+            candidates.append((match.start(1), int(match.group(1))))
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
 
 
 def _looks_like_year_in_date(text: str, start: int, end: int) -> bool:
@@ -154,8 +184,14 @@ def _extract_forbidden_flowers(text: str) -> list[str]:
 
 
 def _extract_fulfillment_type(text: str) -> str | None:
-    pickup_matches = list(re.finditer(r"\bсамовывоз\w*\b", text))
-    delivery_matches = list(re.finditer(r"\bдоставк\w*\b|адрес доставки", text))
+    pickup_matches = [
+        match for match in re.finditer(r"\bсамовывоз\w*\b|\bсам\s+забер\w*\b|\bзабер\w*\s+сам\b", text)
+        if not _is_negated_match(text, match.start())
+    ]
+    delivery_matches = [
+        match for match in re.finditer(r"\bдоставк\w*\b|адрес доставки", text)
+        if not _is_negated_match(text, match.start())
+    ]
     last_pickup = pickup_matches[-1].start() if pickup_matches else -1
     last_delivery = delivery_matches[-1].start() if delivery_matches else -1
     if last_pickup < 0 and last_delivery < 0:
@@ -163,22 +199,43 @@ def _extract_fulfillment_type(text: str) -> str | None:
     return "delivery" if last_delivery > last_pickup else "pickup"
 
 
-def _extract_delivery_date(text: str) -> str | None:
+def _is_negated_match(text: str, start: int) -> bool:
+    before = text[max(0, start - 24):start]
+    return bool(re.search(r"(?:\bне\s+(?:надо\s+|нужн\w*\s+)?|\bбез\s+)$", before))
+
+
+_MONTHS = {
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
+}
+
+
+def _extract_delivery_date(text: str, *, today: date) -> str | None:
     today_index = text.rfind("сегодня")
     tomorrow_index = text.rfind("завтра")
     if today_index > tomorrow_index:
-        return "today"
+        return today.isoformat()
     if tomorrow_index > today_index:
-        return "tomorrow"
+        return (today + timedelta(days=1)).isoformat()
     month_match = re.search(
         r"\b([1-9]|[12]\d|3[01])\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+(20\d{2}))?\b",
         text,
     )
     if month_match:
-        value = f"{int(month_match.group(1))} {month_match.group(2)}"
-        if month_match.group(3):
-            value += f" {month_match.group(3)}"
-        return value
+        day = int(month_match.group(1))
+        month = _MONTHS[month_match.group(2)]
+        year = int(month_match.group(3) or today.year)
+        return date(year, month, day).isoformat()
     return None
 
 

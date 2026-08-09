@@ -5,11 +5,11 @@ from amelia_manager.telegram_runtime import should_use_llm_extractor, update_act
 
 class ExplodingLLM:
     async def generate(self, prompt: str) -> str:
-        raise AssertionError("LLM extractor should be disabled by default")
+        raise AssertionError("LLM extractor should be disabled by explicit config")
 
 
-def test_llm_extractor_disabled_by_default():
-    assert should_use_llm_extractor(Settings()) is False
+def test_llm_extractor_enabled_by_default():
+    assert should_use_llm_extractor(Settings()) is True
 
 
 def test_optional_llm_extractor_uses_regex_when_disabled(tmp_path):
@@ -20,7 +20,7 @@ def test_optional_llm_extractor_uses_regex_when_disabled(tmp_path):
     import asyncio
     card = asyncio.run(update_active_order_from_messages_with_optional_llm(
         repo,
-        settings=Settings(),
+        settings=Settings(llm_extractor_enabled=False),
         llm=ExplodingLLM(),
         client_id=client.id,
         recent_messages=["Клиент: Бюджет 5000, девушке"],

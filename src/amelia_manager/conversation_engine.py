@@ -160,6 +160,16 @@ class ConversationEngine:
                     + "\nПерепиши ответ коротко, естественно и без нарушения. Не объясняй правила."
                 )
                 retry_reply = await self.llm.generate(rewrite_prompt)
+                retry_decision = parse_model_decision(retry_reply)
+                if retry_decision is not None:
+                    retry_reply = retry_decision.reply
+                    if retry_decision.needs_human:
+                        return ConversationAction(
+                            kind="human_review",
+                            messages=_finalize_messages(retry_reply),
+                            risk_level=risk_level,
+                            safety_reasons=["model_decision_needs_human"],
+                        )
                 retry_safety = check_reply_safety(retry_reply)
                 if retry_safety.is_safe:
                     return ConversationAction(

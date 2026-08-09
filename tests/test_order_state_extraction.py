@@ -18,7 +18,7 @@ def test_extracts_order_state_from_real_dialog():
     assert state.budget == 7000
     assert state.colors == ["синий", "белый"]
     assert state.fulfillment_type == "delivery"
-    assert state.delivery_date == "today"
+    assert state.delivery_date == "2026-08-09"
     assert state.delivery_time == "18:00"
     assert state.address == "Гайдара 173"
     assert state.sender_name == "Даниил"

@@ -24,7 +24,7 @@ def test_new_active_order_extracts_only_from_latest_order_start_when_no_active_c
     card = update_active_order_from_messages(repo, client_id=client.id, recent_messages=OLD_AND_NEW_HISTORY)
 
     assert card.budget == 10000
-    assert card.delivery_date == "12 августа"
+    assert card.delivery_date == "2026-08-12"
     assert card.delivery_time == "12:00"
     assert card.colors == ["белый", "кремовый", "нежный стиль"]
     assert card.sender_name == "Иван"

@@ -55,6 +55,7 @@ class CompanyProfile:
     telegram_secondary: str | None = None
     product_categories: tuple[str, ...] = field(default_factory=tuple)
     faq: dict[str, str] = field(default_factory=dict)
+    timezone_name: str = "Europe/Kaliningrad"
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]
