@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import date
 
@@ -276,6 +277,49 @@ class IncomingMessage:
     outgoing: bool
 
 
+class PerSenderDebounceProcessor:
+    """Buffers rapid incoming messages and processes one serialized turn per sender."""
+
+    def __init__(
+        self,
+        *,
+        buffer_seconds: float,
+        process_turn: Callable[[int, list[str]], Awaitable[None]],
+    ) -> None:
+        self.buffer_seconds = buffer_seconds
+        self.process_turn = process_turn
+        self._buffers: dict[int, list[str]] = {}
+        self._tasks: dict[int, asyncio.Task[None]] = {}
+        self._lock = asyncio.Lock()
+
+    async def enqueue(self, *, sender_id: int, text: str) -> None:
+        async with self._lock:
+            self._buffers.setdefault(sender_id, []).append(text)
+            task = self._tasks.get(sender_id)
+            if task is None or task.done():
+                self._tasks[sender_id] = asyncio.create_task(self._run_sender(sender_id))
+
+    async def wait_idle(self) -> None:
+        while True:
+            async with self._lock:
+                tasks = [task for task in self._tasks.values() if not task.done()]
+            if not tasks:
+                return
+            await asyncio.gather(*tasks)
+
+    async def _run_sender(self, sender_id: int) -> None:
+        while True:
+            await asyncio.sleep(self.buffer_seconds)
+            async with self._lock:
+                messages = self._buffers.pop(sender_id, [])
+            if messages:
+                await self.process_turn(sender_id, messages)
+            async with self._lock:
+                if not self._buffers.get(sender_id):
+                    self._tasks.pop(sender_id, None)
+                    return
+
+
 def should_process_incoming(message: IncomingMessage, settings: Settings) -> bool:
     if message.outgoing:
         return False
@@ -337,29 +381,13 @@ async def run_listener(settings: Settings) -> None:
     repo = SQLiteRepository(path_from_sqlite_url(settings.database_url))
     repo.initialize()
 
-    @client.on(events.NewMessage(incoming=True))
-    async def handler(event):
-        sender = await event.get_sender()
-        sender_id = int(sender.id)
-        incoming = IncomingMessage(
-            sender_id=sender_id,
-            text=event.raw_text or "",
-            is_private=event.is_private,
-            outgoing=bool(event.out),
-        )
-        if not should_process_incoming(incoming, settings):
-            return
+    sender_usernames: dict[int, str | None] = {}
 
-        if sender_id == int(settings.admin_chat_id) and is_stock_command(incoming.text):
-            ack = handle_stock_command(repo, sender_id=sender_id, text=incoming.text)
-            await client.send_message(sender_id, ack)
-            return
-
-        db_client = persist_incoming_message(
-            repo,
-            incoming,
-            username=getattr(sender, "username", None),
-        )
+    async def process_customer_turn(sender_id: int, texts: list[str]) -> None:
+        username = sender_usernames.get(sender_id)
+        db_client = repo.upsert_client(telegram_id=sender_id, username=username)
+        for text in texts:
+            repo.add_message(client_id=db_client.id, direction="in", text=text)
         recent_db_messages = repo.list_messages(
             client_id=db_client.id,
             limit=settings.conversation_history_limit,
@@ -393,7 +421,7 @@ async def run_listener(settings: Settings) -> None:
             order_card=order_card,
         )
 
-        client_label = f"@{getattr(sender, 'username', None)} / {sender_id}" if getattr(sender, "username", None) else str(sender_id)
+        client_label = f"@{username} / {sender_id}" if username else str(sender_id)
         active_order = repo.get_active_order(client_id=db_client.id)
         if active_order and settings.auto_reply_enabled:
             admin_order_text = build_admin_order_request_if_needed(repo, order=active_order, client_label=client_label)
@@ -409,7 +437,7 @@ async def run_listener(settings: Settings) -> None:
                     stage="new_lead",
                     risk_level=action.risk_level,
                     summary="AI передал диалог человеку.",
-                    last_message=incoming.text,
+                    last_message="\n".join(texts),
                 ),
             )
 
@@ -429,6 +457,32 @@ async def run_listener(settings: Settings) -> None:
                 )
         else:
             print(f"DRY RUN for {sender_id}: {action.kind} -> {action.messages}")
+
+    debounce_processor = PerSenderDebounceProcessor(
+        buffer_seconds=settings.message_buffer_seconds,
+        process_turn=process_customer_turn,
+    )
+
+    @client.on(events.NewMessage(incoming=True))
+    async def handler(event):
+        sender = await event.get_sender()
+        sender_id = int(sender.id)
+        incoming = IncomingMessage(
+            sender_id=sender_id,
+            text=event.raw_text or "",
+            is_private=event.is_private,
+            outgoing=bool(event.out),
+        )
+        if not should_process_incoming(incoming, settings):
+            return
+
+        if sender_id == int(settings.admin_chat_id) and is_stock_command(incoming.text):
+            ack = handle_stock_command(repo, sender_id=sender_id, text=incoming.text)
+            await client.send_message(sender_id, ack)
+            return
+
+        sender_usernames[sender_id] = getattr(sender, "username", None)
+        await debounce_processor.enqueue(sender_id=sender_id, text=incoming.text)
 
     await client.start(phone=settings.telegram_phone)
     me = await client.get_me()
