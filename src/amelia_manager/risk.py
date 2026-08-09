@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from enum import StrEnum
 
 
@@ -9,54 +11,105 @@ class RiskLevel(StrEnum):
     HIGH = "high"
 
 
-_HIGH_RISK_KEYWORDS = (
-    "жалоб",
-    "пожаловаться",
-    "пожалуюсь",
-    "возврат",
-    "верните деньги",
-    "привезли не то",
-    "не тот букет",
-    "ужас",
-    "обман",
-    "скидк",
-    "бред",
-    "ерунда",
-    "что вы мне пиш",
-    "вы мне пишите",
-    "свадеб",
-    "свадьб",
-    "корпоратив",
-    "юрлиц",
-    "40 букет",
-    "оформление зала",
+class RiskCategory(StrEnum):
+    NONE = "none"
+    COMPLAINT_REFUND = "complaint_refund"
+    DISCOUNT = "discount"
+    OUT_OF_AREA_DELIVERY = "out_of_area_delivery"
+    CUSTOM_ORDER = "custom_order"
+    STOCK_UNCERTAINTY = "stock_uncertainty"
+    CONVERSATION_CONFLICT = "conversation_conflict"
+
+
+@dataclass(frozen=True)
+class RiskAssessment:
+    level: RiskLevel
+    category: RiskCategory = RiskCategory.NONE
+    matched: str | None = None
+
+
+_CATEGORY_PATTERNS: tuple[tuple[RiskCategory, RiskLevel, tuple[re.Pattern[str], ...]], ...] = (
+    (
+        RiskCategory.COMPLAINT_REFUND,
+        RiskLevel.HIGH,
+        (
+            re.compile(r"\bжалоб\w*\b"),
+            re.compile(r"\bпожаловаться\b"),
+            re.compile(r"\bпожалуюсь\b"),
+            re.compile(r"\bвозврат\w*\b"),
+            re.compile(r"\bверн(?:ите|уть|и)\s+деньги\b"),
+            re.compile(r"\bпривезли\s+не\s+то\b"),
+            re.compile(r"\bне\s+тот\s+букет\b"),
+            re.compile(r"\bобман\w*\b"),
+            re.compile(r"\bужас\b"),
+            re.compile(r"\bужасн(?:ый|ая|ое|ые)\b"),
+        ),
+    ),
+    (
+        RiskCategory.CONVERSATION_CONFLICT,
+        RiskLevel.HIGH,
+        (
+            re.compile(r"\bбред\b"),
+            re.compile(r"\bерунда\b"),
+            re.compile(r"\bчто\s+вы\s+мне\s+пиш(?:ете|ите)\b"),
+        ),
+    ),
+    (
+        RiskCategory.CUSTOM_ORDER,
+        RiskLevel.HIGH,
+        (
+            re.compile(r"\bсвадеб\w*\b"),
+            re.compile(r"\bсвадьб\w*\b"),
+            re.compile(r"\bкорпоратив\w*\b"),
+            re.compile(r"\bюр\.?\s*лиц\w*\b"),
+            re.compile(r"\b\d{2,}\s+букет\w*\b"),
+            re.compile(r"\bоформление\s+зала\b"),
+        ),
+    ),
+    (
+        RiskCategory.DISCOUNT,
+        RiskLevel.MEDIUM,
+        (
+            re.compile(r"\bскидк\w*\b"),
+            re.compile(r"\bскинуть\s+цену\b"),
+            re.compile(r"\bподешевле\b"),
+        ),
+    ),
+    (
+        RiskCategory.OUT_OF_AREA_DELIVERY,
+        RiskLevel.MEDIUM,
+        (
+            re.compile(r"\bза\s+город\b"),
+            re.compile(r"\bв\s+область\b"),
+            re.compile(r"\bпосле\s+22(?::00)?\b"),
+            re.compile(r"\bпосле\s+десяти\b"),
+            re.compile(r"\bночью\b"),
+            re.compile(r"\bсрочно\s+прям\s+сейчас\b"),
+            re.compile(r"\bточно\s+к\b"),
+        ),
+    ),
+    (
+        RiskCategory.STOCK_UNCERTAINTY,
+        RiskLevel.MEDIUM,
+        (
+            re.compile(r"\bредк(?:ие|их|ий|ий)\b"),
+            re.compile(r"\bпионы?\b"),
+            re.compile(r"\bв\s+наличии\b"),
+            re.compile(r"\bточно\s+есть\b"),
+        ),
+    ),
 )
 
-_MEDIUM_RISK_KEYWORDS = (
-    "за город",
-    "в область",
-    "область",
-    "после 22",
-    "после десяти",
-    "ночью",
-    "срочно прям сейчас",
-    "точно к",
-)
 
-_LOW_RISK_KEYWORDS = (
-    "аноним",
-    "букет",
-    "цветы",
-    "роз",
-    "доставка сегодня",
-)
+def assess_risk(text: str) -> RiskAssessment:
+    normalized = text.lower().replace("ё", "е")
+    for category, level, patterns in _CATEGORY_PATTERNS:
+        for pattern in patterns:
+            match = pattern.search(normalized)
+            if match:
+                return RiskAssessment(level=level, category=category, matched=match.group(0))
+    return RiskAssessment(level=RiskLevel.LOW)
 
 
 def classify_risk(text: str) -> RiskLevel:
-    normalized = text.lower().replace("ё", "е")
-
-    if any(keyword in normalized for keyword in _HIGH_RISK_KEYWORDS):
-        return RiskLevel.HIGH
-    if any(keyword in normalized for keyword in _MEDIUM_RISK_KEYWORDS):
-        return RiskLevel.MEDIUM
-    return RiskLevel.LOW
+    return assess_risk(text).level

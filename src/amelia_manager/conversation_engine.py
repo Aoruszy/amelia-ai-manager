@@ -15,7 +15,7 @@ from amelia_manager.order_card import OrderCard
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.prompts import build_manager_prompt
-from amelia_manager.risk import RiskLevel, classify_risk
+from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 from amelia_manager.safety import check_reply_safety
 
 
@@ -46,7 +46,8 @@ class ConversationEngine:
         order_card: OrderCard | None = None,
     ) -> ConversationAction:
         last_client_text = _last_client_text(recent_messages)
-        risk_level = classify_risk(last_client_text)
+        risk = assess_risk(last_client_text)
+        risk_level = risk.level
         if is_greeting_only(last_client_text):
             return ConversationAction(
                 kind="send",
@@ -76,6 +77,10 @@ class ConversationEngine:
                 ],
                 risk_level=risk_level,
             )
+
+        cautious_reply = _cautious_reply_for_medium_risk(risk.category, stock_context=stock_context)
+        if cautious_reply:
+            return ConversationAction(kind="send", messages=[cautious_reply], risk_level=risk_level)
 
         if order_card and order_card.client_summary_sent and _is_thanks_only(last_client_text):
             return ConversationAction(
@@ -199,6 +204,16 @@ def _is_photo_only(text: str) -> bool:
 
 def _is_media_only(text: str) -> bool:
     return text.strip().lower() == "[media]"
+
+
+def _cautious_reply_for_medium_risk(category: RiskCategory, *, stock_context: str | None) -> str | None:
+    if category == RiskCategory.DISCOUNT:
+        return "По скидке уточню у менеджера, чтобы не пообещать лишнего. Могу пока подобрать вариант под ваш бюджет."
+    if category == RiskCategory.OUT_OF_AREA_DELIVERY:
+        return "По такой доставке лучше уточню у менеджера: зависит от адреса и времени. Напишите, пожалуйста, куда и на когда нужно."
+    if category == RiskCategory.STOCK_UNCERTAINTY and not stock_context:
+        return "По наличию лучше уточню у менеджера, чтобы не пообещать лишнего. Могу предложить близкий вариант по стилю."
+    return None
 
 
 def _format_order_card_context(card: OrderCard) -> str:
