@@ -71,6 +71,7 @@ async def test_screenshot_pickup_flow_builds_admin_request(tmp_path):
         client_id=client.id,
         recent_messages=SCREENSHOT_MESSAGES,
         company_profile=load_company_profile("amelia_flowers"),
+        today=date(2026, 8, 9),
     )
     active_order = repo.get_active_order(client_id=client.id)
 

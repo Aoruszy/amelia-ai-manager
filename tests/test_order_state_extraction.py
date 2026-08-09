@@ -1,3 +1,5 @@
+from datetime import date
+
 from amelia_manager.order_state import extract_order_state
 
 
@@ -11,7 +13,8 @@ def test_extracts_order_state_from_real_dialog():
             "Клиент: На сегодня в 18:00",
             "Менеджер: Это доставка или самовывоз?",
             "Клиент: Доставка на ул. Гайдара 173, Даниил 89990000007, получатель Ольга 89990000008",
-        ]
+        ],
+        today=date(2026, 8, 9),
     )
 
     assert state.occasion == "девушке"

@@ -1,3 +1,5 @@
+from datetime import date
+
 from amelia_manager.order_state import extract_order_state
 
 
@@ -24,7 +26,8 @@ def test_extracts_pickup_flow_fields_from_long_real_dialog():
             "Клиент: Какой нибудь красивый, не знаю",
             "Клиент: Сине белое можно",
             "Клиент: Открытку не нужно",
-        ]
+        ],
+        today=date(2026, 8, 9),
     )
 
     assert state.budget == 5000

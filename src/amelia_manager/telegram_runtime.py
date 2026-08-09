@@ -49,6 +49,7 @@ def update_active_order_from_messages(
     client_id: int,
     recent_messages: list[str],
     company_profile: CompanyProfile | None = None,
+    today: date | None = None,
 ) -> OrderCard:
     active = repo.get_active_order(client_id=client_id)
     latest_text = _last_client_text(recent_messages)
@@ -63,6 +64,7 @@ def update_active_order_from_messages(
     messages_for_extraction = _messages_for_order_extraction(order.card, recent_messages)
     extracted = extract_order_state(
         messages_for_extraction,
+        today=today,
         timezone_name=(company_profile or load_company_profile("amelia_flowers")).timezone_name,
     )
     card = merge_order_state(order.card, extracted)
@@ -77,6 +79,7 @@ async def update_active_order_from_messages_with_llm(
     client_id: int,
     recent_messages: list[str],
     company_profile: CompanyProfile | None = None,
+    today: date | None = None,
 ) -> OrderCard:
     active = repo.get_active_order(client_id=client_id)
     latest_text = _last_client_text(recent_messages)
@@ -94,6 +97,7 @@ async def update_active_order_from_messages_with_llm(
         llm,
         messages_for_extraction,
         company_profile=profile,
+        today=today,
         timezone_name=profile.timezone_name,
     )
     card = merge_order_state(order.card, extracted)
@@ -109,6 +113,7 @@ async def update_active_order_from_messages_with_optional_llm(
     client_id: int,
     recent_messages: list[str],
     company_profile: CompanyProfile | None = None,
+    today: date | None = None,
 ) -> OrderCard:
     if should_use_llm_extractor(settings, company_profile=company_profile):
         return await update_active_order_from_messages_with_llm(
@@ -117,12 +122,14 @@ async def update_active_order_from_messages_with_optional_llm(
             client_id=client_id,
             recent_messages=recent_messages,
             company_profile=company_profile,
+            today=today,
         )
     return update_active_order_from_messages(
         repo,
         client_id=client_id,
         recent_messages=recent_messages,
         company_profile=company_profile,
+        today=today,
     )
 
 

@@ -1,9 +1,16 @@
 {
+  "model": null,
   "summary": {
     "total": 32,
     "passed": 32,
     "failed": 0,
-    "pass_rate": 1.0
+    "pass_rate": 1.0,
+    "live_only": {
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "pass_rate": 1.0
+    }
   },
   "results": [
     {
@@ -33,12 +40,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 31,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:чем могу помочь",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -56,6 +85,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Здравствуйте 🙂 Чем могу помочь?",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -85,12 +115,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 31,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:чем могу помочь",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -103,6 +155,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Здравствуйте 🙂 Чем могу помочь?",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -132,17 +185,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 78,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:вижу фото",
-          "passed": true,
-          "details": {}
-        },
-        {
-          "name": "contains:бюджет",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         }
@@ -150,6 +220,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Вижу фото, могу ориентироваться на этот стиль. Подскажите, пожалуйста, бюджет?",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -179,12 +250,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 93,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:вижу вложение",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -197,6 +290,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Вижу вложение. Напишите, пожалуйста, что именно нужно по заказу, и я помогу сориентироваться.",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -226,14 +320,44 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 44,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:бюджет",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_budget",
+            "actual": "ask_budget"
+          }
         },
         {
           "name": "not_contains:адрес",
@@ -249,6 +373,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Подскажите, на какой бюджет ориентируемся? 🌸",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -278,14 +403,44 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 55,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:оттенки",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_bouquet_preferences",
+            "actual": "ask_bouquet_preferences"
+          }
         },
         {
           "name": "not_contains:доставка или самовывоз",
@@ -296,6 +451,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -325,19 +481,50 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 59,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:доставка или самовывоз",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_fulfillment_type",
+            "actual": "ask_fulfillment_type"
+          }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "output": "Хорошо, по букету поняла. Это будет доставка или самовывоз?",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -367,14 +554,44 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 27,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:число",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_date",
+            "actual": "ask_date"
+          }
         },
         {
           "name": "not_contains:получателя",
@@ -390,6 +607,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "На какое число нужен букет?",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -419,12 +637,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 65,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:самовывозом",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -442,6 +682,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "К какому времени удобно забрать букет самовывозом с Сергеева, 61?",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -471,7 +712,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 107,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -489,6 +757,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Самовывоз возможен в часы работы магазина 09:00–20:00. Выберите, пожалуйста, другое время в этом интервале.",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -518,9 +787,40 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
           "passed": true,
-          "details": {}
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 217,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {
+            "repeated_fields": []
+          }
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {
+            "invented_numbers": []
+          }
         },
         {
           "name": "contains:итог заказа",
@@ -548,6 +848,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Итог заказа:\n• Формат: Самовывоз с Сергеева, 61\n• Время: сегодня 18:00\n• Бюджет: 5000 ₽\n• Букет: белый, нежный\n• Имя: Даниил\n• Телефон: 89990000001\nПередаю заказ менеджеру: он подтвердит детали и подскажет по оплате 🌸",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -577,12 +878,36 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
           "passed": true,
-          "details": {}
+          "details": {
+            "question_count": 0
+          }
         },
         {
-          "name": "contains:спасибо",
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 19,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {
+            "repeated_fields": []
+          }
+        },
+        {
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -597,6 +922,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Спасибо, ждём вас 🌸",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -626,14 +952,44 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 54,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:времени",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_delivery_time",
+            "actual": "ask_delivery_time"
+          }
         },
         {
           "name": "not_contains:самовывоз",
@@ -644,6 +1000,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "К какому времени или в какой интервал доставить букет?",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -673,24 +1030,50 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 38,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:адрес доставки",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
         {
-          "name": "not_contains:получателя",
+          "name": "next_step_advanced",
           "passed": true,
-          "details": {}
+          "details": {
+            "expected": "ask_delivery_address",
+            "actual": "ask_delivery_address"
+          }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "output": "Подскажите адрес доставки, пожалуйста.",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -720,24 +1103,50 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 57,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:ваше имя",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:телефон",
+          "name": "next_step_advanced",
           "passed": true,
-          "details": {}
+          "details": {
+            "expected": "ask_sender_contacts",
+            "actual": "ask_sender_contacts"
+          }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "output": "Подскажите ваше имя и номер телефона для связи по заказу.",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -767,24 +1176,50 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 43,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:получателя",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:телефон",
+          "name": "next_step_advanced",
           "passed": true,
-          "details": {}
+          "details": {
+            "expected": "ask_recipient_contacts",
+            "actual": "ask_recipient_contacts"
+          }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "output": "Подскажите имя и номер телефона получателя.",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -814,9 +1249,40 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
           "passed": true,
-          "details": {}
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 292,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {
+            "repeated_fields": []
+          }
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {
+            "invented_numbers": []
+          }
         },
         {
           "name": "contains:итог заказа",
@@ -844,6 +1310,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Итог заказа:\n• Формат: Доставка\n• Время: завтра 12:00\n• Адрес: ул. Тестовая, 1\n• Бюджет: 7000 ₽\n• Букет: розовый\n• Получатель: Анна, 89990000003\n• Отправитель: Даниил, 89990000002\n• Оплата: переводом/картой\nПередаю заказ менеджеру: он подтвердит детали и пришлёт реквизиты/ссылку для оплаты 🌸",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -873,7 +1340,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 101,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -891,6 +1385,7 @@
       "kind": "human_takeover",
       "risk_level": "high",
       "output": "Понимаю вас. Передам вопрос ответственному менеджеру, чтобы посмотрели детали и вернулись с решением.",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -920,7 +1415,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 101,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -933,6 +1455,7 @@
       "kind": "human_takeover",
       "risk_level": "high",
       "output": "Понимаю вас. Передам вопрос ответственному менеджеру, чтобы посмотрели детали и вернулись с решением.",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -962,7 +1485,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 101,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -975,6 +1525,7 @@
       "kind": "human_takeover",
       "risk_level": "high",
       "output": "Понимаю вас. Передам вопрос ответственному менеджеру, чтобы посмотрели детали и вернулись с решением.",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -1004,17 +1555,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 101,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:уточню",
-          "passed": true,
-          "details": {}
-        },
-        {
-          "name": "contains:бюджет",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -1027,6 +1595,7 @@
       "kind": "send",
       "risk_level": "medium",
       "output": "По скидке уточню у менеджера, чтобы не пообещать лишнего. Могу пока подобрать вариант под ваш бюджет.",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -1056,17 +1625,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 117,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:уточню",
-          "passed": true,
-          "details": {}
-        },
-        {
-          "name": "contains:куда",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         }
@@ -1074,6 +1660,7 @@
       "kind": "send",
       "risk_level": "medium",
       "output": "По такой доставке лучше уточню у менеджера: зависит от адреса и времени. Напишите, пожалуйста, куда и на когда нужно.",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -1103,7 +1690,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 104,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
@@ -1113,7 +1727,12 @@
           "details": {}
         },
         {
-          "name": "contains:нет",
+          "name": "not_contains:точно есть",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "not_contains:в наличии",
           "passed": true,
           "details": {}
         }
@@ -1121,6 +1740,7 @@
       "kind": "send",
       "risk_level": "medium",
       "output": "пионы на сегодня нет. Могу подобрать похожий нежный вариант — подскажите, на какой бюджет ориентируемся?",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -1150,17 +1770,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 106,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:наличию",
-          "passed": true,
-          "details": {}
-        },
-        {
-          "name": "contains:уточню",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         }
@@ -1168,6 +1805,7 @@
       "kind": "send",
       "risk_level": "medium",
       "output": "По наличию лучше уточню у менеджера, чтобы не пообещать лишнего. могу предложить близкий вариант по стилю.",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -1197,14 +1835,44 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 44,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:бюджет",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_budget",
+            "actual": "ask_budget"
+          }
         },
         {
           "name": "not_contains:передам",
@@ -1215,6 +1883,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Подскажите, на какой бюджет ориентируемся? 🌸",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -1244,14 +1913,44 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 44,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:бюджет",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_budget",
+            "actual": "ask_budget"
+          }
         },
         {
           "name": "not_contains:старый адрес",
@@ -1274,6 +1973,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Подскажите, на какой бюджет ориентируемся? 🌸",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -1303,14 +2003,44 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 65,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:самовывозом",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_pickup_time",
+            "actual": "ask_pickup_time"
+          }
         },
         {
           "name": "not_contains:ул. старая",
@@ -1326,6 +2056,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "К какому времени удобно забрать букет самовывозом с Сергеева, 61?",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -1355,24 +2086,50 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 55,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:оттенки",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         },
         {
-          "name": "not_contains:бюджет",
+          "name": "next_step_advanced",
           "passed": true,
-          "details": {}
+          "details": {
+            "expected": "ask_bouquet_preferences",
+            "actual": "ask_bouquet_preferences"
+          }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "output": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
+      "llm_called": true,
       "notes": ""
     },
     {
@@ -1402,9 +2159,40 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
           "passed": true,
-          "details": {}
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 236,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {
+            "repeated_fields": []
+          }
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {
+            "invented_numbers": []
+          }
         },
         {
           "name": "contains:итог заказа",
@@ -1427,6 +2215,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Итог заказа:\n• Формат: Самовывоз с Сергеева, 61\n• Время: сегодня 18:00\n• Бюджет: 5000 ₽\n• Букет: белый, нежный\n• Имя: Даниил\n• Телефон: 89990000001\n• Оплата: на месте\nПередаю заказ менеджеру: он подтвердит детали и подскажет по оплате 🌸",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -1456,9 +2245,40 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
           "passed": true,
-          "details": {}
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 292,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {
+            "repeated_fields": []
+          }
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {
+            "invented_numbers": []
+          }
         },
         {
           "name": "contains:он подтвердит",
@@ -1486,6 +2306,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Итог заказа:\n• Формат: Доставка\n• Время: завтра 12:00\n• Адрес: ул. Тестовая, 1\n• Бюджет: 7000 ₽\n• Букет: розовый\n• Получатель: Анна, 89990000003\n• Отправитель: Даниил, 89990000002\n• Оплата: переводом/картой\nПередаю заказ менеджеру: он подтвердит детали и пришлёт реквизиты/ссылку для оплаты 🌸",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -1515,17 +2336,34 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 78,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:вижу фото",
-          "passed": true,
-          "details": {}
-        },
-        {
-          "name": "contains:бюджет",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
         }
@@ -1533,6 +2371,7 @@
       "kind": "send",
       "risk_level": "low",
       "output": "Вижу фото, могу ориентироваться на этот стиль. Подскажите, пожалуйста, бюджет?",
+      "llm_called": false,
       "notes": ""
     },
     {
@@ -1562,19 +2401,50 @@
           "details": {}
         },
         {
-          "name": "no_unsafe_promise",
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 55,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
           "passed": true,
           "details": {}
         },
         {
-          "name": "contains:оттенки",
+          "name": "no_invented_numbers",
           "passed": true,
           "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_bouquet_preferences",
+            "actual": "ask_bouquet_preferences"
+          }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "output": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
+      "llm_called": true,
       "notes": ""
     }
   ]

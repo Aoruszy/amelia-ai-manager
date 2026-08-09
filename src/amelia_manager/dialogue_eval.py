@@ -3,34 +3,46 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.llm_client import GeminiClient, LLMError
 from amelia_manager.order_card import OrderCard
+from amelia_manager.order_policy import get_next_step
+from amelia_manager.order_state import OrderState, extract_order_state
 from amelia_manager.risk import RiskLevel
 from amelia_manager.safety import check_reply_safety
 
 
 class DeterministicEvalLLM:
+    def __init__(self) -> None:
+        self.called = False
+
     async def generate(self, prompt: str) -> str:
+        self.called = True
         raise LLMError("dialogue eval uses deterministic fallback")
 
 
 class CachedEvalLLM:
-    def __init__(self, llm: Any, *, scenario_id: str, cache: dict[str, str]) -> None:
+    def __init__(self, llm: Any, *, scenario_id: str, cache: dict[str, str], use_cache: bool = True) -> None:
         self.llm = llm
         self.scenario_id = scenario_id
         self.cache = cache
+        self.use_cache = use_cache
+        self.called = False
 
     async def generate(self, prompt: str) -> str:
-        if self.scenario_id in self.cache:
+        self.called = True
+        if self.use_cache and self.scenario_id in self.cache:
             return self.cache[self.scenario_id]
         reply = await self.llm.generate(prompt)
-        self.cache[self.scenario_id] = reply
+        if self.use_cache:
+            self.cache[self.scenario_id] = reply
         return reply
 
 
@@ -47,6 +59,9 @@ class DialogueScenario:
     must_not_contain: tuple[str, ...] = ()
     expect_admin_ready: bool | None = None
     require_safe: bool = True
+    allow_multiple_questions: bool = False
+    expected_next_step: str | None = None
+    structural_checks: tuple[str, ...] = ()
     notes: str = ""
 
 
@@ -55,13 +70,17 @@ async def run_dialogue_eval(
     *,
     llm: Any | None = None,
     cache_path: str | Path | None = None,
+    use_cache: bool = True,
+    model_name: str | None = None,
+    company_profile: CompanyProfile | None = None,
 ) -> dict[str, Any]:
     cases = scenarios or build_default_scenarios()
-    cache = _load_cache(cache_path)
+    profile = company_profile or load_company_profile("amelia_flowers")
+    cache = _load_cache(cache_path) if use_cache else {}
     results = []
     for scenario in cases:
-        scenario_llm = CachedEvalLLM(llm, scenario_id=scenario.id, cache=cache) if llm is not None else DeterministicEvalLLM()
-        engine = ConversationEngine(scenario_llm)
+        scenario_llm = CachedEvalLLM(llm, scenario_id=scenario.id, cache=cache, use_cache=use_cache) if llm is not None else DeterministicEvalLLM()
+        engine = ConversationEngine(scenario_llm, company_profile=profile)
         action = await engine.handle_messages(
             client_summary="Eval клиент",
             recent_messages=scenario.recent_messages,
@@ -70,7 +89,13 @@ async def run_dialogue_eval(
             order_card=scenario.order_card,
         )
         output = "\n".join(action.messages)
-        checks = _evaluate_checks(scenario, kind=action.kind, risk_level=action.risk_level, output=output)
+        checks = _evaluate_checks(
+            scenario,
+            kind=action.kind,
+            risk_level=action.risk_level,
+            output=output,
+            company_profile=profile,
+        )
         results.append(
             {
                 "id": scenario.id,
@@ -80,17 +105,28 @@ async def run_dialogue_eval(
                 "kind": action.kind,
                 "risk_level": action.risk_level.value,
                 "output": output,
+                "llm_called": scenario_llm.called,
                 "notes": scenario.notes,
             }
         )
-    _write_cache(cache_path, cache)
+    if use_cache:
+        _write_cache(cache_path, cache)
     failed = sum(1 for result in results if not result["passed"])
+    live_results = [result for result in results if result["llm_called"]]
+    live_failed = sum(1 for result in live_results if not result["passed"])
     return {
+        "model": model_name,
         "summary": {
             "total": len(results),
             "passed": len(results) - failed,
             "failed": failed,
             "pass_rate": (len(results) - failed) / len(results) if results else 0.0,
+            "live_only": {
+                "total": len(live_results),
+                "passed": len(live_results) - live_failed,
+                "failed": live_failed,
+                "pass_rate": (len(live_results) - live_failed) / len(live_results) if live_results else 0.0,
+            },
         },
         "results": results,
     }
@@ -102,8 +138,16 @@ async def write_dialogue_eval_report(
     *,
     llm: Any | None = None,
     cache_path: str | Path | None = None,
+    use_cache: bool = True,
+    model_name: str | None = None,
 ) -> dict[str, Any]:
-    report = await run_dialogue_eval(scenarios, llm=llm, cache_path=cache_path)
+    report = await run_dialogue_eval(
+        scenarios,
+        llm=llm,
+        cache_path=cache_path,
+        use_cache=use_cache,
+        model_name=model_name,
+    )
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -134,8 +178,10 @@ def _evaluate_checks(
     kind: str,
     risk_level: RiskLevel,
     output: str,
+    company_profile: CompanyProfile | None = None,
 ) -> list[dict[str, Any]]:
     normalized = output.lower().replace("ё", "е")
+    profile = company_profile or load_company_profile("amelia_flowers")
     checks: list[dict[str, Any]] = [
         _check("expected_kind", kind == scenario.expected_kind, {"expected": scenario.expected_kind, "actual": kind}),
         _check(
@@ -144,8 +190,37 @@ def _evaluate_checks(
             {"expected": scenario.expected_risk.value, "actual": risk_level.value},
         ),
         _check("non_empty_output", bool(output.strip()), {}),
-        _check("no_unsafe_promise", check_reply_safety(output).is_safe if scenario.require_safe else True, {}),
     ]
+    if scenario.require_safe:
+        safety = check_reply_safety(output, stock_context=scenario.stock_context)
+    else:
+        safety = None
+    for structural_check in _structural_checks_for(scenario):
+        if structural_check == "single_question":
+            checks.append(
+                _check(
+                    "single_question",
+                    scenario.allow_multiple_questions or output.count("?") <= 1,
+                    {"question_count": output.count("?")},
+                )
+            )
+        elif structural_check == "reply_length":
+            max_chars = Settings().max_reply_chars
+            checks.append(_check("reply_length", len(output) <= max_chars, {"length": len(output), "max": max_chars}))
+        elif structural_check == "safety_clean":
+            checks.append(
+                _check(
+                    "safety_clean",
+                    safety.is_safe if safety is not None else True,
+                    {"reasons": safety.reasons if safety is not None else []},
+                )
+            )
+        elif structural_check == "no_repeat_known_field":
+            checks.append(_check_no_repeat_known_field(scenario, normalized))
+        elif structural_check == "no_invented_numbers":
+            checks.append(_check_no_invented_numbers(output, scenario=scenario, company_profile=profile))
+        elif structural_check == "next_step_advanced":
+            checks.append(_check_next_step(scenario, company_profile=profile))
     for token in scenario.must_contain:
         checks.append(_check(f"contains:{token}", token.lower().replace("ё", "е") in normalized, {}))
     for token in scenario.must_not_contain:
@@ -159,6 +234,85 @@ def _evaluate_checks(
             )
         )
     return checks
+
+
+def _structural_checks_for(scenario: DialogueScenario) -> tuple[str, ...]:
+    base = ("single_question", "reply_length", "safety_clean", "no_repeat_known_field", "no_invented_numbers")
+    if not scenario.expected_next_step:
+        return base + scenario.structural_checks
+    return base + scenario.structural_checks + ("next_step_advanced",)
+
+
+def _check_no_repeat_known_field(scenario: DialogueScenario, normalized_output: str) -> dict[str, Any]:
+    card = scenario.order_card
+    if card is None:
+        return _check("no_repeat_known_field", True, {})
+    markers = {
+        "budget": ("бюджет",),
+        "address": ("адрес",),
+        "sender_phone": ("ваш телефон", "ваш номер"),
+        "recipient_phone": ("телефон получателя", "номер получателя"),
+        "delivery_time": ("во сколько", "к какому времени"),
+        "delivery_date": ("на какое число",),
+    }
+    repeated: list[str] = []
+    for field_name, field_markers in markers.items():
+        if getattr(card, field_name, None) in (None, "", [], {}):
+            continue
+        if any(_asks_for_marker(normalized_output, marker) for marker in field_markers):
+            repeated.append(field_name)
+    return _check("no_repeat_known_field", not repeated, {"repeated_fields": repeated})
+
+
+def _asks_for_marker(normalized_output: str, marker: str) -> bool:
+    for sentence in re.split(r"[.!\n]+", normalized_output):
+        if marker not in sentence:
+            continue
+        if "?" in sentence or re.search(r"\b(?:подскаж\w*|уточн\w*|напиш\w*|какой|какая|какое|ваш|ваше|нужен|нужна)\b", sentence):
+            return True
+    return False
+
+
+def _check_no_invented_numbers(output: str, *, scenario: DialogueScenario, company_profile: CompanyProfile) -> dict[str, Any]:
+    numbers = set(re.findall(r"\d{3,}", output))
+    if not numbers:
+        return _check("no_invented_numbers", True, {})
+    allowed_text = " ".join(
+        str(part)
+        for part in (
+            scenario.order_card.to_dict() if scenario.order_card else {},
+            scenario.stock_context or "",
+            company_profile.free_delivery_from or "",
+            company_profile.delivery_city_price or "",
+            company_profile.shop_hours or "",
+            company_profile.delivery_hours or "",
+            company_profile.public_phone or "",
+            company_profile.pickup_address or "",
+        )
+    )
+    invented = sorted(number for number in numbers if number not in allowed_text)
+    return _check("no_invented_numbers", not invented, {"invented_numbers": invented})
+
+
+def _check_next_step(scenario: DialogueScenario, *, company_profile: CompanyProfile) -> dict[str, Any]:
+    if scenario.expected_next_step is None:
+        return _check("next_step_advanced", True, {})
+    state = _scenario_order_state(scenario)
+    actual = get_next_step(state, company_profile=company_profile).code
+    return _check(
+        "next_step_advanced",
+        actual == scenario.expected_next_step,
+        {"expected": scenario.expected_next_step, "actual": actual},
+    )
+
+
+def _scenario_order_state(scenario: DialogueScenario) -> OrderState:
+    if scenario.order_card is None:
+        return extract_order_state(scenario.recent_messages)
+    data = scenario.order_card.to_dict()
+    data.pop("admin_request_sent", None)
+    data.pop("client_summary_sent", None)
+    return OrderState(**data)
 
 
 def _check(name: str, passed: bool, details: dict[str, Any]) -> dict[str, Any]:
@@ -191,59 +345,82 @@ def build_default_scenarios() -> list[DialogueScenario]:
     summarized = OrderCard.from_dict({**ready_pickup.to_dict(), "client_summary_sent": True})
 
     return [
-        DialogueScenario("greeting-basic", "greeting", ["Клиент: Здравствуйте"], must_contain=("чем могу помочь",), must_not_contain=("доставка", "бюджет")),
-        DialogueScenario("greeting-hi", "greeting", ["Клиент: Привет"], must_contain=("чем могу помочь",), must_not_contain=("самовывоз",)),
-        DialogueScenario("photo-only", "media", ["Клиент: [photo]"], must_contain=("вижу фото", "бюджет")),
-        DialogueScenario("generic-media", "media", ["Клиент: [media]"], must_contain=("вижу вложение",), must_not_contain=("не могу",)),
-        DialogueScenario("ask-budget-new-order", "order_flow", ["Клиент: Нужен букет девушке сегодня"], must_contain=("бюджет",), must_not_contain=("адрес", "получателя")),
-        DialogueScenario("ask-style-after-budget", "order_flow", ["Клиент: нужен букет", "Менеджер: Подскажите бюджет", "Клиент: 5000"], must_contain=("оттенки",), must_not_contain=("доставка или самовывоз",)),
-        DialogueScenario("ask-fulfillment-after-style", "order_flow", ["Клиент: Букет до 5000", "Клиент: Нежный кремовый"], must_contain=("доставка или самовывоз",)),
-        DialogueScenario("ask-date-after-pickup", "pickup", ["Клиент: 5000 нежный", "Клиент: самовывоз"], must_contain=("число",), must_not_contain=("получателя", "адрес доставки")),
-        DialogueScenario("ask-pickup-time", "pickup", ["Клиент: 5000 нежный самовывоз сегодня"], must_contain=("самовывозом", "сергеева"), must_not_contain=("получателя",)),
+        DialogueScenario("greeting-basic", "greeting", ["Клиент: Здравствуйте"], must_not_contain=("доставка", "бюджет")),
+        DialogueScenario("greeting-hi", "greeting", ["Клиент: Привет"], must_not_contain=("самовывоз",)),
+        DialogueScenario("photo-only", "media", ["Клиент: [photo]"]),
+        DialogueScenario("generic-media", "media", ["Клиент: [media]"], must_not_contain=("не могу",)),
+        DialogueScenario("ask-budget-new-order", "order_flow", ["Клиент: Нужен букет девушке сегодня"], must_not_contain=("адрес", "получателя"), expected_next_step="ask_budget"),
+        DialogueScenario("ask-style-after-budget", "order_flow", ["Клиент: нужен букет", "Менеджер: Подскажите бюджет", "Клиент: 5000"], must_not_contain=("доставка или самовывоз",), expected_next_step="ask_bouquet_preferences"),
+        DialogueScenario("ask-fulfillment-after-style", "order_flow", ["Клиент: Букет до 5000", "Клиент: Нежный кремовый"], expected_next_step="ask_fulfillment_type"),
+        DialogueScenario("ask-date-after-pickup", "pickup", ["Клиент: 5000 нежный", "Клиент: самовывоз"], must_not_contain=("получателя", "адрес доставки"), expected_next_step="ask_date"),
+        DialogueScenario("ask-pickup-time", "pickup", ["Клиент: 5000 нежный самовывоз сегодня"], must_contain=("сергеева",), must_not_contain=("получателя",)),
         DialogueScenario("pickup-time-outside-hours", "pickup", ["Клиент: 5000 нежный самовывоз сегодня в 22:30"], must_contain=("09:00", "20:00")),
         DialogueScenario("pickup-ready-summary", "pickup", ["Клиент: всё указал"], order_card=ready_pickup, must_contain=("итог заказа", "самовывоз", "5000"), expect_admin_ready=True),
-        DialogueScenario("thanks-after-summary", "pickup", ["Клиент: Спасибо"], order_card=summarized, must_contain=("спасибо",), expect_admin_ready=True),
-        DialogueScenario("ask-delivery-time", "delivery", ["Клиент: 5000 нежный доставка завтра"], must_contain=("времени",), must_not_contain=("самовывоз",)),
-        DialogueScenario("ask-delivery-address", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00"], must_contain=("адрес доставки",), must_not_contain=("получателя",)),
-        DialogueScenario("ask-sender-before-recipient", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00", "Клиент: Доставка на ул. Гайдара 173"], must_contain=("ваше имя", "телефон")),
-        DialogueScenario("ask-recipient-after-sender", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00", "Клиент: Доставка на ул. Гайдара 173, Даниил 89990000002"], must_contain=("получателя", "телефон")),
+        DialogueScenario("thanks-after-summary", "pickup", ["Клиент: Спасибо"], order_card=summarized, expect_admin_ready=True),
+        DialogueScenario("ask-delivery-time", "delivery", ["Клиент: 5000 нежный доставка завтра"], must_not_contain=("самовывоз",), expected_next_step="ask_delivery_time"),
+        DialogueScenario("ask-delivery-address", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00"], expected_next_step="ask_delivery_address"),
+        DialogueScenario("ask-sender-before-recipient", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00", "Клиент: Доставка на ул. Гайдара 173"], expected_next_step="ask_sender_contacts"),
+        DialogueScenario("ask-recipient-after-sender", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00", "Клиент: Доставка на ул. Гайдара 173, Даниил 89990000002"], expected_next_step="ask_recipient_contacts"),
         DialogueScenario("delivery-ready-summary", "delivery", ["Клиент: всё указал"], order_card=ready_delivery, must_contain=("итог заказа", "доставка", "7000"), expect_admin_ready=True),
         DialogueScenario("complaint-refund-handoff", "risk_handoff", ["Клиент: Мне привезли не то, хочу возврат"], expected_kind="human_takeover", expected_risk=RiskLevel.HIGH, must_contain=("передам", "менеджеру")),
         DialogueScenario("conflict-handoff", "risk_handoff", ["Клиент: Что за бред вы мне пишете"], expected_kind="human_takeover", expected_risk=RiskLevel.HIGH, must_contain=("передам",)),
         DialogueScenario("corporate-handoff", "risk_handoff", ["Клиент: Нужен корпоративный заказ на 40 букетов"], expected_kind="human_takeover", expected_risk=RiskLevel.HIGH, must_contain=("менеджеру",)),
-        DialogueScenario("discount-cautious", "risk_handoff", ["Клиент: А скидки бывают?"], expected_risk=RiskLevel.MEDIUM, must_contain=("уточню", "бюджет"), must_not_contain=("подключается",)),
-        DialogueScenario("out-of-city-cautious", "risk_handoff", ["Клиент: Доставка за город ночью возможна?"], expected_risk=RiskLevel.MEDIUM, must_contain=("уточню", "куда")),
-        DialogueScenario("stock-unavailable", "stock", ["Клиент: Есть пионы?"], stock_context="По наличию на сегодня релевантно:\n- пионы — нет", expected_risk=RiskLevel.MEDIUM, must_contain=("пионы", "нет")),
-        DialogueScenario("stock-unknown-cautious", "stock", ["Клиент: Есть редкие пионы в наличии?"], expected_risk=RiskLevel.MEDIUM, must_contain=("наличию", "уточню")),
-        DialogueScenario("anonymous-low-risk", "order_flow", ["Клиент: Можно анонимно доставить?"], must_contain=("бюджет",), must_not_contain=("передам",)),
-        DialogueScenario("new-order-reset-generic", "stale_state", ["Клиент: Нужен букет"], must_contain=("бюджет",), must_not_contain=("старый адрес", "15000"), expect_admin_ready=False),
-        DialogueScenario("no-stale-delivery-on-pickup", "stale_state", ["Клиент: доставка на ул. Старая", "Клиент: Нет, самовывоз, 5000 нежный сегодня"], must_contain=("самовывозом",), must_not_contain=("ул. старая", "получателя")),
-        DialogueScenario("numeric-budget-context", "order_flow", ["Менеджер: Подскажите бюджет", "Клиент: 5000"], must_contain=("оттенки",), must_not_contain=("бюджет",)),
+        DialogueScenario("discount-cautious", "risk_handoff", ["Клиент: А скидки бывают?"], expected_risk=RiskLevel.MEDIUM, must_not_contain=("подключается",)),
+        DialogueScenario("out-of-city-cautious", "risk_handoff", ["Клиент: Доставка за город ночью возможна?"] , expected_risk=RiskLevel.MEDIUM),
+        DialogueScenario("stock-unavailable", "stock", ["Клиент: Есть пионы?"], stock_context="По наличию на сегодня релевантно:\n- пионы — нет", expected_risk=RiskLevel.MEDIUM, must_contain=("пионы",), must_not_contain=("точно есть", "в наличии")),
+        DialogueScenario("stock-unknown-cautious", "stock", ["Клиент: Есть редкие пионы в наличии?"], expected_risk=RiskLevel.MEDIUM),
+        DialogueScenario("anonymous-low-risk", "order_flow", ["Клиент: Можно анонимно доставить?"], must_not_contain=("передам",), expected_next_step="ask_budget"),
+        DialogueScenario("new-order-reset-generic", "stale_state", ["Клиент: Нужен букет"], must_not_contain=("старый адрес", "15000"), expect_admin_ready=False, expected_next_step="ask_budget"),
+        DialogueScenario("no-stale-delivery-on-pickup", "stale_state", ["Клиент: доставка на ул. Старая", "Клиент: Нет, самовывоз, 5000 нежный сегодня"], must_not_contain=("ул. старая", "получателя"), expected_next_step="ask_pickup_time"),
+        DialogueScenario("numeric-budget-context", "order_flow", ["Менеджер: Подскажите бюджет", "Клиент: 5000"], expected_next_step="ask_bouquet_preferences"),
         DialogueScenario("payment-cash-pickup-ready", "pickup", ["Клиент: всё указал"], order_card=OrderCard.from_dict({**ready_pickup.to_dict(), "payment_method": "cash"}), must_contain=("итог заказа", "на месте"), expect_admin_ready=True),
         DialogueScenario("delivery-payment-handoff-summary", "delivery", ["Клиент: всё указал"], order_card=ready_delivery, must_contain=("он подтвердит",), must_not_contain=("заказ подтвержден", "оплату зафиксировала"), expect_admin_ready=True),
-        DialogueScenario("photo-with-budget-history", "media", ["Клиент: Хочу как на фото", "Клиент: [photo]"], must_contain=("вижу фото", "бюджет")),
-        DialogueScenario("safe-please-not-complaint", "order_flow", ["Клиент: Напишите пожалуйста, букет до 5000"], must_contain=("оттенки",), expected_risk=RiskLevel.LOW),
+        DialogueScenario("photo-with-budget-history", "media", ["Клиент: Хочу как на фото", "Клиент: [photo]"]),
+        DialogueScenario("safe-please-not-complaint", "order_flow", ["Клиент: Напишите пожалуйста, букет до 5000"], expected_risk=RiskLevel.LOW, expected_next_step="ask_bouquet_preferences"),
     ]
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run dialogue-quality evals and write a JSON report.")
     parser.add_argument("--output", default="reports/dialogue_eval_report.json", help="Path to JSON report")
     parser.add_argument("--live", action="store_true", help="Run against the configured live Gemini model instead of deterministic fallback")
     parser.add_argument("--cache", default="reports/dialogue_eval_live_cache.json", help="Raw live LLM reply cache path")
-    args = parser.parse_args()
+    parser.add_argument("--no-cache", action="store_true", help="Disable live eval cache reads and writes")
+    args = parser.parse_args(argv)
     llm = None
     cache_path = None
+    model_name = None
     if args.live:
         settings = Settings()
         if not settings.llm_api_key:
             raise SystemExit("LLM_API_KEY is required for --live")
         llm = GeminiClient(api_key=settings.llm_api_key, model=settings.llm_model)
         cache_path = args.cache
-    report = asyncio.run(write_dialogue_eval_report(args.output, llm=llm, cache_path=cache_path))
+        model_name = settings.llm_model
+    report = asyncio.run(
+        write_dialogue_eval_report(
+            args.output,
+            llm=llm,
+            cache_path=cache_path,
+            use_cache=not args.no_cache,
+            model_name=model_name,
+        )
+    )
     print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
-    if report["summary"]["failed"]:
+    if args.live and report["summary"]["failed"]:
+        _print_failure_table(report)
+    if report["summary"]["failed"] and not args.live:
         raise SystemExit(1)
+
+
+def _print_failure_table(report: dict[str, Any]) -> None:
+    failed = [result for result in report.get("results", []) if not result.get("passed")]
+    if not failed:
+        return
+    print("\nLive eval failures:")
+    for result in failed:
+        failed_checks = ", ".join(check["name"] for check in result.get("checks", []) if not check.get("passed"))
+        print(f"- {result.get('id')} [{result.get('category')}]: {failed_checks}")
 
 
 if __name__ == "__main__":
