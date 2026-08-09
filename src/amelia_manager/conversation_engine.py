@@ -54,6 +54,20 @@ class ConversationEngine:
                 risk_level=risk_level,
             )
 
+        if _is_photo_only(last_client_text):
+            return ConversationAction(
+                kind="send",
+                messages=["Вижу фото, могу ориентироваться на этот стиль. Подскажите, пожалуйста, бюджет?"],
+                risk_level=risk_level,
+            )
+
+        if _is_media_only(last_client_text):
+            return ConversationAction(
+                kind="send",
+                messages=["Вижу вложение. Напишите, пожалуйста, что именно нужно по заказу, и я помогу сориентироваться."],
+                risk_level=risk_level,
+            )
+
         if risk_level == RiskLevel.HIGH:
             return ConversationAction(
                 kind="human_takeover",
@@ -177,6 +191,14 @@ def _last_client_text(recent_messages: list[str]) -> str:
 def _is_thanks_only(text: str) -> bool:
     normalized = text.lower().replace("ё", "е").strip(" !?.")
     return normalized in {"спасибо", "спс", "благодарю", "хорошо спасибо", "ок спасибо"}
+
+
+def _is_photo_only(text: str) -> bool:
+    return text.strip().lower() == "[photo]"
+
+
+def _is_media_only(text: str) -> bool:
+    return text.strip().lower() == "[media]"
 
 
 def _format_order_card_context(card: OrderCard) -> str:

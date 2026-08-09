@@ -277,6 +277,16 @@ class IncomingMessage:
     outgoing: bool
 
 
+def event_text_with_media_placeholder(event) -> str:
+    text = (getattr(event, "raw_text", None) or "").strip()
+    placeholders: list[str] = []
+    if getattr(event, "photo", None) is not None:
+        placeholders.append("[photo]")
+    elif getattr(event, "media", None) is not None:
+        placeholders.append("[media]")
+    return "\n".join([part for part in [text, *placeholders] if part])
+
+
 class PerSenderDebounceProcessor:
     """Buffers rapid incoming messages and processes one serialized turn per sender."""
 
@@ -476,7 +486,7 @@ async def run_listener(settings: Settings) -> None:
         sender_id = int(sender.id)
         incoming = IncomingMessage(
             sender_id=sender_id,
-            text=event.raw_text or "",
+            text=event_text_with_media_placeholder(event),
             is_private=event.is_private,
             outgoing=bool(event.out),
         )
