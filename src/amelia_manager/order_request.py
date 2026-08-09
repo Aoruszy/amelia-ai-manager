@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, datetime
-from zoneinfo import ZoneInfo
-
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
+from amelia_manager.date_formatting import format_admin_date
 from amelia_manager.order_card import OrderCard
 
 
@@ -30,7 +28,7 @@ def format_admin_order_request(
         f"ID: {order_id}",
         f"Клиент Telegram: {client_label}",
         f"Тип: {fulfillment}",
-        f"Дата/время: {_fmt_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip(),
+        f"Дата/время: {format_admin_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip(),
         f"Бюджет: {card.budget} ₽" if card.budget else "Бюджет: не указан",
         f"Пожелания: {', '.join(card.colors) if card.colors else 'не указаны'}",
     ]
@@ -74,7 +72,7 @@ def _format_generic_admin_request(
     if case_type:
         lines.append(f"Тип: {case_type}")
     if card.delivery_date or card.delivery_time:
-        lines.append(f"Дата/время: {_fmt_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip())
+        lines.append(f"Дата/время: {format_admin_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip())
     if card.sender_name or card.sender_phone:
         lines.append(f"Клиент: {card.sender_name or 'не указан'}, {card.sender_phone or 'телефон не указан'}")
     if card.address:
@@ -86,23 +84,6 @@ def _format_generic_admin_request(
             lines.append(f"{key}: {value}")
     lines.append("Статус: нужно подтвердить детали")
     return "\n".join(lines)
-
-
-def _fmt_date(value: str | None, *, timezone_name: str = "Europe/Kaliningrad") -> str:
-    if not value:
-        return "не указано"
-    label = {"today": "сегодня", "tomorrow": "завтра"}.get(value, value)
-    try:
-        parsed = date.fromisoformat(value)
-    except ValueError:
-        return label
-    if parsed < _today_in_timezone(timezone_name):
-        return f"{label} ⚠️ дата в прошлом"
-    return label
-
-
-def _today_in_timezone(timezone_name: str) -> date:
-    return datetime.now(ZoneInfo(timezone_name)).date()
 
 
 def _fmt_bool(value: bool | None) -> str:

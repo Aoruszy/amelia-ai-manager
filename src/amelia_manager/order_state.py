@@ -266,6 +266,7 @@ def _extract_address(text: str) -> str | None:
     for line in text.splitlines():
         lowered = line.lower().replace("ё", "е")
         has_delivery_word = bool(re.search(r"\b(?:достав\w*|привез\w*)\b", lowered))
+        has_street_prefix = bool(re.search(r"\b(ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", lowered))
         if has_delivery_word:
             seen_delivery_context = True
 
@@ -281,7 +282,7 @@ def _extract_address(text: str) -> str | None:
 
         if _phones(line) or any(marker in lowered for marker in ("получатель", "отправитель")):
             continue
-        if not has_delivery_word and re.search(r"\b(?:бюджет|до)\s*\d{3,6}\b", lowered):
+        if not has_street_prefix and re.search(r"\b(?:бюджет|до)\s*\d{3,6}\b", lowered):
             continue
         if re.fullmatch(r"\s*(к\s*)?\d{1,2}[:.]\d{2}\s*(можно)?\??\s*", lowered):
             continue
@@ -292,7 +293,6 @@ def _extract_address(text: str) -> str | None:
         if has_delivery_word and not re.search(r"\b(?:ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", lowered) and re.search(r"\b(сегодня|завтра)\b", lowered) and re.search(r"\b\d{1,2}[:.]?\d{0,2}\b", lowered):
             continue
 
-        has_street_prefix = bool(re.search(r"\b(ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", lowered))
         address_pattern = r"[А-Яа-яЁёA-Za-z.\- ]+\s+\d+[А-Яа-яA-Za-z0-9/\-]*(?:\s*(?:кв|квартира|офис|подъезд|корпус|к|стр)\.?\s*\d+[А-Яа-яA-Za-z0-9/\-]*)*"
         may_be_bare_address = seen_delivery_context and bool(re.search(address_pattern, line, re.IGNORECASE))
         if not (has_delivery_word or has_street_prefix or may_be_bare_address):
@@ -310,6 +310,7 @@ def _extract_address(text: str) -> str | None:
 def _clean_address_candidate(candidate: str) -> str:
     candidate = re.split(r",\s*(?:сегодня|завтра|к\s+\d{1,2}[:.]?\d{0,2}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))\b", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
     candidate = re.sub(r"^(?:на\s+)", "", candidate.strip(" ,."), flags=re.IGNORECASE)
+    candidate = re.sub(r"^улиц[уе]\b", "улица", candidate, flags=re.IGNORECASE)
     return candidate.strip(" ,.")
 
 
