@@ -89,7 +89,13 @@ async def update_active_order_from_messages_with_llm(
         active = None
     order = active or repo.get_or_create_active_order(client_id=client_id)
     messages_for_extraction = _messages_for_order_extraction(order.card, recent_messages)
-    extracted = await extract_order_state_with_llm(llm, messages_for_extraction, company_profile=company_profile)
+    profile = company_profile or load_company_profile("amelia_flowers")
+    extracted = await extract_order_state_with_llm(
+        llm,
+        messages_for_extraction,
+        company_profile=profile,
+        timezone_name=profile.timezone_name,
+    )
     card = merge_order_state(order.card, extracted)
     repo.update_order_card(order_id=order.id, card=card)
     return card

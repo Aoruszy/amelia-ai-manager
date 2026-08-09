@@ -173,6 +173,16 @@ def _extract_colors(text: str) -> list[str]:
         preferences.append("яркий стиль")
     if re.search(r"\bкорзин\w*", text):
         preferences.append("корзина")
+    product_patterns = (
+        ("розы", r"\bроз(?:ы|а|у|ами|ах)?\b"),
+        ("пионы", r"\bпион\w*\b"),
+        ("тюльпаны", r"\bтюльпан\w*\b"),
+        ("хризантемы", r"\bхризантем\w*\b"),
+        ("гортензии", r"\bгортензи\w*\b"),
+    )
+    for label, pattern in product_patterns:
+        if re.search(pattern, text) and label not in preferences:
+            preferences.append(label)
     return preferences
 
 

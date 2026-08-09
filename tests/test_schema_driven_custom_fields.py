@@ -51,7 +51,7 @@ async def test_llm_extractor_uses_company_profile_custom_fields_without_florist_
     )
 
     assert state.custom_fields == {"service": "чистка зубов", "patient_name": "Ирина"}
-    assert state.delivery_date == "12 августа"
+    assert state.delivery_date == "2026-08-12"
     assert state.delivery_time == "15:00"
     assert "service" in llm.prompt
     assert "patient_name" in llm.prompt

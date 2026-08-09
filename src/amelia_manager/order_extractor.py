@@ -45,8 +45,10 @@ async def extract_order_state_with_llm(
     recent_messages: list[str],
     *,
     company_profile: CompanyProfile | None = None,
+    today=None,
+    timezone_name: str = "Europe/Kaliningrad",
 ) -> OrderState:
-    regex_state = extract_order_state(recent_messages)
+    regex_state = extract_order_state(recent_messages, today=today, timezone_name=timezone_name)
     try:
         raw = await llm.generate(_build_extraction_prompt(recent_messages, company_profile=company_profile))
         llm_state = ExtractedOrderState.model_validate(_parse_json_object(raw)).to_state()
@@ -89,9 +91,18 @@ def _parse_json_object(raw: str) -> dict:
 
 def _merge_states(regex_state: OrderState, llm_state: OrderState) -> OrderState:
     # Reuse OrderCard's merge semantics, then convert back to OrderState.
+    protected_regex_fields = {
+        "delivery_date": regex_state.delivery_date,
+        "delivery_time": regex_state.delivery_time,
+        "budget": regex_state.budget,
+        "fulfillment_type": regex_state.fulfillment_type,
+    }
     merged_card = merge_order_state(OrderCard(), regex_state)
     merged_card = merge_order_state(merged_card, llm_state)
     data = merged_card.to_dict()
+    for field, value in protected_regex_fields.items():
+        if value not in (None, "", [], {}):
+            data[field] = value
     data.pop("admin_request_sent", None)
     data.pop("client_summary_sent", None)
     return OrderState(**data)
