@@ -36,3 +36,28 @@ def test_prompt_uses_injected_company_profile_instead_of_hardcoded_amelia():
     assert "не ставить диагноз по переписке" in prompt
     assert "Amelia Flowers" not in prompt
     assert "цветочного магазина" not in prompt
+
+
+def test_prompt_includes_profile_product_categories_and_faq():
+    profile = CompanyProfile(
+        company_name="Test Flowers",
+        manager_name="Алина",
+        business_type="florist",
+        city="Калининград",
+        tone="коротко",
+        services=["букеты"],
+        product_categories=("монобукеты", "корзины"),
+        faq={"anonymous": "Анонимная доставка возможна, если имя отправителя не указано в открытке."},
+    )
+
+    prompt = build_manager_prompt(
+        client_summary="Новый клиент",
+        recent_messages=["Клиент: Можно анонимно доставить?"],
+        stage="new_lead",
+        risk_level=RiskLevel.LOW,
+        company_profile=profile,
+    )
+
+    assert "монобукеты" in prompt
+    assert "корзины" in prompt
+    assert "Анонимная доставка возможна" in prompt

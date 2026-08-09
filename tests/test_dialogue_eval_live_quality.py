@@ -104,6 +104,20 @@ async def test_live_eval_structural_checks_catch_reasking_known_fields_and_inven
 
 
 @pytest.mark.asyncio
+async def test_live_eval_allows_numbers_from_recent_messages():
+    llm = CountingLLM("Можно собрать в пределах 3000 ₽. Какие оттенки нравятся?")
+
+    report = await run_dialogue_eval(
+        [DialogueScenario("known-input-number", "order_flow", ["Клиент: букет маме до 3000"] )],
+        llm=llm,
+        use_cache=False,
+    )
+
+    checks = {check["name"]: check for check in report["results"][0]["checks"]}
+    assert checks["no_invented_numbers"]["passed"] is True
+
+
+@pytest.mark.asyncio
 async def test_live_eval_report_records_model_name(tmp_path):
     output_path = tmp_path / "report.json"
     report = await write_dialogue_eval_report(

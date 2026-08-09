@@ -97,6 +97,7 @@ def test_admin_request_does_not_mark_same_profile_day_as_past(monkeypatch):
 def test_address_validator_accepts_real_addresses_from_llm_live_path():
     assert looks_like_address("Ленинский проспект 12") is True
     assert looks_like_address("Гайдара 173") is True
+    assert looks_like_address("Сергеева, 61") is True
     assert looks_like_address("ул. Озерная 7") is True
     assert looks_like_address("улица Гагарина 3") is True
 

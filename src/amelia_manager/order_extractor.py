@@ -77,7 +77,7 @@ def looks_like_address(value: str | None) -> bool:
     if re.search(r"\b\d{1,2}[:.]\d{2}\b", normalized):
         return False
     has_street_marker = bool(re.search(r"\b(?:ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", normalized))
-    has_word_number_pair = bool(re.search(r"\b[а-яa-z.\-]{2,}\s+\d+[а-яa-z0-9/\-]*\b", normalized))
+    has_word_number_pair = bool(re.search(r"\b[а-яa-z.\-]{2,},?\s+\d+[а-яa-z0-9/\-]*\b", normalized))
     return has_street_marker or has_word_number_pair
 
 

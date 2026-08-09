@@ -39,6 +39,7 @@ def build_manager_prompt(
     rules = "\n".join(f"- {rule};" for rule in profile.business_rules)
     operations = _operations_block(profile, facts)
     minimum_fields = _required_fields_block(profile)
+    knowledge_block = _knowledge_block(profile)
     domain_rules = _domain_rules_block(profile)
     example = _example_block(profile)
 
@@ -96,6 +97,9 @@ def build_manager_prompt(
 Минимум для оформления по профилю:
 {minimum_fields}
 
+Знания профиля:
+{knowledge_block}
+
 Пример нужного стиля:
 {example}
 
@@ -147,6 +151,15 @@ def _required_fields_block(profile: CompanyProfile) -> str:
         labels = ", ".join(field.label for field in fields if field.required)
         lines.append(f"- {case_type}: {labels}")
     return "\n".join(lines) if lines else "- обязательные поля не заданы"
+
+
+def _knowledge_block(profile: CompanyProfile) -> str:
+    lines: list[str] = []
+    if profile.product_categories:
+        lines.append("- Категории/варианты: " + ", ".join(profile.product_categories))
+    for topic, answer in profile.faq.items():
+        lines.append(f"- FAQ {topic}: {answer}")
+    return "\n".join(lines) if lines else "- дополнительных FAQ и категорий нет"
 
 
 def _domain_rules_block(profile: CompanyProfile) -> str:

@@ -281,6 +281,7 @@ def _check_no_invented_numbers(output: str, *, scenario: DialogueScenario, compa
         str(part)
         for part in (
             scenario.order_card.to_dict() if scenario.order_card else {},
+            "\n".join(scenario.recent_messages),
             scenario.stock_context or "",
             company_profile.free_delivery_from or "",
             company_profile.delivery_city_price or "",

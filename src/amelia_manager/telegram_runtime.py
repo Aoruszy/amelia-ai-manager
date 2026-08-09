@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import re
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time
+from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient, events
 from telethon.tl.types import SendMessageTypingAction
@@ -507,14 +509,20 @@ async def send_typing_and_messages(
     sender_id: int,
     messages: list[str],
     initial_delay: float,
+    max_initial_delay: float | None = None,
     between_delay: float = 1.5,
     max_chars: int = 400,
+    sleep=asyncio.sleep,
+    random_between=random.uniform,
 ) -> None:
+    actual_initial_delay = initial_delay
+    if max_initial_delay is not None and max_initial_delay > initial_delay:
+        actual_initial_delay = random_between(initial_delay, max_initial_delay)
     async with client.action(sender_id, SendMessageTypingAction()):
-        await asyncio.sleep(initial_delay)
+        await sleep(actual_initial_delay)
     for message in messages:
         await client.send_message(sender_id, _limit_reply_chars(message, max_chars=max_chars))
-        await asyncio.sleep(between_delay)
+        await sleep(between_delay)
 
 
 def _limit_reply_chars(message: str, *, max_chars: int) -> str:
@@ -523,6 +531,25 @@ def _limit_reply_chars(message: str, *, max_chars: int) -> str:
     if max_chars <= 1:
         return "…"[:max_chars]
     return message[: max_chars - 1].rstrip() + "…"
+
+
+def is_within_work_hours(now: datetime, *, settings: Settings) -> bool:
+    start = _parse_hhmm(settings.work_hours_start)
+    end = _parse_hhmm(settings.work_hours_end)
+    current = now.timetz().replace(tzinfo=None)
+    if start <= end:
+        return start <= current <= end
+    return current >= start or current <= end
+
+
+def build_off_hours_reply(*, settings: Settings) -> str:
+    opening = settings.work_hours_start.lstrip("0") or settings.work_hours_start
+    return f"Сейчас менеджер не на связи. Ответим с {opening}, как только начнётся рабочий день."
+
+
+def _parse_hhmm(value: str) -> time:
+    hour_text, minute_text = value.split(":", 1)
+    return time(hour=int(hour_text), minute=int(minute_text))
 
 
 async def run_listener(settings: Settings) -> None:
@@ -553,6 +580,23 @@ async def run_listener(settings: Settings) -> None:
         db_client = repo.upsert_client(telegram_id=sender_id, username=username)
         for text in texts:
             repo.add_message(client_id=db_client.id, direction="in", text=text)
+        now = datetime.now(ZoneInfo(company_profile.timezone_name))
+        if settings.auto_reply_enabled and not is_within_work_hours(now, settings=settings):
+            reply = build_off_hours_reply(settings=settings)
+            await send_typing_and_messages(
+                client,
+                sender_id=sender_id,
+                messages=[reply],
+                initial_delay=settings.min_reply_delay_seconds,
+                max_initial_delay=settings.max_reply_delay_seconds,
+                max_chars=settings.max_reply_chars,
+            )
+            repo.add_message(
+                client_id=db_client.id,
+                direction="out",
+                text=_limit_reply_chars(reply, max_chars=settings.max_reply_chars),
+            )
+            return
         recent_db_messages = repo.list_messages(
             client_id=db_client.id,
             limit=settings.conversation_history_limit,
@@ -626,6 +670,7 @@ async def run_listener(settings: Settings) -> None:
                 sender_id=sender_id,
                 messages=action.messages,
                 initial_delay=settings.min_reply_delay_seconds,
+                max_initial_delay=settings.max_reply_delay_seconds,
                 max_chars=settings.max_reply_chars,
             )
             for message in action.messages:

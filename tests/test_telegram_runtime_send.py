@@ -32,3 +32,25 @@ async def test_send_typing_and_messages_uses_action_context_manager():
     assert (123, "SendMessageTypingAction") in client.actions
     assert ("entered", None) in client.actions
     assert client.sent == [(123, "Привет")]
+
+
+@pytest.mark.asyncio
+async def test_send_typing_and_messages_uses_random_delay_between_min_and_max():
+    client = FakeClient()
+    sleeps = []
+
+    async def fake_sleep(value):
+        sleeps.append(value)
+
+    await send_typing_and_messages(
+        client,
+        sender_id=123,
+        messages=["Привет"],
+        initial_delay=12,
+        max_initial_delay=90,
+        between_delay=0,
+        sleep=fake_sleep,
+        random_between=lambda left, right: 42,
+    )
+
+    assert sleeps[0] == 42
