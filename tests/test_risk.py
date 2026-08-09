@@ -35,4 +35,24 @@ def test_risk_assessment_categories_are_specific():
     assert assess_risk("Мне привезли не то, хочу возврат").category == RiskCategory.COMPLAINT_REFUND
     assert assess_risk("Нужен корпоративный заказ на 40 букетов").category == RiskCategory.CUSTOM_ORDER
     assert assess_risk("Есть редкие пионы в наличии прямо сейчас?").category == RiskCategory.STOCK_UNCERTAINTY
+
+
+def test_manager_payment_and_guarantee_requests_are_risky():
+    manager = assess_risk("Позовите живого менеджера")
+    assert manager.level == RiskLevel.HIGH
+    assert manager.category == RiskCategory.HUMAN_MANAGER_REQUEST
+
+    payment = assess_risk("Я перевёл деньги, всё оплачено, подтвердите заказ")
+    assert payment.level == RiskLevel.HIGH
+    assert payment.category == RiskCategory.PAYMENT_CONFIRMATION_WITHOUT_MANAGER
+
+    guarantee = assess_risk("Белые розы точно будут? Гарантируете?")
+    assert guarantee.level == RiskLevel.MEDIUM
+    assert guarantee.category == RiskCategory.GUARANTEE_REQUEST
+
+
+def test_funeral_or_condolence_occasions_use_sensitive_tone():
+    sensitive = assess_risk("Нужен венок на похороны, завтра к 10:00")
+    assert sensitive.level == RiskLevel.MEDIUM
+    assert sensitive.category == RiskCategory.SENSITIVE_OCCASION
     assert assess_risk("Доставка ночью за город возможна?").category == RiskCategory.OUT_OF_AREA_DELIVERY

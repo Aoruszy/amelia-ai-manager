@@ -390,16 +390,21 @@ def main(argv: list[str] | None = None) -> None:
     llm = None
     cache_path = None
     model_name = None
+    scenarios = None
     if args.live:
+        from amelia_manager.live_scenarios import build_live_scenarios
+
         settings = Settings()
         if not settings.llm_api_key:
             raise SystemExit("LLM_API_KEY is required for --live")
         llm = GeminiClient(api_key=settings.llm_api_key, model=settings.llm_model)
         cache_path = args.cache
         model_name = settings.llm_model
+        scenarios = build_default_scenarios() + build_live_scenarios()
     report = asyncio.run(
         write_dialogue_eval_report(
             args.output,
+            scenarios,
             llm=llm,
             cache_path=cache_path,
             use_cache=not args.no_cache,

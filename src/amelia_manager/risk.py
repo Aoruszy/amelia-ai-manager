@@ -21,6 +21,10 @@ class RiskCategory(StrEnum):
     CUSTOM_ORDER = "custom_order"
     STOCK_UNCERTAINTY = "stock_uncertainty"
     CONVERSATION_CONFLICT = "conversation_conflict"
+    HUMAN_MANAGER_REQUEST = "human_manager_request"
+    PAYMENT_CONFIRMATION_WITHOUT_MANAGER = "payment_confirmation_without_manager"
+    GUARANTEE_REQUEST = "guarantee_request"
+    SENSITIVE_OCCASION = "sensitive_occasion"
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,23 @@ _CATEGORY_PATTERNS: tuple[tuple[RiskCategory, RiskLevel, tuple[re.Pattern[str], 
             re.compile(r"\bбред\b"),
             re.compile(r"\bерунда\b"),
             re.compile(r"\bчто\s+вы\s+мне\s+пиш(?:ете|ите)\b"),
+        ),
+    ),
+    (
+        RiskCategory.HUMAN_MANAGER_REQUEST,
+        RiskLevel.HIGH,
+        (
+            re.compile(r"\b(?:позовите|позови|пригласите|пригласи|подключите|подключи)\s+(?:жив\w+\s+)?менеджер\w*\b"),
+            re.compile(r"\b(?:нужен|нужна|хочу)\s+(?:жив\w+\s+)?менеджер\w*\b"),
+        ),
+    ),
+    (
+        RiskCategory.PAYMENT_CONFIRMATION_WITHOUT_MANAGER,
+        RiskLevel.HIGH,
+        (
+            re.compile(r"\b(?:я\s+)?(?:перев[её]л|перевела|оплатил|оплатила)\w*\b"),
+            re.compile(r"\bвс[её]\s+оплачен\w*\b"),
+            re.compile(r"\bподтвердите\s+заказ\b"),
         ),
     ),
     (
@@ -96,6 +117,24 @@ _CATEGORY_PATTERNS: tuple[tuple[RiskCategory, RiskLevel, tuple[re.Pattern[str], 
         (
             re.compile(r"\bв\s+наличии\b"),
             re.compile(r"\bточно\s+есть\b"),
+        ),
+    ),
+    (
+        RiskCategory.GUARANTEE_REQUEST,
+        RiskLevel.MEDIUM,
+        (
+            re.compile(r"\bгарантир\w*\b"),
+            re.compile(r"\bточно\s+буд\w*\b"),
+        ),
+    ),
+    (
+        RiskCategory.SENSITIVE_OCCASION,
+        RiskLevel.MEDIUM,
+        (
+            re.compile(r"\bпохорон\w*\b"),
+            re.compile(r"\bтраур\w*\b"),
+            re.compile(r"\bвенок\b"),
+            re.compile(r"\bсоболезн\w*\b"),
         ),
     ),
 )

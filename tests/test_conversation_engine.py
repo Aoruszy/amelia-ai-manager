@@ -47,6 +47,39 @@ async def test_engine_hands_off_high_risk_without_calling_llm():
 
 
 @pytest.mark.asyncio
+async def test_sensitive_occasion_uses_calm_reply_without_emoji():
+    action = await ConversationEngine(FakeLLM()).handle_messages(
+        client_summary="Клиент",
+        recent_messages=["Клиент: Нужен венок на похороны, завтра к 10:00"],
+        stage="new",
+    )
+
+    text = action.messages[0].lower()
+    assert action.kind == "send"
+    assert action.risk_level == RiskLevel.MEDIUM
+    assert "подскажите" in text
+    assert "🌸" not in text
+    assert "ярк" not in text
+    assert "нежн" not in text
+
+
+@pytest.mark.asyncio
+async def test_guarantee_request_gets_cautious_reply_without_promise():
+    action = await ConversationEngine(FakeLLM()).handle_messages(
+        client_summary="Клиент",
+        recent_messages=["Клиент: Белые розы точно будут? Гарантируете?"],
+        stage="new",
+    )
+
+    text = action.messages[0].lower()
+    assert action.kind == "send"
+    assert action.risk_level == RiskLevel.MEDIUM
+    assert "уточ" in text
+    assert "гарантир" not in text
+    assert "точно будут" not in text
+
+
+@pytest.mark.asyncio
 async def test_engine_hands_off_unsafe_llm_reply():
     class UnsafeLLM:
         async def generate(self, prompt: str) -> str:

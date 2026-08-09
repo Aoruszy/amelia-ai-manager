@@ -257,6 +257,10 @@ def _cautious_reply_for_medium_risk(
         return "По такой доставке лучше уточню у менеджера: зависит от адреса и времени. Напишите, пожалуйста, куда и на когда нужно."
     if category == RiskCategory.STOCK_UNCERTAINTY and not stock_context:
         return f"По наличию лучше уточню у менеджера, чтобы не пообещать лишнего. {profile.alternative_offer_text}."
+    if category == RiskCategory.GUARANTEE_REQUEST:
+        return "Уточню у менеджера по наличию и возможности собрать именно такой вариант, чтобы не пообещать лишнего."
+    if category == RiskCategory.SENSITIVE_OCCASION:
+        return "Понимаю. Подскажите, пожалуйста, бюджет и удобный формат: самовывоз или доставка."
     return None
 
 
