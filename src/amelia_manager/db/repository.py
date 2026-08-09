@@ -4,7 +4,7 @@ import sqlite3
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -38,6 +38,12 @@ class OrderRecord:
     card: OrderCard
     created_at: str
     updated_at: str
+
+
+@dataclass(frozen=True)
+class RetentionCleanupResult:
+    deleted_messages: int = 0
+    anonymized_orders: int = 0
 
 
 def path_from_sqlite_url(database_url: str) -> Path:
@@ -264,6 +270,60 @@ class SQLiteRepository:
                 (status, client_id),
             )
 
+    def cleanup_pii_older_than(
+        self,
+        *,
+        retention_days: int,
+        now: datetime | None = None,
+    ) -> RetentionCleanupResult:
+        """Delete old message history and anonymize PII in old completed orders."""
+        if retention_days < 1:
+            raise ValueError("retention_days must be >= 1")
+        reference_time = now or datetime.now(timezone.utc)
+        if reference_time.tzinfo is not None:
+            reference_time = reference_time.astimezone(timezone.utc).replace(tzinfo=None)
+        cutoff_text = (reference_time - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+
+        with self._connect() as conn:
+            deleted_messages = conn.execute("DELETE FROM messages WHERE datetime(created_at) < datetime(?)", (cutoff_text,)).rowcount
+            rows = conn.execute(
+                """
+                SELECT id, card_json
+                FROM orders
+                WHERE datetime(updated_at) < datetime(?)
+                  AND (status != 'active'
+                       OR json_extract(card_json, '$.admin_request_sent') = 1
+                       OR json_extract(card_json, '$.client_summary_sent') = 1)
+                """,
+                (cutoff_text,),
+            ).fetchall()
+            anonymized_orders = 0
+            for row in rows:
+                card = OrderCard.from_dict(json.loads(row["card_json"] or "{}"))
+                anonymized = _anonymize_order_card(card)
+                if anonymized.to_dict() == card.to_dict():
+                    continue
+                conn.execute(
+                    "UPDATE orders SET card_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (json.dumps(anonymized.to_dict(), ensure_ascii=False), row["id"]),
+                )
+                anonymized_orders += 1
+        return RetentionCleanupResult(
+            deleted_messages=max(deleted_messages, 0),
+            anonymized_orders=anonymized_orders,
+        )
+
+    def delete_client_data_by_telegram_id(self, telegram_id: int) -> bool:
+        """Delete one client's messages and orders for manual data-erasure requests."""
+        client = self.get_client_by_telegram_id(telegram_id)
+        if client is None:
+            return False
+        with self._connect() as conn:
+            conn.execute("DELETE FROM messages WHERE client_id = ?", (client.id,))
+            conn.execute("DELETE FROM orders WHERE client_id = ?", (client.id,))
+            conn.execute("DELETE FROM clients WHERE id = ?", (client.id,))
+        return True
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -306,3 +366,27 @@ class SQLiteRepository:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+
+def _anonymize_order_card(card: OrderCard) -> OrderCard:
+    return OrderCard(
+        occasion=card.occasion,
+        budget=card.budget,
+        colors=card.colors,
+        forbidden_flowers=card.forbidden_flowers,
+        fulfillment_type=card.fulfillment_type,
+        delivery_date=card.delivery_date,
+        delivery_time=card.delivery_time,
+        address=None,
+        sender_name=None,
+        sender_phone=None,
+        recipient_name=None,
+        recipient_phone=None,
+        payment_method=card.payment_method,
+        postcard_text=None,
+        anonymous=card.anonymous,
+        photo_report_requested=card.photo_report_requested,
+        custom_fields={},
+        admin_request_sent=card.admin_request_sent,
+        client_summary_sent=card.client_summary_sent,
+    )

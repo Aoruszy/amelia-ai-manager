@@ -380,6 +380,13 @@ async def run_listener(settings: Settings) -> None:
     engine = ConversationEngine(llm, company_profile=company_profile)
     repo = SQLiteRepository(path_from_sqlite_url(settings.database_url))
     repo.initialize()
+    cleanup_result = repo.cleanup_pii_older_than(retention_days=settings.pii_retention_days)
+    if cleanup_result.deleted_messages or cleanup_result.anonymized_orders:
+        print(
+            "PII retention cleanup: "
+            f"deleted_messages={cleanup_result.deleted_messages}, "
+            f"anonymized_orders={cleanup_result.anonymized_orders}"
+        )
 
     sender_usernames: dict[int, str | None] = {}
 

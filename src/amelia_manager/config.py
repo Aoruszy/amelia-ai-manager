@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     message_buffer_seconds: int = Field(default=20, ge=0)
     conversation_history_limit: int = Field(default=20, ge=1, le=30)
     conversation_memory_days: int = Field(default=7, ge=1, le=30)
+    pii_retention_days: int = Field(default=30, ge=1, le=3650)
     max_reply_chars: int = Field(default=400, ge=100, le=1000)
     work_hours_start: str = "09:00"
     work_hours_end: str = "20:00"

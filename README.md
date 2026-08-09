@@ -32,3 +32,27 @@ Never commit runtime secrets or customer data. The repository intentionally igno
 - Python/test caches
 
 Use `AUTO_REPLY_ENABLED=false` for dry-runs. In dry-run mode the runtime should not send customer/admin messages or mark admin requests as sent.
+
+## Privacy and retention
+
+Runtime data is stored locally in the SQLite database configured by `DATABASE_URL` (default: `data/amelia_manager.sqlite3`). This can include Telegram IDs/usernames, message history, order cards, phone numbers, names, addresses, postcard text, and company stock notes. Keep `data/` out of git and restrict access on the deployment host.
+
+`PII_RETENTION_DAYS` controls automatic cleanup at listener startup:
+
+- messages older than the retention window are deleted;
+- old completed/sent order cards are anonymized by clearing names, phones, delivery address, postcard text, and profile-specific `custom_fields`;
+- recent active orders are kept intact so the manager can continue the current conversation.
+
+Default retention is 30 days. For manual deletion requests, use the repository erasure helper from a maintenance shell:
+
+```bash
+uv run python - <<'PY'
+from amelia_manager.config import Settings
+from amelia_manager.db.repository import SQLiteRepository, path_from_sqlite_url
+
+repo = SQLiteRepository(path_from_sqlite_url(Settings().database_url))
+print(repo.delete_client_data_by_telegram_id(123456789))
+PY
+```
+
+Replace `123456789` with the customer's Telegram ID. The helper removes that client's messages, orders, and client row.
