@@ -333,6 +333,38 @@ class IncomingMessage:
     outgoing: bool
 
 
+async def send_admin_order_request_if_ready(
+    telegram_client,
+    *,
+    repo: SQLiteRepository,
+    order: OrderRecord,
+    admin_chat_id: int,
+    client_label: str,
+    company_profile: CompanyProfile | None = None,
+) -> bool:
+    admin_order_text = build_admin_order_request_if_needed(
+        repo,
+        order=order,
+        client_label=client_label,
+        company_profile=company_profile,
+        mark_sent=False,
+    )
+    if not admin_order_text:
+        return False
+    await telegram_client.send_message(admin_chat_id, admin_order_text)
+    repo.update_order_card(
+        order_id=order.id,
+        card=OrderCard.from_dict(
+            {
+                **order.card.to_dict(),
+                "admin_request_sent": True,
+                "client_summary_sent": True,
+            }
+        ),
+    )
+    return True
+
+
 def event_text_with_media_placeholder(event) -> str:
     text = (getattr(event, "raw_text", None) or "").strip()
     placeholders: list[str] = []
@@ -530,14 +562,14 @@ async def run_listener(settings: Settings) -> None:
         client_label = f"@{username} / {sender_id}" if username else str(sender_id)
         active_order = repo.get_active_order(client_id=db_client.id)
         if active_order and settings.auto_reply_enabled:
-            admin_order_text = build_admin_order_request_if_needed(
-                repo,
+            await send_admin_order_request_if_ready(
+                client,
+                repo=repo,
                 order=active_order,
+                admin_chat_id=settings.admin_chat_id,
                 client_label=client_label,
                 company_profile=company_profile,
             )
-            if admin_order_text:
-                await client.send_message(settings.admin_chat_id, admin_order_text)
 
         if settings.auto_reply_enabled and action.kind in {"human_takeover", "human_review"}:
             await client.send_message(
