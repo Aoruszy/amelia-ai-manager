@@ -30,6 +30,18 @@ class OrderCard:
     admin_request_sent: bool = False
     client_summary_sent: bool = False
 
+    @property
+    def product_preferences(self) -> list[str]:
+        return self.colors
+
+    @property
+    def excluded_items(self) -> list[str]:
+        return self.forbidden_flowers
+
+    @property
+    def note_text(self) -> str | None:
+        return self.postcard_text
+
     def is_ready_for_admin_request(self) -> bool:
         common_ready = all(
             [

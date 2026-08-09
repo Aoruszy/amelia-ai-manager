@@ -6,6 +6,8 @@ from amelia_manager.order_card import OrderCard
 
 def format_client_order_summary(card: OrderCard, *, company_profile: CompanyProfile | None = None) -> str:
     profile = company_profile or load_company_profile("amelia_flowers")
+    if profile.business_type != "florist":
+        return _format_generic_client_summary(card, profile=profile)
     product_label = "Букет" if profile.business_type == "florist" else "Заказ"
     if card.fulfillment_type == "pickup":
         pickup_address = profile.pickup_address or "адрес самовывоза не указан"
@@ -47,3 +49,26 @@ def _fmt_payment(value: str | None) -> str:
 
 def _fmt_list(values: list[str]) -> str:
     return ", ".join(values) if values else "пожелания не указаны"
+
+
+def _format_generic_client_summary(card: OrderCard, *, profile: CompanyProfile) -> str:
+    lines = ["Итог заявки:"]
+    if card.fulfillment_type == "pickup":
+        lines.append(f"• Формат: Самовывоз с {profile.pickup_address or 'адрес самовывоза не указан'}")
+    elif card.fulfillment_type == "delivery":
+        lines.append("• Формат: Доставка")
+    if card.delivery_date or card.delivery_time:
+        lines.append(f"• Время: {_fmt_date(card.delivery_date)} {card.delivery_time or ''}".strip())
+    if card.address:
+        lines.append(f"• Адрес: {card.address}")
+    if card.budget:
+        lines.append(f"• Бюджет: {card.budget} ₽")
+    if card.sender_name or card.sender_phone:
+        lines.append(f"• Контакт: {card.sender_name or 'не указано'}, {card.sender_phone or 'телефон не указан'}")
+    if card.colors:
+        lines.append(f"• Заказ: {_fmt_list(card.colors)}")
+    for key, value in card.custom_fields.items():
+        if value not in (None, "", [], {}):
+            lines.append(f"• {key}: {value}")
+    lines.append(f"Передаю заявку менеджеру {profile.manager_name}: он подтвердит детали 🌸")
+    return "\n".join(lines)

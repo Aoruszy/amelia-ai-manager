@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from amelia_manager.company_profile import CompanyProfile
+from amelia_manager.order_card import _business_field_value
 from amelia_manager.order_state import OrderState
 
 
@@ -12,7 +14,21 @@ class NextStep:
     instruction: str
 
 
-def get_next_step(state: OrderState) -> NextStep:
+def get_next_step(
+    state: OrderState,
+    *,
+    company_profile: CompanyProfile | None = None,
+    case_type: str | None = None,
+) -> NextStep:
+    if company_profile is not None and company_profile.business_type != "florist":
+        profile_step = _profile_next_step(state, company_profile, case_type=case_type)
+        if profile_step:
+            return profile_step
+        return NextStep(
+            "confirm_profile_case",
+            "Данные заявки по профилю собраны. Коротко дай итог и скажи, что передаёшь менеджеру для подтверждения.",
+        )
+
     if not state.budget:
         return NextStep("ask_budget", "Уточни бюджет одним коротким вопросом.")
     if not state.colors:
@@ -53,6 +69,22 @@ def get_next_step(state: OrderState) -> NextStep:
         "ask_anonymous_or_payment",
         "Данные по заказу собраны. Уточни, доставка будет анонимной или можно сказать от кого букет, и какой способ оплаты удобен.",
     )
+
+
+def _profile_next_step(state: OrderState, profile: CompanyProfile, *, case_type: str | None) -> NextStep | None:
+    selected_case_type = case_type or _first_case_type(profile)
+    if not selected_case_type:
+        return None
+    for field in profile.required_fields.get(selected_case_type, []):
+        if not field.required:
+            continue
+        if _business_field_value(state, field.code) in (None, "", [], {}):
+            return NextStep(f"ask_{field.code}", f"Уточни поле «{field.label}» одним коротким вопросом.")
+    return None
+
+
+def _first_case_type(profile: CompanyProfile) -> str | None:
+    return next(iter(profile.required_fields), None)
 
 
 def _is_pickup_time_within_shop_hours(value: str | None) -> bool:

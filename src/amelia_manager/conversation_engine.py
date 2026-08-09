@@ -10,6 +10,7 @@ from amelia_manager.emoji_variation import vary_reply_emoji
 from amelia_manager.humanizer import split_into_telegram_messages
 from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
+from amelia_manager.model_decision import parse_model_decision
 from amelia_manager.order_card import OrderCard
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
@@ -84,7 +85,7 @@ class ConversationEngine:
             )
 
         order_state = order_card or extract_order_state(recent_messages)
-        next_step = get_next_step(order_state)
+        next_step = get_next_step(order_state, company_profile=self.company_profile)
 
         prompt = build_manager_prompt(
             client_summary=client_summary,
@@ -119,6 +120,17 @@ class ConversationEngine:
                 safety_reasons=["llm_error"],
             )
         safety = check_reply_safety(reply)
+        decision = parse_model_decision(reply)
+        if decision is not None:
+            reply = decision.reply
+            if decision.needs_human:
+                return ConversationAction(
+                    kind="human_review",
+                    messages=_finalize_messages(reply),
+                    risk_level=risk_level,
+                    safety_reasons=["model_decision_needs_human"],
+                )
+            safety = check_reply_safety(reply)
         if not safety.is_safe:
             try:
                 rewrite_prompt = (

@@ -25,6 +25,18 @@ class OrderState:
     photo_report_requested: bool | None = None
     custom_fields: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def product_preferences(self) -> list[str]:
+        return self.colors
+
+    @property
+    def excluded_items(self) -> list[str]:
+        return self.forbidden_flowers
+
+    @property
+    def note_text(self) -> str | None:
+        return self.postcard_text
+
 
 def extract_order_state(messages: list[str]) -> OrderState:
     client_messages = [_strip_role(message) for message in messages if _is_client_message(message)]
