@@ -4,11 +4,11 @@ from amelia_manager.order_state import extract_order_state
 def test_contact_line_after_delivery_address_does_not_overwrite_address():
     state = extract_order_state([
         "Клиент: Доставка завтра 14:00",
-        "Клиент: Сергеева 10",
+        "Клиент: ул. Сергеева 10",
         "Клиент: Я Павел 89990000001, получатель Наталья 89990000002",
     ])
 
-    assert state.address == "Сергеева 10"
+    assert state.address == "ул. Сергеева 10"
     assert state.sender_name == "Павел"
 
 

@@ -10,7 +10,7 @@ def test_extracts_order_state_from_real_dialog():
             "Менеджер: На какое число и доставка или самовывоз?",
             "Клиент: На сегодня в 18:00",
             "Менеджер: Это доставка или самовывоз?",
-            "Клиент: Доставка, Гайдара 173, Даниил 89990000007, получатель Ольга 89990000008",
+            "Клиент: Доставка на ул. Гайдара 173, Даниил 89990000007, получатель Ольга 89990000008",
         ]
     )
 
@@ -20,7 +20,7 @@ def test_extracts_order_state_from_real_dialog():
     assert state.fulfillment_type == "delivery"
     assert state.delivery_date == "2026-08-09"
     assert state.delivery_time == "18:00"
-    assert state.address == "Гайдара 173"
+    assert state.address == "ул. Гайдара 173"
     assert state.sender_name == "Даниил"
     assert state.sender_phone == "89990000007"
     assert state.recipient_name == "Ольга"

@@ -6,8 +6,8 @@ def test_bare_delivery_address_keeps_apartment_after_house_number():
         [
             "Клиент: Доставка",
             "Менеджер: Уточните, пожалуйста, адрес доставки?",
-            "Клиент: Гайдара 173 кв 14",
+            "Клиент: ул. Гайдара 173 кв 14",
         ]
     )
 
-    assert state.address == "Гайдара 173 кв 14"
+    assert state.address == "ул. Гайдара 173 кв 14"

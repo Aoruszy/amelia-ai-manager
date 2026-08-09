@@ -52,9 +52,33 @@ async def extract_order_state_with_llm(
     try:
         raw = await llm.generate(_build_extraction_prompt(recent_messages, company_profile=company_profile))
         llm_state = ExtractedOrderState.model_validate(_parse_json_object(raw)).to_state()
+        if llm_state.address and not looks_like_address(llm_state.address):
+            llm_state = OrderState(**{**llm_state.__dict__, "address": None})
     except Exception:
         return regex_state
     return _merge_states(regex_state, llm_state)
+
+
+def looks_like_address(value: str | None) -> bool:
+    if not value:
+        return False
+    text = value.strip()
+    if not 5 <= len(text) <= 120:
+        return False
+    normalized = text.lower().replace("ё", "е")
+    if not re.search(r"\d", normalized):
+        return False
+    if re.search(r"(?:\+7|8)\d{10}", normalized):
+        return False
+    if re.search(r"\b(?:бюджет|до)\s*\d{3,6}\b|\bтысяч\w*\b|₽|руб", normalized):
+        return False
+    if re.search(r"\b(?:сегодня|завтра)\b|\b\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b", normalized):
+        return False
+    if re.search(r"\b\d{1,2}[:.]\d{2}\b", normalized):
+        return False
+    has_street_marker = bool(re.search(r"\b(?:ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", normalized))
+    has_word_number_pair = bool(re.search(r"\b[а-яa-z.\-]{2,}\s+\d+[а-яa-z0-9/\-]*\b", normalized))
+    return has_street_marker or has_word_number_pair
 
 
 def _build_extraction_prompt(recent_messages: list[str], *, company_profile: CompanyProfile | None = None) -> str:

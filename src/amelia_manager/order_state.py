@@ -261,57 +261,34 @@ def _extract_delivery_time(text: str) -> str | None:
 
 
 def _extract_address(text: str) -> str | None:
-    seen_delivery_context = False
     fallback: str | None = None
+    street_marker = r"(?:ул\.?|улиц\w*|проспект|пер\.?|переулок)"
+    address_tail = r"\s+[А-Яа-яЁёA-Za-z.\- ]*\d+[А-Яа-яA-Za-z0-9/\-]*(?:\s*(?:кв|квартира|офис|подъезд|корпус|к|стр)\.?\s*\d+[А-Яа-яA-Za-z0-9/\-]*)*"
     for line in text.splitlines():
+        line_for_address = re.split(r"(?:\+7|8)\d{10}", line, maxsplit=1)[0]
         lowered = line.lower().replace("ё", "е")
-        has_delivery_word = bool(re.search(r"\b(?:достав\w*|привез\w*)\b", lowered))
-        has_street_prefix = bool(re.search(r"\b(ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", lowered))
-        if has_delivery_word:
-            seen_delivery_context = True
-
-        if has_delivery_word and _phones(line):
-            before_phone = re.split(r"(?:\+7|8)\d{10}", line, maxsplit=1)[0]
-            match = re.search(r"(?:достав\w*|привез\w*),?\s*(?:на\s+)?([А-Яа-яЁёA-Za-z.\- ]+\s+\d+[А-Яа-яA-Za-z0-9/\-]*)", before_phone, re.IGNORECASE)
-            if match:
-                candidate = _clean_address_candidate(match.group(1))
-                candidate_low = candidate.lower().replace("ё", "е")
-                if not any(word in candidate_low for word in ("бюджет", "сегодня", "завтра", "доставка")):
-                    fallback = candidate
-            continue
-
-        if _phones(line) or any(marker in lowered for marker in ("получатель", "отправитель")):
-            continue
-        if not has_street_prefix and re.search(r"\b(?:бюджет|до)\s*\d{3,6}\b", lowered):
-            continue
-        if re.fullmatch(r"\s*(к\s*)?\d{1,2}[:.]\d{2}\s*(можно)?\??\s*", lowered):
-            continue
         if re.search(r"\b\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b", lowered):
             continue
-
-        # Lines like "Доставка завтра 11:00" describe fulfillment/time, not address.
-        if has_delivery_word and not re.search(r"\b(?:ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", lowered) and re.search(r"\b(сегодня|завтра)\b", lowered) and re.search(r"\b\d{1,2}[:.]?\d{0,2}\b", lowered):
+        # High-confidence degraded mode: explicit delivery verb with "на <street/word> <number>".
+        delivery_match = re.search(
+            rf"\b(?:достав\w*|привез\w*)\s+на\s+(({street_marker}\s+)?[А-Яа-яЁёA-Za-z.\-]+{address_tail})",
+            line_for_address,
+            re.IGNORECASE,
+        )
+        if delivery_match:
+            fallback = _normalize_address_candidate(delivery_match.group(1))
             continue
-
-        address_pattern = r"[А-Яа-яЁёA-Za-z.\- ]+\s+\d+[А-Яа-яA-Za-z0-9/\-]*(?:\s*(?:кв|квартира|офис|подъезд|корпус|к|стр)\.?\s*\d+[А-Яа-яA-Za-z0-9/\-]*)*"
-        may_be_bare_address = seen_delivery_context and bool(re.search(address_pattern, line, re.IGNORECASE))
-        if not (has_delivery_word or has_street_prefix or may_be_bare_address):
-            continue
-
-        match = re.search(r"(?:.*?(?:достав\w*|привез\w*)\s+(?:на\s+)?)?(" + address_pattern + r")", line, re.IGNORECASE)
-        if match:
-            candidate = _clean_address_candidate(match.group(1))
-            candidate_low = candidate.lower().replace("ё", "е")
-            if not any(word in candidate_low for word in ("бюджет", "сегодня", "завтра", "доставка")):
-                fallback = candidate
+        # Or an explicit street marker + number.
+        marker_match = re.search(rf"\b({street_marker}{address_tail})", line_for_address, re.IGNORECASE)
+        if marker_match:
+            fallback = _normalize_address_candidate(marker_match.group(1))
     return fallback
 
 
-def _clean_address_candidate(candidate: str) -> str:
-    candidate = re.split(r",\s*(?:сегодня|завтра|к\s+\d{1,2}[:.]?\d{0,2}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))\b", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
-    candidate = re.sub(r"^(?:на\s+)", "", candidate.strip(" ,."), flags=re.IGNORECASE)
+def _normalize_address_candidate(candidate: str) -> str:
+    candidate = candidate.strip(" ,.")
     candidate = re.sub(r"^улиц[уе]\b", "улица", candidate, flags=re.IGNORECASE)
-    return candidate.strip(" ,.")
+    return candidate
 
 
 def _phones(text: str) -> list[str]:

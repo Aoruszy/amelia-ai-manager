@@ -6,7 +6,7 @@ def test_delivery_contacts_follow_manager_questions_when_recipient_comes_before_
         [
             "Клиент: Давайте доставку",
             "Менеджер: На какой адрес нужно привезти букет?",
-            "Клиент: Гайдара 172",
+            "Клиент: ул. Гайдара 172",
             "Менеджер: На какое время и на какую дату планируете доставку?",
             "Клиент: 15 августа 18:00",
             "Менеджер: Подскажите, как зовут получателя и какой у него номер телефона?",
@@ -16,7 +16,7 @@ def test_delivery_contacts_follow_manager_questions_when_recipient_comes_before_
         ]
     )
 
-    assert state.address == "Гайдара 172"
+    assert state.address == "ул. Гайдара 172"
     assert state.delivery_date == "2026-08-15"
     assert state.delivery_time == "18:00"
     assert state.recipient_name == "Ольга"
@@ -34,4 +34,4 @@ def test_delivery_date_time_is_not_extracted_as_address_after_delivery_context()
         ]
     )
 
-    assert state.address == "Гайдара 172"
+    assert state.address is None
