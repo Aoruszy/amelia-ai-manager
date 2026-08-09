@@ -161,7 +161,7 @@ class ConversationEngine:
             if decision.confidence is not None and decision.confidence < 0.5:
                 return ConversationAction(
                     kind="human_review",
-                    messages=_finalize_messages(reply),
+                    messages=["Передам менеджеру, чтобы точно проверить и ответить вам корректно."],
                     risk_level=risk_level,
                     safety_reasons=["low_model_confidence"],
                     intent=decision.intent,

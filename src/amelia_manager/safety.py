@@ -24,7 +24,6 @@ _STOCK_PROMISE_PATTERNS = (
     "точно есть",
     "100% есть",
     "сто процентов есть",
-    "в наличии",
     "есть в наличии",
 )
 
@@ -64,7 +63,7 @@ def check_reply_safety(reply: str, *, stock_context: str | None = None) -> Safet
 
     if any(pattern in normalized for pattern in _IDENTITY_PATTERNS):
         reasons.append("identity_disclosure")
-    stock_promise = any(pattern in normalized for pattern in _STOCK_PROMISE_PATTERNS)
+    stock_promise = _has_stock_promise(normalized)
     if stock_promise and not _stock_promise_supported_by_context(normalized, stock_context):
         reasons.append("unverified_stock_promise")
     if _contradicts_unavailable_stock(normalized, stock_context):
@@ -83,6 +82,17 @@ def check_reply_safety(reply: str, *, stock_context: str | None = None) -> Safet
         reasons.append("pickup_recipient_question")
 
     return SafetyResult(is_safe=not reasons, reasons=reasons)
+
+
+def _has_stock_promise(reply: str) -> bool:
+    if any(pattern in reply for pattern in _STOCK_PROMISE_PATTERNS):
+        return True
+    for match in re.finditer(r"\bв\s+наличии\b", reply):
+        before = reply[max(0, match.start() - 32):match.start()]
+        if re.search(r"\b(?:уточн\w*|провер\w*|посмотр\w*|узна\w*)[\s,]+(?:что\s+)?(?:сейчас\s+)?$", before):
+            continue
+        return True
+    return False
 
 
 def _stock_promise_supported_by_context(reply: str, stock_context: str | None) -> bool:
@@ -106,7 +116,7 @@ def _contradicts_unavailable_stock(reply: str, stock_context: str | None) -> boo
             unavailable.append(match.group(1).strip())
     if not unavailable:
         return False
-    promises_availability = any(pattern in reply for pattern in _STOCK_PROMISE_PATTERNS)
+    promises_availability = _has_stock_promise(reply)
     if not promises_availability:
         return False
     return any(item and item in reply for item in unavailable)

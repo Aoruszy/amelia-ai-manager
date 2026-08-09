@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.order_card import OrderCard
 
@@ -86,7 +88,16 @@ def _format_generic_admin_request(
 
 
 def _fmt_date(value: str | None) -> str:
-    return {"today": "сегодня", "tomorrow": "завтра"}.get(value or "", value or "не указано")
+    if not value:
+        return "не указано"
+    label = {"today": "сегодня", "tomorrow": "завтра"}.get(value, value)
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return label
+    if parsed < date.today():
+        return f"{label} ⚠️ дата в прошлом"
+    return label
 
 
 def _fmt_bool(value: bool | None) -> str:

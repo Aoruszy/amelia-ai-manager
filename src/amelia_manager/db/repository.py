@@ -229,6 +229,49 @@ class SQLiteRepository:
         stock_date = date.fromisoformat(row["stock_date"])
         return stock_date, self.list_daily_stock(stock_date=stock_date)
 
+    def list_active_orders_with_clients(self) -> list[tuple[OrderRecord, ClientRecord]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    o.id AS order_id,
+                    o.client_id AS order_client_id,
+                    o.status AS order_status,
+                    o.card_json AS order_card_json,
+                    o.created_at AS order_created_at,
+                    o.updated_at AS order_updated_at,
+                    c.id AS client_id,
+                    c.telegram_id AS client_telegram_id,
+                    c.username AS client_username,
+                    c.stage AS client_stage,
+                    c.summary AS client_summary
+                FROM orders o
+                JOIN clients c ON c.id = o.client_id
+                WHERE o.status = 'active'
+                ORDER BY o.id ASC
+                """
+            ).fetchall()
+        return [
+            (
+                OrderRecord(
+                    id=int(row["order_id"]),
+                    client_id=int(row["order_client_id"]),
+                    status=row["order_status"],
+                    card=OrderCard.from_dict(json.loads(row["order_card_json"] or "{}")),
+                    created_at=row["order_created_at"],
+                    updated_at=row["order_updated_at"],
+                ),
+                ClientRecord(
+                    id=int(row["client_id"]),
+                    telegram_id=int(row["client_telegram_id"]),
+                    username=row["client_username"],
+                    stage=row["client_stage"],
+                    summary=row["client_summary"],
+                ),
+            )
+            for row in rows
+        ]
+
     def get_active_order(self, *, client_id: int) -> OrderRecord | None:
         with self._connect() as conn:
             row = conn.execute(

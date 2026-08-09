@@ -373,21 +373,14 @@ async def send_pending_admin_requests(
     company_profile: CompanyProfile | None = None,
 ) -> int:
     sent = 0
-    with repo._connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT o.id AS order_id, o.client_id, c.telegram_id, c.username
-            FROM orders o
-            JOIN clients c ON c.id = o.client_id
-            WHERE o.status = 'active'
-            ORDER BY o.id ASC
-            """
-        ).fetchall()
-    for row in rows:
-        order = repo.get_active_order(client_id=row["client_id"])
-        if not order or order.card.admin_request_sent or not order.card.is_ready_for_admin_request():
+    for order, client_record in repo.list_active_orders_with_clients():
+        if order.card.admin_request_sent or not order.card.is_ready_for_admin_request():
             continue
-        client_label = f"@{row['username']} / {row['telegram_id']}" if row["username"] else str(row["telegram_id"])
+        client_label = (
+            f"@{client_record.username} / {client_record.telegram_id}"
+            if client_record.username
+            else str(client_record.telegram_id)
+        )
         if await send_admin_order_request_if_ready(
             telegram_client,
             repo=repo,

@@ -244,8 +244,12 @@ def _extract_delivery_date(text: str, *, today: date) -> str | None:
     if month_match:
         day = int(month_match.group(1))
         month = _MONTHS[month_match.group(2)]
-        year = int(month_match.group(3) or today.year)
-        return date(year, month, day).isoformat()
+        explicit_year = month_match.group(3)
+        year = int(explicit_year or today.year)
+        candidate = date(year, month, day)
+        if explicit_year is None and candidate < today:
+            candidate = date(today.year + 1, month, day)
+        return candidate.isoformat()
     return None
 
 
