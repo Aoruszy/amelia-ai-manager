@@ -199,7 +199,7 @@ def _extract_fulfillment_type(text: str) -> str | None:
         if not _is_negated_match(text, match.start())
     ]
     delivery_matches = [
-        match for match in re.finditer(r"\bдоставк\w*\b|адрес доставки", text)
+        match for match in re.finditer(r"\bдоставк\w*\b|адрес доставки|\bпривез\w*\b", text)
         if not _is_negated_match(text, match.start())
     ]
     last_pickup = pickup_matches[-1].start() if pickup_matches else -1
@@ -265,14 +265,15 @@ def _extract_address(text: str) -> str | None:
     fallback: str | None = None
     for line in text.splitlines():
         lowered = line.lower().replace("ё", "е")
-        if "достав" in lowered:
+        has_delivery_word = bool(re.search(r"\b(?:достав\w*|привез\w*)\b", lowered))
+        if has_delivery_word:
             seen_delivery_context = True
 
-        if "достав" in lowered and _phones(line):
+        if has_delivery_word and _phones(line):
             before_phone = re.split(r"(?:\+7|8)\d{10}", line, maxsplit=1)[0]
-            match = re.search(r"достав\w*,?\s*([А-Яа-яЁёA-Za-z.\- ]+\s+\d+[А-Яа-яA-Za-z0-9/\-]*)", before_phone, re.IGNORECASE)
+            match = re.search(r"(?:достав\w*|привез\w*),?\s*(?:на\s+)?([А-Яа-яЁёA-Za-z.\- ]+\s+\d+[А-Яа-яA-Za-z0-9/\-]*)", before_phone, re.IGNORECASE)
             if match:
-                candidate = match.group(1).strip(" ,.")
+                candidate = _clean_address_candidate(match.group(1))
                 candidate_low = candidate.lower().replace("ё", "е")
                 if not any(word in candidate_low for word in ("бюджет", "сегодня", "завтра", "доставка")):
                     fallback = candidate
@@ -280,7 +281,7 @@ def _extract_address(text: str) -> str | None:
 
         if _phones(line) or any(marker in lowered for marker in ("получатель", "отправитель")):
             continue
-        if re.search(r"\b(?:бюджет|до)\s*\d{3,6}\b", lowered):
+        if not has_delivery_word and re.search(r"\b(?:бюджет|до)\s*\d{3,6}\b", lowered):
             continue
         if re.fullmatch(r"\s*(к\s*)?\d{1,2}[:.]\d{2}\s*(можно)?\??\s*", lowered):
             continue
@@ -288,22 +289,28 @@ def _extract_address(text: str) -> str | None:
             continue
 
         # Lines like "Доставка завтра 11:00" describe fulfillment/time, not address.
-        if "достав" in lowered and re.search(r"\b(сегодня|завтра)\b", lowered) and re.search(r"\b\d{1,2}[:.]?\d{0,2}\b", lowered):
+        if has_delivery_word and not re.search(r"\b(?:ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", lowered) and re.search(r"\b(сегодня|завтра)\b", lowered) and re.search(r"\b\d{1,2}[:.]?\d{0,2}\b", lowered):
             continue
 
-        has_street_prefix = bool(re.search(r"\b(ул\.?|улица|проспект|пер\.?|переулок)\b", lowered))
+        has_street_prefix = bool(re.search(r"\b(ул\.?|улиц\w*|проспект|пер\.?|переулок)\b", lowered))
         address_pattern = r"[А-Яа-яЁёA-Za-z.\- ]+\s+\d+[А-Яа-яA-Za-z0-9/\-]*(?:\s*(?:кв|квартира|офис|подъезд|корпус|к|стр)\.?\s*\d+[А-Яа-яA-Za-z0-9/\-]*)*"
         may_be_bare_address = seen_delivery_context and bool(re.search(address_pattern, line, re.IGNORECASE))
-        if not ("достав" in lowered or has_street_prefix or may_be_bare_address):
+        if not (has_delivery_word or has_street_prefix or may_be_bare_address):
             continue
 
-        match = re.search(r"(?:.*?достав\w*\s+(?:на\s+)?)?(" + address_pattern + r")", line, re.IGNORECASE)
+        match = re.search(r"(?:.*?(?:достав\w*|привез\w*)\s+(?:на\s+)?)?(" + address_pattern + r")", line, re.IGNORECASE)
         if match:
-            candidate = match.group(1).strip(" ,.")
+            candidate = _clean_address_candidate(match.group(1))
             candidate_low = candidate.lower().replace("ё", "е")
             if not any(word in candidate_low for word in ("бюджет", "сегодня", "завтра", "доставка")):
                 fallback = candidate
     return fallback
+
+
+def _clean_address_candidate(candidate: str) -> str:
+    candidate = re.split(r",\s*(?:сегодня|завтра|к\s+\d{1,2}[:.]?\d{0,2}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))\b", candidate, maxsplit=1, flags=re.IGNORECASE)[0]
+    candidate = re.sub(r"^(?:на\s+)", "", candidate.strip(" ,."), flags=re.IGNORECASE)
+    return candidate.strip(" ,.")
 
 
 def _phones(text: str) -> list[str]:

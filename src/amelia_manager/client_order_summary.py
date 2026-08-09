@@ -1,7 +1,26 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.order_card import OrderCard
+
+
+_MONTH_GENITIVE = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
 
 
 def format_client_order_summary(card: OrderCard, *, company_profile: CompanyProfile | None = None) -> str:
@@ -14,7 +33,7 @@ def format_client_order_summary(card: OrderCard, *, company_profile: CompanyProf
         lines = [
             "Итог заказа:",
             f"• Формат: Самовывоз с {pickup_address}",
-            f"• Время: {_fmt_date(card.delivery_date)} {card.delivery_time or ''}".strip(),
+            f"• Время: {_fmt_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip(),
             f"• Бюджет: {card.budget} ₽" if card.budget else "• Бюджет: не указан",
             f"• {product_label}: {_fmt_list(card.colors)}",
             f"• Имя: {card.sender_name or 'не указано'}",
@@ -27,7 +46,7 @@ def format_client_order_summary(card: OrderCard, *, company_profile: CompanyProf
     lines = [
         "Итог заказа:",
         "• Формат: Доставка",
-        f"• Время: {_fmt_date(card.delivery_date)} {card.delivery_time or ''}".strip(),
+        f"• Время: {_fmt_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip(),
         f"• Адрес: {card.address or 'не указан'}",
         f"• Бюджет: {card.budget} ₽" if card.budget else "• Бюджет: не указан",
         f"• {product_label}: {_fmt_list(card.colors)}",
@@ -39,8 +58,26 @@ def format_client_order_summary(card: OrderCard, *, company_profile: CompanyProf
     return "\n".join(lines)
 
 
-def _fmt_date(value: str | None) -> str:
-    return {"today": "сегодня", "tomorrow": "завтра"}.get(value or "", value or "не указано")
+def _fmt_date(value: str | None, *, timezone_name: str = "Europe/Kaliningrad") -> str:
+    if not value:
+        return "не указано"
+    relative = {"today": "сегодня", "tomorrow": "завтра"}.get(value)
+    if relative:
+        return relative
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return value
+    today = _today_in_timezone(timezone_name)
+    if parsed == today:
+        return "сегодня"
+    if parsed == today + timedelta(days=1):
+        return "завтра"
+    return f"{parsed.day} {_MONTH_GENITIVE[parsed.month]}"
+
+
+def _today_in_timezone(timezone_name: str) -> date:
+    return datetime.now(ZoneInfo(timezone_name)).date()
 
 
 def _fmt_payment(value: str | None) -> str:
@@ -58,7 +95,7 @@ def _format_generic_client_summary(card: OrderCard, *, profile: CompanyProfile) 
     elif card.fulfillment_type == "delivery":
         lines.append("• Формат: Доставка")
     if card.delivery_date or card.delivery_time:
-        lines.append(f"• Время: {_fmt_date(card.delivery_date)} {card.delivery_time or ''}".strip())
+        lines.append(f"• Время: {_fmt_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip())
     if card.address:
         lines.append(f"• Адрес: {card.address}")
     if card.budget:
