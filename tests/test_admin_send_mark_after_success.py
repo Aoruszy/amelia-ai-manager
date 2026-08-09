@@ -3,7 +3,7 @@ import pytest
 from amelia_manager.company_profile import load_company_profile
 from amelia_manager.db.repository import SQLiteRepository
 from amelia_manager.order_card import OrderCard
-from amelia_manager.telegram_runtime import send_admin_order_request_if_ready
+from amelia_manager.telegram_runtime import send_admin_order_request_if_ready, send_pending_admin_requests
 
 
 READY_PICKUP = OrderCard(
@@ -76,3 +76,25 @@ async def test_admin_request_marked_sent_only_after_successful_send(tmp_path):
     updated = repo.get_active_order(client_id=db_client.id).card
     assert updated.admin_request_sent is True
     assert updated.client_summary_sent is True
+
+
+@pytest.mark.asyncio
+async def test_startup_sends_pending_ready_active_orders(tmp_path):
+    repo = SQLiteRepository(tmp_path / "db.sqlite3")
+    repo.initialize()
+    db_client = repo.upsert_client(telegram_id=123, username="dummy")
+    order = repo.get_or_create_active_order(client_id=db_client.id)
+    repo.update_order_card(order_id=order.id, card=READY_PICKUP)
+    telegram = CapturingClient()
+
+    sent = await send_pending_admin_requests(
+        telegram,
+        repo=repo,
+        admin_chat_id=999,
+        company_profile=load_company_profile("amelia_flowers"),
+    )
+
+    assert sent == 1
+    assert len(telegram.messages) == 1
+    assert "Новая заявка" in telegram.messages[0][1]
+    assert repo.get_active_order(client_id=db_client.id).card.admin_request_sent is True

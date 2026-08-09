@@ -365,6 +365,41 @@ async def send_admin_order_request_if_ready(
     return True
 
 
+async def send_pending_admin_requests(
+    telegram_client,
+    *,
+    repo: SQLiteRepository,
+    admin_chat_id: int,
+    company_profile: CompanyProfile | None = None,
+) -> int:
+    sent = 0
+    with repo._connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT o.id AS order_id, o.client_id, c.telegram_id, c.username
+            FROM orders o
+            JOIN clients c ON c.id = o.client_id
+            WHERE o.status = 'active'
+            ORDER BY o.id ASC
+            """
+        ).fetchall()
+    for row in rows:
+        order = repo.get_active_order(client_id=row["client_id"])
+        if not order or order.card.admin_request_sent or not order.card.is_ready_for_admin_request():
+            continue
+        client_label = f"@{row['username']} / {row['telegram_id']}" if row["username"] else str(row["telegram_id"])
+        if await send_admin_order_request_if_ready(
+            telegram_client,
+            repo=repo,
+            order=order,
+            admin_chat_id=admin_chat_id,
+            client_label=client_label,
+            company_profile=company_profile,
+        ):
+            sent += 1
+    return sent
+
+
 def event_text_with_media_placeholder(event) -> str:
     text = (getattr(event, "raw_text", None) or "").strip()
     placeholders: list[str] = []
@@ -632,6 +667,15 @@ async def run_listener(settings: Settings) -> None:
     await client.start(phone=settings.telegram_phone)
     me = await client.get_me()
     print(f"Listening as id={me.id} phone={me.phone!r}; auto_reply={settings.auto_reply_enabled}")
+    if settings.auto_reply_enabled:
+        pending_sent = await send_pending_admin_requests(
+            client,
+            repo=repo,
+            admin_chat_id=settings.admin_chat_id,
+            company_profile=company_profile,
+        )
+        if pending_sent:
+            print(f"Sent pending admin requests: {pending_sent}")
     await client.run_until_disconnected()
 
 
