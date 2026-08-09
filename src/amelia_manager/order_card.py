@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 import re
 from typing import Any
 
+from amelia_manager.company_profile import CompanyProfile
 from amelia_manager.order_state import OrderState
 
 
@@ -25,6 +26,7 @@ class OrderCard:
     postcard_text: str | None = None
     anonymous: bool | None = None
     photo_report_requested: bool | None = None
+    custom_fields: dict[str, Any] = field(default_factory=dict)
     admin_request_sent: bool = False
     client_summary_sent: bool = False
 
@@ -82,6 +84,10 @@ def merge_order_state(existing: OrderCard, state: OrderState) -> OrderCard:
             if state.photo_report_requested is not None
             else existing.photo_report_requested
         ),
+        custom_fields={
+            **existing.custom_fields,
+            **{key: value for key, value in state.custom_fields.items() if value not in (None, "", [], {})},
+        },
         admin_request_sent=existing.admin_request_sent,
         client_summary_sent=existing.client_summary_sent,
     )
@@ -104,3 +110,34 @@ def _is_pickup_time_within_shop_hours(value: str | None) -> bool:
     hour = int(match.group(1))
     minute = int(match.group(2))
     return (hour, minute) >= (9, 0) and (hour, minute) <= (20, 0)
+
+
+def is_ready_for_profile_case(card: OrderCard, profile: CompanyProfile, case_type: str) -> bool:
+    required_codes = profile.required_field_codes(case_type)
+    if not required_codes:
+        return False
+    return all(_business_field_value(card, code) not in (None, "", [], {}) for code in required_codes)
+
+
+def _business_field_value(card: OrderCard, code: str) -> object:
+    mapping = {
+        "budget": card.budget,
+        "date": card.delivery_date,
+        "time": card.delivery_time,
+        "delivery_address": card.address,
+        "address": card.address,
+        "recipient_name": card.recipient_name,
+        "recipient_phone": card.recipient_phone,
+        "customer_name": card.sender_name,
+        "sender_name": card.sender_name,
+        "customer_phone": card.sender_phone,
+        "sender_phone": card.sender_phone,
+        "payment_method": card.payment_method,
+        "product_preferences": card.colors,
+        "preferences": card.colors,
+        "postcard_text": card.postcard_text,
+        "anonymous": card.anonymous,
+        "photo_report_requested": card.photo_report_requested,
+        "fulfillment_type": card.fulfillment_type,
+    }
+    return mapping.get(code, card.custom_fields.get(code))

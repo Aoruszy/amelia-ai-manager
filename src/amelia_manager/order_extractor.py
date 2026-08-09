@@ -6,6 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from amelia_manager.company_profile import CompanyProfile
 from amelia_manager.order_card import OrderCard, merge_order_state
 from amelia_manager.order_state import OrderState, extract_order_state
 
@@ -33,25 +34,44 @@ class ExtractedOrderState(BaseModel):
     postcard_text: str | None = None
     anonymous: bool | None = None
     photo_report_requested: bool | None = None
+    custom_fields: dict[str, object] = Field(default_factory=dict)
 
     def to_state(self) -> OrderState:
         return OrderState(**self.model_dump())
 
 
-async def extract_order_state_with_llm(llm: LLM, recent_messages: list[str]) -> OrderState:
+async def extract_order_state_with_llm(
+    llm: LLM,
+    recent_messages: list[str],
+    *,
+    company_profile: CompanyProfile | None = None,
+) -> OrderState:
     regex_state = extract_order_state(recent_messages)
     try:
-        raw = await llm.generate(_build_extraction_prompt(recent_messages))
+        raw = await llm.generate(_build_extraction_prompt(recent_messages, company_profile=company_profile))
         llm_state = ExtractedOrderState.model_validate(_parse_json_object(raw)).to_state()
     except Exception:
         return regex_state
     return _merge_states(regex_state, llm_state)
 
 
-def _build_extraction_prompt(recent_messages: list[str]) -> str:
-    return """Извлеки данные заказа Amelia Flowers из русской переписки.
+def _build_extraction_prompt(recent_messages: list[str], *, company_profile: CompanyProfile | None = None) -> str:
+    if company_profile is None or company_profile.business_type == "florist":
+        field_block = "Поля: occasion, budget, colors, forbidden_flowers, fulfillment_type(delivery/pickup), delivery_date(today/tomorrow), delivery_time(HH:MM), address, sender_name, sender_phone, recipient_name, recipient_phone, payment_method(transfer/cash/crypto), postcard_text, anonymous, photo_report_requested, custom_fields."
+    else:
+        custom_fields: list[str] = []
+        for fields in company_profile.required_fields.values():
+            custom_fields.extend(field.code for field in fields)
+        unique_custom_fields = ", ".join(dict.fromkeys(custom_fields))
+        field_block = (
+            "Универсальные поля: budget, fulfillment_type, delivery_date, delivery_time, address, "
+            "sender_name, sender_phone, recipient_name, recipient_phone, payment_method, anonymous, photo_report_requested.\n"
+            f"Поля профиля складывай в custom_fields: {unique_custom_fields}."
+        )
+    business = company_profile.company_name if company_profile else "Amelia Flowers"
+    return f"""Извлеки данные заявки для {business} из русской переписки.
 Верни только JSON без Markdown. Не выдумывай неизвестные поля.
-Поля: occasion, budget, colors, forbidden_flowers, fulfillment_type(delivery/pickup), delivery_date(today/tomorrow), delivery_time(HH:MM), address, sender_name, sender_phone, recipient_name, recipient_phone, payment_method(transfer/cash/crypto), postcard_text, anonymous, photo_report_requested.
+{field_block}
 
 Переписка:
 """ + "\n".join(recent_messages[-30:])

@@ -187,6 +187,9 @@ def _format_order_card_context(card: OrderCard) -> str:
         lines.append(f"- Получатель: {card.recipient_name or 'не указано'}, {card.recipient_phone or 'не указано'}")
     if card.payment_method:
         lines.append(f"- Оплата: {card.payment_method}")
+    for key, value in card.custom_fields.items():
+        if value not in (None, "", [], {}):
+            lines.append(f"- {key}: {value}")
     return "\n".join(lines) if lines else "- пока пусто"
 
 

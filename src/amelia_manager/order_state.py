@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class OrderState:
     postcard_text: str | None = None
     anonymous: bool | None = None
     photo_report_requested: bool | None = None
+    custom_fields: dict[str, Any] = field(default_factory=dict)
 
 
 def extract_order_state(messages: list[str]) -> OrderState:

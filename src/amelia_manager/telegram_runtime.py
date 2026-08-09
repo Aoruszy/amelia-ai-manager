@@ -9,7 +9,7 @@ from telethon import TelegramClient, events
 from telethon.tl.types import SendMessageTypingAction
 
 from amelia_manager.admin_notifier import format_admin_notification
-from amelia_manager.company_profile import load_company_profile
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
@@ -70,6 +70,7 @@ async def update_active_order_from_messages_with_llm(
     llm,
     client_id: int,
     recent_messages: list[str],
+    company_profile: CompanyProfile | None = None,
 ) -> OrderCard:
     active = repo.get_active_order(client_id=client_id)
     latest_text = _last_client_text(recent_messages)
@@ -82,7 +83,7 @@ async def update_active_order_from_messages_with_llm(
         active = None
     order = active or repo.get_or_create_active_order(client_id=client_id)
     messages_for_extraction = _messages_for_order_extraction(order.card, recent_messages)
-    extracted = await extract_order_state_with_llm(llm, messages_for_extraction)
+    extracted = await extract_order_state_with_llm(llm, messages_for_extraction, company_profile=company_profile)
     card = merge_order_state(order.card, extracted)
     repo.update_order_card(order_id=order.id, card=card)
     return card
@@ -95,19 +96,23 @@ async def update_active_order_from_messages_with_optional_llm(
     llm,
     client_id: int,
     recent_messages: list[str],
+    company_profile: CompanyProfile | None = None,
 ) -> OrderCard:
-    if should_use_llm_extractor(settings):
+    if should_use_llm_extractor(settings, company_profile=company_profile):
         return await update_active_order_from_messages_with_llm(
             repo,
             llm=llm,
             client_id=client_id,
             recent_messages=recent_messages,
+            company_profile=company_profile,
         )
     return update_active_order_from_messages(repo, client_id=client_id, recent_messages=recent_messages)
 
 
-def should_use_llm_extractor(settings: Settings) -> bool:
-    return bool(getattr(settings, "llm_extractor_enabled", False))
+def should_use_llm_extractor(settings: Settings, *, company_profile: CompanyProfile | None = None) -> bool:
+    if bool(getattr(settings, "llm_extractor_enabled", False)):
+        return True
+    return bool(company_profile and company_profile.business_type != "florist")
 
 
 def should_start_new_order(latest_client_text: str, existing_card: OrderCard) -> bool:
@@ -370,6 +375,7 @@ async def run_listener(settings: Settings) -> None:
             llm=llm,
             client_id=db_client.id,
             recent_messages=recent_messages,
+            company_profile=company_profile,
         )
         stock_date, stock_items = repo.get_latest_daily_stock()
         stock_context = build_stock_context(
