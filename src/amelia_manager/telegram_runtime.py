@@ -250,11 +250,17 @@ def build_admin_order_request_if_needed(
     *,
     order: OrderRecord,
     client_label: str,
+    company_profile: CompanyProfile | None = None,
     mark_sent: bool = True,
 ) -> str | None:
     if order.card.admin_request_sent or not order.card.is_ready_for_admin_request():
         return None
-    text = format_admin_order_request(order_id=order.id, client_label=client_label, card=order.card)
+    text = format_admin_order_request(
+        order_id=order.id,
+        client_label=client_label,
+        card=order.card,
+        company_profile=company_profile,
+    )
     if mark_sent:
         repo.update_order_card(
             order_id=order.id,
@@ -441,7 +447,12 @@ async def run_listener(settings: Settings) -> None:
         client_label = f"@{username} / {sender_id}" if username else str(sender_id)
         active_order = repo.get_active_order(client_id=db_client.id)
         if active_order and settings.auto_reply_enabled:
-            admin_order_text = build_admin_order_request_if_needed(repo, order=active_order, client_label=client_label)
+            admin_order_text = build_admin_order_request_if_needed(
+                repo,
+                order=active_order,
+                client_label=client_label,
+                company_profile=company_profile,
+            )
             if admin_order_text:
                 await client.send_message(settings.admin_chat_id, admin_order_text)
 
@@ -455,6 +466,7 @@ async def run_listener(settings: Settings) -> None:
                     risk_level=action.risk_level,
                     summary="AI передал диалог человеку.",
                     last_message="\n".join(texts),
+                    company_profile=company_profile,
                 ),
             )
 

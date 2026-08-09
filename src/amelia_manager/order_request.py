@@ -23,7 +23,7 @@ def format_admin_order_request(
         )
     fulfillment = "самовывоз" if card.fulfillment_type == "pickup" else "доставка"
     lines = [
-        "🌸 Новая заявка Amelia Flowers",
+        f"🌸 Новая заявка {profile.company_name}",
         f"ID: {order_id}",
         f"Клиент Telegram: {client_label}",
         f"Тип: {fulfillment}",
@@ -42,7 +42,7 @@ def format_admin_order_request(
             ]
         )
     else:
-        lines.append("Самовывоз: Сергеева, 61")
+        lines.append(f"Самовывоз: {profile.pickup_address or 'адрес самовывоза не указан'}")
     lines.extend(
         [
             f"Клиент: {card.sender_name or 'не указан'}, {card.sender_phone or 'телефон не указан'}",

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from amelia_manager.company_profile import CompanyProfile
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.order_card import _business_field_value
 from amelia_manager.order_state import OrderState
 
@@ -44,10 +44,15 @@ def get_next_step(
         if state.fulfillment_type == "pickup":
             return NextStep("ask_pickup_time", "Уточни, к какому времени клиенту удобно забрать букет самовывозом.")
         return NextStep("ask_delivery_time", "Уточни удобное время или интервал доставки.")
-    if state.fulfillment_type == "pickup" and not _is_pickup_time_within_shop_hours(state.delivery_time):
+    if state.fulfillment_type == "pickup" and not _is_pickup_time_within_shop_hours(
+        state.delivery_time,
+        company_profile=company_profile,
+    ):
+        profile = company_profile or load_company_profile("amelia_flowers")
+        shop_hours = profile.shop_hours or "часы работы магазина"
         return NextStep(
             "ask_pickup_time_within_shop_hours",
-            "Самовывоз возможен в часы работы магазина 09:00–20:00. Попроси выбрать другое время в этом интервале.",
+            f"Самовывоз возможен в часы работы магазина {shop_hours}. Попроси выбрать другое время в этом интервале.",
         )
     if state.fulfillment_type == "delivery" and not state.address:
         return NextStep("ask_delivery_address", "Попроси адрес доставки и не передавай диалог человеку.")
@@ -87,7 +92,7 @@ def _first_case_type(profile: CompanyProfile) -> str | None:
     return next(iter(profile.required_fields), None)
 
 
-def _is_pickup_time_within_shop_hours(value: str | None) -> bool:
+def _is_pickup_time_within_shop_hours(value: str | None, *, company_profile: CompanyProfile | None = None) -> bool:
     if not value:
         return False
     match = re.search(r"\b(\d{1,2})[:.](\d{2})\b", value)
@@ -95,4 +100,15 @@ def _is_pickup_time_within_shop_hours(value: str | None) -> bool:
         return True
     hour = int(match.group(1))
     minute = int(match.group(2))
-    return (hour, minute) >= (9, 0) and (hour, minute) <= (20, 0)
+    start, end = _shop_hour_bounds(company_profile)
+    return (hour, minute) >= start and (hour, minute) <= end
+
+
+def _shop_hour_bounds(company_profile: CompanyProfile | None) -> tuple[tuple[int, int], tuple[int, int]]:
+    profile = company_profile or load_company_profile("amelia_flowers")
+    hours = profile.shop_hours or ""
+    matches = re.findall(r"(\d{1,2})[:.](\d{2})", hours)
+    if len(matches) < 2:
+        return (9, 0), (20, 0)
+    (start_hour, start_minute), (end_hour, end_minute) = matches[:2]
+    return (int(start_hour), int(start_minute)), (int(end_hour), int(end_minute))

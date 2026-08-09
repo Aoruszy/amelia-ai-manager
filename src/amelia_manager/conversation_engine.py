@@ -124,6 +124,7 @@ class ConversationEngine:
                 order_card if isinstance(order_card, OrderCard) else None,
                 recent_messages=recent_messages,
                 stock_context=stock_context,
+                company_profile=self.company_profile,
             )
             if fallback:
                 return ConversationAction(

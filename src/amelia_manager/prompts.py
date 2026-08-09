@@ -17,7 +17,7 @@ def build_manager_prompt(
     order_card_context: str | None = None,
 ) -> str:
     profile = company_profile or load_company_profile("amelia_flowers")
-    facts = get_store_facts() if profile.business_type == "florist" and profile.company_name == "Amelia Flowers" else None
+    facts = get_store_facts(profile)
     recent = "\n".join(recent_messages[-12:])
     high_risk_note = ""
     if risk_level == RiskLevel.HIGH:
@@ -90,7 +90,7 @@ def build_manager_prompt(
 - если вопрос спорный, скажи что передашь ответственному менеджеру;
 - жалобы, возвраты, скидки, крупные заказы, корпоративы и нестандартные ситуации передай человеку;
 - Статус уже оформленного заказа, редкие/нестандартные позиции, предзаказ на будущую дату, жалоба, конфликт или просьба живого менеджера — эскалация человеку;
-- при эскалации коротко ответь: «Подключается менеджер Алина» или мягко «Поняла вас. Передам менеджеру, чтобы посмотрели детали и ответили корректно.»
+- при эскалации коротко ответь: «Подключается менеджер {profile.manager_name}» или мягко «Поняла вас. Передам менеджеру, чтобы посмотрели детали и ответили корректно.»
 {domain_rules}
 
 Минимум для оформления по профилю:
@@ -129,10 +129,11 @@ def _operations_block(profile: CompanyProfile, facts) -> str:
         lines.append(
             f"- По городу доставка до {profile.free_delivery_from} ₽ стоит {profile.delivery_city_price} ₽; от {profile.free_delivery_from} ₽ бесплатная"
         )
-    if facts:
+    if facts.nearest_delivery_time:
+        lines.append(f"- Ближайшая доставка: {facts.nearest_delivery_time}")
+    if profile.business_type == "florist":
         lines.extend(
             [
-                f"- Ближайшая доставка: {facts.nearest_delivery_time}",
                 "- Возможна анонимная доставка",
                 "- Если клиент не знает адрес получателя, можно указать телефон получателя",
             ]
@@ -151,8 +152,9 @@ def _required_fields_block(profile: CompanyProfile) -> str:
 def _domain_rules_block(profile: CompanyProfile) -> str:
     if profile.business_type != "florist":
         return ""
-    return """
-- Сергеева, 61 — это адрес самовывоза, а не адрес доставки клиента;
+    pickup_address = profile.pickup_address or "адрес самовывоза"
+    return f"""
+- {pickup_address} — это адрес самовывоза, а не адрес доставки клиента;
 - редкие цветы/предзаказ цветов на будущую дату — эскалация человеку;
 - Для доставки цветов обязательно нужны имя и телефон отправителя, имя и телефон получателя, адрес, дата/время, бюджет, пожелания и оплата.
 """.rstrip()

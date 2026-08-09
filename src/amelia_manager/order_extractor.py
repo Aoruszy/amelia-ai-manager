@@ -6,7 +6,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from amelia_manager.company_profile import CompanyProfile
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.order_card import OrderCard, merge_order_state
 from amelia_manager.order_state import OrderState, extract_order_state
 
@@ -68,7 +68,7 @@ def _build_extraction_prompt(recent_messages: list[str], *, company_profile: Com
             "sender_name, sender_phone, recipient_name, recipient_phone, payment_method, anonymous, photo_report_requested.\n"
             f"Поля профиля складывай в custom_fields: {unique_custom_fields}."
         )
-    business = company_profile.company_name if company_profile else "Amelia Flowers"
+    business = (company_profile or load_company_profile("amelia_flowers")).company_name
     return f"""Извлеки данные заявки для {business} из русской переписки.
 Верни только JSON без Markdown. Не выдумывай неизвестные поля.
 {field_block}

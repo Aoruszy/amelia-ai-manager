@@ -2,96 +2,60 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
+
 
 @dataclass(frozen=True)
 class StoreFacts:
     name: str
     manager_name: str
     city: str
-    address: str
-    phone: str
-    telegram_primary: str
-    telegram_secondary: str
-    shop_hours: str
-    delivery_hours: str
-    nearest_delivery_time: str
-    delivery_city_price: int
-    free_delivery_from: int
+    address: str | None
+    phone: str | None
+    telegram_primary: str | None
+    telegram_secondary: str | None
+    shop_hours: str | None
+    delivery_hours: str | None
+    nearest_delivery_time: str | None
+    delivery_city_price: int | None
+    free_delivery_from: int | None
     categories: tuple[str, ...]
 
 
-_CATEGORIES = (
-    "Пионы",
-    "Розы",
-    "Гипсофила",
-    "Гортензия",
-    "Сборные букеты",
-    "Букеты до 3000 ₽",
-    "Кустовые розы",
-    "Для мамы",
-    "Летние букеты",
-    "Премиум",
-    "Сумка с цветами",
-    "Хризантема",
-    "Ромашки",
-    "Герберы",
-    "Эустома",
-    "Коробки и корзинки",
-    "Пломбирки",
-    "Плюшевые мишки",
-    "Букет невесты",
-    "Тюльпаны",
-)
-
-_FACTS = StoreFacts(
-    name="Amelia Flowers",
-    manager_name="Алина",
-    city="Калининград",
-    address="ул. Сергеева 61",
-    phone="+7 (952) 050-95-55",
-    telegram_primary="@order_amelia",
-    telegram_secondary="@ameliaflowers39",
-    shop_hours="09:00–20:00",
-    delivery_hours="08:00–22:00",
-    nearest_delivery_time="от 1 часа после оформления",
-    delivery_city_price=400,
-    free_delivery_from=5000,
-    categories=_CATEGORIES,
-)
-
-_FAQ = {
-    "delivery": (
-        "По Калининграду доставка при заказе от 5000 ₽ бесплатная. "
-        "Если заказ до 5000 ₽, доставка по городу — 400 ₽. "
-        "Ближайшая доставка обычно от 1 часа после оформления, но точное время зависит "
-        "от букета, адреса и загрузки. За город и после 22:00 лучше уточнить отдельно."
-    ),
-    "payment": (
-        "Оплатить можно картой, через СБП/интернет-банк, электронными деньгами, "
-        "наличными курьеру или в магазине. Для юрлиц доступен безналичный расчёт."
-    ),
-    "anonymous": (
-        "Да, анонимная доставка возможна. Получатель узнает отправителя только если "
-        "вы сами укажете имя или подпись в открытке."
-    ),
-    "photo_report": (
-        "Фотоотчёт можно попросить заранее, я отмечу это в заказе. По умолчанию букеты "
-        "не фотографируются, и выполнение зависит от текущей загрузки магазина."
-    ),
-    "unknown_address": (
-        "Если адрес получателя неизвестен, можно указать телефон получателя. Курьер "
-        "согласует с ним адрес и удобное время доставки."
-    ),
-    "same_as_photo": (
-        "Цветы живые, поэтому букет может немного отличаться от фото по оттенкам и форме. "
-        "Флорист сохраняет стиль, цветовую гамму и бюджет композиции."
-    ),
-}
+def get_store_facts(company_profile: CompanyProfile | None = None) -> StoreFacts:
+    profile = company_profile or load_company_profile("amelia_flowers")
+    return StoreFacts(
+        name=profile.company_name,
+        manager_name=profile.manager_name,
+        city=profile.city,
+        address=profile.pickup_address,
+        phone=profile.public_phone,
+        telegram_primary=profile.telegram_primary,
+        telegram_secondary=profile.telegram_secondary,
+        shop_hours=profile.shop_hours,
+        delivery_hours=profile.delivery_hours,
+        nearest_delivery_time=profile.nearest_delivery_time,
+        delivery_city_price=profile.delivery_city_price,
+        free_delivery_from=profile.free_delivery_from,
+        categories=profile.product_categories,
+    )
 
 
-def get_store_facts() -> StoreFacts:
-    return _FACTS
+def get_faq_answer(topic: str, company_profile: CompanyProfile | None = None) -> str | None:
+    profile = company_profile or load_company_profile("amelia_flowers")
+    if topic == "delivery":
+        return _delivery_faq(profile)
+    return profile.faq.get(topic)
 
 
-def get_faq_answer(topic: str) -> str | None:
-    return _FAQ.get(topic)
+def _delivery_faq(profile: CompanyProfile) -> str | None:
+    if profile.free_delivery_from is None or profile.delivery_city_price is None:
+        return profile.faq.get("delivery")
+    nearest = profile.nearest_delivery_time or "после оформления"
+    hours = profile.delivery_hours or "по графику компании"
+    return (
+        f"По {profile.city} доставка при заказе от {profile.free_delivery_from} ₽ бесплатная. "
+        f"Если заказ до {profile.free_delivery_from} ₽, доставка по городу — {profile.delivery_city_price} ₽. "
+        f"Ближайшая доставка обычно {nearest}, но точное время зависит от заказа, адреса и загрузки. "
+        f"Нестандартные адреса и доставку вне графика {hours} лучше уточнить отдельно."
+    )

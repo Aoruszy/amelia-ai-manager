@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from amelia_manager.client_order_summary import format_client_order_summary
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.order_card import OrderCard
 from amelia_manager.order_policy import NextStep
 
@@ -13,20 +14,23 @@ def deterministic_order_reply(
     *,
     recent_messages: list[str] | None = None,
     stock_context: str | None = None,
+    company_profile: CompanyProfile | None = None,
 ) -> str | None:
+    profile = company_profile or load_company_profile("amelia_flowers")
     if card and card.is_ready_for_admin_request():
-        return format_client_order_summary(card)
+        return format_client_order_summary(card, company_profile=profile)
 
     stock_reply = _stock_fallback(recent_messages or [], stock_context or "")
     if stock_reply:
         return stock_reply
 
+    pickup_address = profile.pickup_address or "адреса самовывоза"
     replies = {
         "ask_budget": "Подскажите, на какой бюджет ориентируемся? 🌸",
         "ask_bouquet_preferences": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
         "ask_fulfillment_type": "Хорошо, по букету поняла. Это будет доставка или самовывоз?",
         "ask_date": "На какое число нужен букет?",
-        "ask_pickup_time": "К какому времени удобно забрать букет самовывозом с Сергеева, 61?",
+        "ask_pickup_time": f"К какому времени удобно забрать букет самовывозом с {pickup_address}?",
         "ask_delivery_time": "К какому времени или в какой интервал доставить букет?",
         "ask_delivery_address": "Подскажите адрес доставки, пожалуйста.",
         "ask_sender_contacts": "Подскажите ваше имя и номер телефона для связи по заказу.",

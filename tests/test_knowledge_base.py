@@ -1,16 +1,18 @@
+from amelia_manager.company_profile import load_company_profile
 from amelia_manager.knowledge_base import get_faq_answer, get_store_facts
 
 
 def test_store_facts_include_core_amelia_details():
+    profile = load_company_profile("amelia_flowers")
     facts = get_store_facts()
 
-    assert facts.name == "Amelia Flowers"
-    assert facts.city == "Калининград"
-    assert "Сергеева 61" in facts.address
-    assert facts.manager_name == "Алина"
-    assert facts.delivery_city_price == 400
-    assert facts.free_delivery_from == 5000
-    assert facts.delivery_hours == "08:00–22:00"
+    assert facts.name == profile.company_name
+    assert facts.city == profile.city
+    assert facts.address == profile.pickup_address
+    assert facts.manager_name == profile.manager_name
+    assert facts.delivery_city_price == profile.delivery_city_price
+    assert facts.free_delivery_from == profile.free_delivery_from
+    assert facts.delivery_hours == profile.delivery_hours
 
 
 def test_delivery_faq_mentions_free_threshold_and_city_price():
