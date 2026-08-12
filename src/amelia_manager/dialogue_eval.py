@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,9 @@ async def run_dialogue_eval(
                 "risk_level": action.risk_level.value,
                 "output": output,
                 "llm_called": scenario_llm.called,
+                "intent": action.intent,
+                "next_step": action.next_step,
+                "confidence": action.confidence,
                 "notes": scenario.notes,
             }
         )
@@ -127,9 +131,24 @@ async def run_dialogue_eval(
                 "failed": live_failed,
                 "pass_rate": (len(live_results) - live_failed) / len(live_results) if live_results else 0.0,
             },
+            "confidence_distribution": _confidence_distribution(
+                [result["confidence"] for result in results if isinstance(result.get("confidence"), int | float)]
+            ),
         },
         "results": results,
     }
+
+
+def _confidence_distribution(values: list[float]) -> dict[str, int]:
+    buckets = {"0-0.5": 0, "0.5-0.7": 0, "0.7-1.0": 0}
+    for value in values:
+        if value < 0.5:
+            buckets["0-0.5"] += 1
+        elif value < 0.7:
+            buckets["0.5-0.7"] += 1
+        else:
+            buckets["0.7-1.0"] += 1
+    return buckets
 
 
 async def write_dialogue_eval_report(
@@ -412,7 +431,7 @@ def main(argv: list[str] | None = None) -> None:
             model_name=model_name,
         )
     )
-    print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
+    sys.stdout.write(json.dumps(report["summary"], ensure_ascii=False, indent=2) + "\n")
     if args.live and report["summary"]["failed"]:
         _print_failure_table(report)
     if report["summary"]["failed"] and not args.live:
@@ -423,10 +442,10 @@ def _print_failure_table(report: dict[str, Any]) -> None:
     failed = [result for result in report.get("results", []) if not result.get("passed")]
     if not failed:
         return
-    print("\nLive eval failures:")
+    sys.stdout.write("\nLive eval failures:\n")
     for result in failed:
         failed_checks = ", ".join(check["name"] for check in result.get("checks", []) if not check.get("passed"))
-        print(f"- {result.get('id')} [{result.get('category')}]: {failed_checks}")
+        sys.stdout.write(f"- {result.get('id')} [{result.get('category')}]: {failed_checks}\n")
 
 
 if __name__ == "__main__":

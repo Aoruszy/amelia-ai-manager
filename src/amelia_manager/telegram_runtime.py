@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import re
 from collections import OrderedDict
@@ -17,6 +18,7 @@ from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
+from amelia_manager.events import EventName
 from amelia_manager.llm_client import GeminiClient
 from amelia_manager.order_card import OrderCard, merge_order_patch, merge_order_state
 from amelia_manager.order_extractor import extract_order_state_with_llm
@@ -25,7 +27,12 @@ from amelia_manager.order_sheet import SheetsOrderAppender, append_order_to_shee
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.stock import build_stock_context, format_stock_ack, parse_stock_text
 from amelia_manager.stock_source import ManualStockSource, SheetsStockSource, StockSnapshot, StockSource
+from amelia_manager.observability import EventRecorder, configure_logging
+from amelia_manager.stats_report import format_stats_report, parse_stats_days
 from amelia_manager.telegram_login import get_session_path
+
+
+LOGGER = logging.getLogger("amelia_manager.telegram_runtime")
 
 
 def is_stock_command(text: str) -> bool:
@@ -497,7 +504,10 @@ class PerSenderDebounceProcessor:
                 try:
                     await self.process_turn(sender_id, messages)
                 except Exception as exc:  # noqa: BLE001 - keep listener alive after a failed turn
-                    print(f"Failed to process Telegram turn for sender_id={sender_id}: {exc!r}")
+                    LOGGER.exception(
+                        "turn_processing_failed",
+                        extra={"event": "turn_processing_failed", "client_id": sender_id, "payload": {"reason": repr(exc)}},
+                    )
             async with self._lock:
                 if not self._buffers.get(sender_id):
                     self._tasks.pop(sender_id, None)
@@ -571,6 +581,24 @@ def build_off_hours_reply(*, settings: Settings) -> str:
     return f"Сейчас менеджер не на связи. Ответим с {opening}, как только начнётся рабочий день."
 
 
+async def weekly_stats_loop(
+    telegram_client,
+    *,
+    repo: SQLiteRepository,
+    admin_chat_id: int,
+    settings: Settings,
+    timezone_name: str,
+    sleep=asyncio.sleep,
+) -> None:
+    sent_for_date: date | None = None
+    while True:
+        now = datetime.now(ZoneInfo(timezone_name))
+        if now.weekday() == 0 and is_within_work_hours(now, settings=settings) and sent_for_date != now.date():
+            await telegram_client.send_message(admin_chat_id, format_stats_report(repo, days=7, today=now.date()))
+            sent_for_date = now.date()
+        await sleep(3600)
+
+
 def should_send_off_hours_reply(repo: SQLiteRepository, *, client_id: int, now: datetime, settings: Settings) -> bool:
     """Return false after this client already received the current off-hours notice."""
     reply = build_off_hours_reply(settings=settings)
@@ -602,6 +630,7 @@ def _parse_hhmm(value: str) -> time:
 
 
 async def run_listener(settings: Settings) -> None:
+    configure_logging(settings.log_level)
     if not settings.llm_api_key:
         raise RuntimeError("LLM_API_KEY is required")
     if not settings.admin_chat_id:
@@ -614,22 +643,37 @@ async def run_listener(settings: Settings) -> None:
     engine = ConversationEngine(llm, company_profile=company_profile)
     repo = SQLiteRepository(path_from_sqlite_url(settings.database_url))
     repo.initialize()
+    event_recorder = EventRecorder(repo)
     stock_source = build_stock_source(repo, company_profile)
     cleanup_result = repo.cleanup_pii_older_than(retention_days=settings.pii_retention_days)
-    if cleanup_result.deleted_messages or cleanup_result.anonymized_orders:
-        print(
-            "PII retention cleanup: "
-            f"deleted_messages={cleanup_result.deleted_messages}, "
-            f"anonymized_orders={cleanup_result.anonymized_orders}"
+    if cleanup_result.deleted_messages or cleanup_result.anonymized_orders or cleanup_result.deleted_events:
+        LOGGER.info(
+            "retention_cleanup",
+            extra={
+                "event": "retention_cleanup",
+                "payload": {
+                    "deleted_messages": cleanup_result.deleted_messages,
+                    "anonymized_orders": cleanup_result.anonymized_orders,
+                    "deleted_events": cleanup_result.deleted_events,
+                },
+            },
         )
 
     sender_usernames = SenderUsernameCache(max_size=1000)
 
     async def process_customer_turn(sender_id: int, texts: list[str]) -> None:
         username = sender_usernames.get(sender_id)
+        existing_client = repo.get_client_by_telegram_id(sender_id)
         db_client = repo.upsert_client(telegram_id=sender_id, username=username)
+        if existing_client is None:
+            event_recorder.record(EventName.DIALOG_STARTED, client_id=db_client.id)
         for text in texts:
             repo.add_message(client_id=db_client.id, direction="in", text=text)
+            event_recorder.record(
+                EventName.MESSAGE_RECEIVED,
+                client_id=db_client.id,
+                payload={"has_media": "[photo]" in text or "[media]" in text},
+            )
         now = datetime.now(ZoneInfo(company_profile.timezone_name))
         if (
             settings.auto_reply_enabled
@@ -650,6 +694,8 @@ async def run_listener(settings: Settings) -> None:
                 direction="out",
                 text=_limit_reply_chars(reply, max_chars=settings.max_reply_chars),
             )
+            event_recorder.record(EventName.OFF_HOURS_REPLY, client_id=db_client.id)
+            event_recorder.record(EventName.REPLY_SENT, client_id=db_client.id, payload={"llm_used": False})
             return
         recent_db_messages = repo.list_messages(
             client_id=db_client.id,
@@ -669,6 +715,12 @@ async def run_listener(settings: Settings) -> None:
             company_profile=company_profile,
         )
         stock_snapshot = get_current_stock_snapshot(stock_source)
+        if stock_snapshot.source_name == "sqlite_fallback":
+            event_recorder.record(
+                EventName.STOCK_SOURCE_DEGRADED,
+                client_id=db_client.id,
+                payload={"source_name": stock_snapshot.source_name},
+            )
         stock_context = build_stock_context(
             items=stock_snapshot.items,
             colors=order_card.colors,
@@ -690,22 +742,47 @@ async def run_listener(settings: Settings) -> None:
             if active_order_for_patch:
                 order_card = merge_order_patch(active_order_for_patch.card, action.order_patch)
                 repo.update_order_card(order_id=active_order_for_patch.id, card=order_card)
+                for field_code in action.order_patch.keys():
+                    event_recorder.record(
+                        EventName.STEP_COMPLETED,
+                        client_id=db_client.id,
+                        order_id=active_order_for_patch.id,
+                        payload={"field_code": field_code},
+                    )
         stage, summary = derive_client_state(order_card, last_client_text="\n".join(texts))
         repo.update_client_state(client_id=db_client.id, stage=stage, summary=summary)
 
         client_label = f"@{username} / {sender_id}" if username else str(sender_id)
         active_order = repo.get_active_order(client_id=db_client.id)
+        if active_order and active_order.card.is_ready_for_admin_request() and not active_order.card.admin_request_sent:
+            event_recorder.record(
+                EventName.ORDER_READY,
+                client_id=db_client.id,
+                order_id=active_order.id,
+                payload={"budget": active_order.card.budget, "fulfillment_type": active_order.card.fulfillment_type},
+            )
         if active_order and settings.auto_reply_enabled:
-            await send_admin_order_request_if_ready(
+            if await send_admin_order_request_if_ready(
                 client,
                 repo=repo,
                 order=active_order,
                 admin_chat_id=settings.admin_chat_id,
                 client_label=client_label,
                 company_profile=company_profile,
-            )
+            ):
+                event_recorder.record(EventName.ADMIN_REQUEST_SENT, client_id=db_client.id, order_id=active_order.id)
 
         if settings.auto_reply_enabled and action.kind in {"human_takeover", "human_review"}:
+            event_recorder.record(
+                EventName.ESCALATED,
+                client_id=db_client.id,
+                order_id=active_order.id if active_order else None,
+                payload={
+                    "risk_level": action.risk_level.value,
+                    "risk_category": action.risk_category.value if action.risk_category else None,
+                    "reason": action.safety_reasons[0] if action.safety_reasons else action.kind,
+                },
+            )
             await client.send_message(
                 settings.admin_chat_id,
                 format_admin_notification(
@@ -734,8 +811,31 @@ async def run_listener(settings: Settings) -> None:
                     direction="out",
                     text=_limit_reply_chars(message, max_chars=settings.max_reply_chars),
                 )
+            if any(reason.startswith("llm_error") for reason in action.safety_reasons):
+                event_recorder.record(EventName.LLM_FAILED, client_id=db_client.id, order_id=active_order.id if active_order else None, payload={"stage": "reply"})
+            if action.safety_triggered_reasons:
+                event_recorder.record(
+                    EventName.SAFETY_TRIGGERED,
+                    client_id=db_client.id,
+                    order_id=active_order.id if active_order else None,
+                    payload={"reasons": action.safety_triggered_reasons, "retry_succeeded": action.safety_retry_succeeded is True},
+                )
+            event_recorder.record(
+                EventName.REPLY_SENT,
+                client_id=db_client.id,
+                order_id=active_order.id if active_order else None,
+                payload={
+                    "next_step": action.next_step,
+                    "intent": action.intent,
+                    "confidence": action.confidence,
+                    "llm_used": action.confidence is not None or action.intent is not None,
+                },
+            )
         else:
-            print(f"DRY RUN for {sender_id}: {action.kind} -> {action.messages}")
+            LOGGER.info(
+                "dry_run_reply",
+                extra={"event": "dry_run_reply", "client_id": db_client.id, "order_id": active_order.id if active_order else None, "payload": {"reason": action.kind}},
+            )
 
     debounce_processor = PerSenderDebounceProcessor(
         buffer_seconds=settings.message_buffer_seconds,
@@ -761,12 +861,16 @@ async def run_listener(settings: Settings) -> None:
             await client.send_message(sender_id, ack)
             return
 
+        if sender_id == int(settings.admin_chat_id) and incoming.text.strip().lower().startswith("/stats"):
+            await client.send_message(sender_id, format_stats_report(repo, days=parse_stats_days(incoming.text)))
+            return
+
         sender_usernames.set(sender_id, getattr(sender, "username", None))
         await debounce_processor.enqueue(sender_id=sender_id, text=incoming.text)
 
     await client.start(phone=settings.telegram_phone)
     me = await client.get_me()
-    print(f"Listening as id={me.id} phone={me.phone!r}; auto_reply={settings.auto_reply_enabled}")
+    LOGGER.info("listener_started", extra={"event": "listener_started", "payload": {"auto_reply": settings.auto_reply_enabled}})
     if settings.auto_reply_enabled:
         pending_sent = await send_pending_admin_requests(
             client,
@@ -775,10 +879,19 @@ async def run_listener(settings: Settings) -> None:
             company_profile=company_profile,
         )
         if pending_sent:
-            print(f"Sent pending admin requests: {pending_sent}")
+            LOGGER.info("pending_admin_requests_sent", extra={"event": "pending_admin_requests_sent", "payload": {"count": pending_sent}})
         pending_sheet_rows = send_pending_sheet_rows(repo, company_profile=company_profile)
         if pending_sheet_rows:
-            print(f"Sent pending Google Sheets order rows: {pending_sheet_rows}")
+            LOGGER.info("pending_sheet_rows_sent", extra={"event": "pending_sheet_rows_sent", "payload": {"count": pending_sheet_rows}})
+        asyncio.create_task(
+            weekly_stats_loop(
+                client,
+                repo=repo,
+                admin_chat_id=settings.admin_chat_id,
+                settings=settings,
+                timezone_name=company_profile.timezone_name,
+            )
+        )
     await client.run_until_disconnected()
 
 

@@ -1,3 +1,5 @@
+from datetime import date
+
 from amelia_manager.db.repository import SQLiteRepository
 from amelia_manager.telegram_runtime import update_active_order_from_messages
 
@@ -21,7 +23,7 @@ def test_new_active_order_extracts_only_from_latest_order_start_when_no_active_c
     repo.initialize()
     client = repo.upsert_client(telegram_id=123, username=None)
 
-    card = update_active_order_from_messages(repo, client_id=client.id, recent_messages=OLD_AND_NEW_HISTORY)
+    card = update_active_order_from_messages(repo, client_id=client.id, recent_messages=OLD_AND_NEW_HISTORY, today=date(2026, 8, 1))
 
     assert card.budget == 10000
     assert card.delivery_date == "2026-08-12"

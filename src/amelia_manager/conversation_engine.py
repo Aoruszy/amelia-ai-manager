@@ -35,6 +35,9 @@ class ConversationAction:
     intent: str | None = None
     next_step: str | None = None
     confidence: float | None = None
+    risk_category: RiskCategory | None = None
+    safety_triggered_reasons: list[str] = field(default_factory=list)
+    safety_retry_succeeded: bool | None = None
 
 
 class ConversationEngine:
@@ -82,6 +85,7 @@ class ConversationEngine:
                     "Понимаю вас. Передам вопрос ответственному менеджеру, чтобы посмотрели детали и вернулись с решением."
                 ],
                 risk_level=risk_level,
+                risk_category=risk.category,
             )
 
         catalog_price_reply = _catalog_price_reply_for_question(last_client_text, stock_context)
@@ -111,6 +115,7 @@ class ConversationEngine:
                     messages=["Передам менеджеру, чтобы вам ответили по заказу корректно."],
                     risk_level=risk_level,
                     safety_reasons=["ready_order_already_summarized"],
+                    risk_category=risk.category,
                 )
             return ConversationAction(
                 kind="send",
@@ -186,6 +191,7 @@ class ConversationEngine:
                     intent=decision.intent,
                     next_step=decision.next_step,
                     confidence=decision.confidence,
+                    risk_category=risk.category,
                 )
             if decision.needs_human:
                 return ConversationAction(
@@ -193,6 +199,7 @@ class ConversationEngine:
                     messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                     risk_level=risk_level,
                     safety_reasons=["model_decision_needs_human"],
+                    risk_category=risk.category,
                     **action_metadata,
                 )
             safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
@@ -221,6 +228,7 @@ class ConversationEngine:
                             messages=_finalize_messages(retry_reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                             risk_level=risk_level,
                             safety_reasons=["model_decision_needs_human"],
+                            risk_category=risk.category,
                         )
                 retry_safety = check_reply_safety(
                     retry_reply,
@@ -240,6 +248,8 @@ class ConversationEngine:
                         kind="send",
                         messages=_finalize_messages(retry_reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                         risk_level=risk_level,
+                        safety_triggered_reasons=safety.reasons,
+                        safety_retry_succeeded=True,
                     )
                 safety = retry_safety
             except LLMError:
@@ -249,6 +259,9 @@ class ConversationEngine:
                 messages=["Передам менеджеру, чтобы точно проверить и ответить вам корректно."],
                 risk_level=risk_level,
                 safety_reasons=safety.reasons,
+                risk_category=risk.category,
+                safety_triggered_reasons=safety.reasons,
+                safety_retry_succeeded=False,
             )
 
         return ConversationAction(

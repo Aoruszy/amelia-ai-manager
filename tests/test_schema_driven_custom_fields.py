@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from amelia_manager.company_profile import BusinessField, CompanyProfile
@@ -48,6 +50,7 @@ async def test_llm_extractor_uses_company_profile_custom_fields_without_florist_
         llm,
         ["Клиент: хочу записаться на чистку зубов 12 августа в 15:00, Ирина 89990000001"],
         company_profile=clinic_profile(),
+        today=date(2026, 8, 1),
     )
 
     assert state.custom_fields == {"service": "чистка зубов", "patient_name": "Ирина"}

@@ -1,3 +1,5 @@
+from datetime import date
+
 from amelia_manager.db.repository import SQLiteRepository
 from amelia_manager.order_card import OrderCard
 from amelia_manager.telegram_runtime import should_start_new_order, update_active_order_from_messages
@@ -42,7 +44,12 @@ def test_rich_new_order_does_not_merge_old_ready_card(tmp_path):
         ),
     )
 
-    card = update_active_order_from_messages(repo, client_id=client.id, recent_messages=[f"Клиент: {RICH_NEW_ORDER}"])
+    card = update_active_order_from_messages(
+        repo,
+        client_id=client.id,
+        recent_messages=[f"Клиент: {RICH_NEW_ORDER}"],
+        today=date(2026, 8, 1),
+    )
     active = repo.get_active_order(client_id=client.id)
 
     assert active.id != old_order.id

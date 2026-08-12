@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 
 from telethon import TelegramClient
@@ -43,8 +44,8 @@ async def login(settings: Settings) -> None:
     await client.start(phone=settings.telegram_phone)
 
     me = await client.get_me()
-    print(f"Logged in as: id={me.id} username={me.username!r} phone={me.phone!r}")
-    print(f"Session saved to: {session_path}.session")
+    sys.stdout.write(f"Logged in as: id={me.id} username={me.username!r}\n")
+    sys.stdout.write(f"Session saved to: {session_path}.session\n")
     await client.disconnect()
 
 

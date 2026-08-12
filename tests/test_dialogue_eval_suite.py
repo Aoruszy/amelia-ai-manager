@@ -51,6 +51,21 @@ class CountingLiveLLM:
         return "Подскажите, пожалуйста, бюджет."
 
 
+class StructuredConfidenceLLM:
+    async def generate(self, prompt: str) -> str:
+        return json.dumps(
+            {
+                "reply": "Подскажите, пожалуйста, бюджет.",
+                "intent": "order",
+                "next_step": "ask_budget",
+                "confidence": 0.82,
+                "needs_human": False,
+                "case_patch": {},
+            },
+            ensure_ascii=False,
+        )
+
+
 @pytest.mark.asyncio
 async def test_live_dialogue_eval_uses_llm_and_caches_raw_replies(tmp_path):
     cache_path = tmp_path / "live_cache.json"
@@ -71,3 +86,15 @@ async def test_live_dialogue_eval_uses_llm_and_caches_raw_replies(tmp_path):
     assert second["summary"]["failed"] == 0
     assert llm.calls == 1
     assert json.loads(cache_path.read_text(encoding="utf-8"))["live-budget-question"] == "Подскажите, пожалуйста, бюджет."
+
+
+@pytest.mark.asyncio
+async def test_dialogue_eval_summary_includes_confidence_distribution():
+    report = await run_dialogue_eval(
+        [DialogueScenario("confidence-case", "order_flow", ["Клиент: Нужен букет"], expected_next_step="ask_budget")],
+        llm=StructuredConfidenceLLM(),
+        use_cache=False,
+    )
+
+    assert report["summary"]["confidence_distribution"]["0.7-1.0"] == 1
+    assert report["results"][0]["confidence"] == 0.82

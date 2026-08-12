@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
@@ -32,7 +33,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("message")
     args = parser.parse_args()
-    print(asyncio.run(simulate(args.message)))
+    sys.stdout.write(asyncio.run(simulate(args.message)) + "\n")
 
 
 if __name__ == "__main__":

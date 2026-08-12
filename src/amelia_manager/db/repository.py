@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
+from amelia_manager.events import EventName
+from amelia_manager.observability import sanitize_payload
 from amelia_manager.stock import StockItem, StockStatus
 from amelia_manager.order_card import OrderCard
 
@@ -44,6 +46,17 @@ class OrderRecord:
 class RetentionCleanupResult:
     deleted_messages: int = 0
     anonymized_orders: int = 0
+    deleted_events: int = 0
+
+
+@dataclass(frozen=True)
+class EventRecord:
+    id: int
+    client_id: int
+    order_id: int | None
+    event: str
+    payload_json: str
+    created_at: str
 
 
 def path_from_sqlite_url(database_url: str) -> Path:
@@ -105,8 +118,21 @@ class SQLiteRepository:
                     FOREIGN KEY(client_id) REFERENCES clients(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    order_id INTEGER,
+                    event TEXT NOT NULL,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(client_id) REFERENCES clients(id),
+                    FOREIGN KEY(order_id) REFERENCES orders(id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_messages_client_id ON messages(client_id);
                 CREATE INDEX IF NOT EXISTS idx_orders_client_status ON orders(client_id, status);
+                CREATE INDEX IF NOT EXISTS idx_events_event_created_at ON events(event, created_at);
+                CREATE INDEX IF NOT EXISTS idx_events_client_id ON events(client_id);
                 """
             )
             _ensure_column(conn, "daily_stock", "price", "INTEGER")
@@ -280,6 +306,60 @@ class SQLiteRepository:
             for row in rows
         ]
 
+    def record_event(
+        self,
+        *,
+        client_id: int,
+        order_id: int | None,
+        event: EventName | str,
+        payload: dict | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        event_value = event.value if isinstance(event, EventName) else str(event)
+        payload_json = json.dumps(sanitize_payload(payload), ensure_ascii=False)
+        default_created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        created_at_text = (created_at or default_created_at).strftime("%Y-%m-%d %H:%M:%S")
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO events (client_id, order_id, event, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (client_id, order_id, event_value, payload_json, created_at_text),
+            )
+
+    def list_events(self, *, date_from: date | None = None, date_to: date | None = None) -> list[EventRecord]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if date_from is not None:
+            clauses.append("date(created_at) >= date(?)")
+            params.append(date_from.isoformat())
+        if date_to is not None:
+            clauses.append("date(created_at) <= date(?)")
+            params.append(date_to.isoformat())
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT id, client_id, order_id, event, payload_json, created_at
+                FROM events
+                {where}
+                ORDER BY id ASC
+                """,
+                params,
+            ).fetchall()
+        return [
+            EventRecord(
+                id=int(row["id"]),
+                client_id=int(row["client_id"]),
+                order_id=int(row["order_id"]) if row["order_id"] is not None else None,
+                event=row["event"],
+                payload_json=row["payload_json"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
     def get_active_order(self, *, client_id: int) -> OrderRecord | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -337,9 +417,11 @@ class SQLiteRepository:
         if reference_time.tzinfo is not None:
             reference_time = reference_time.astimezone(timezone.utc).replace(tzinfo=None)
         cutoff_text = (reference_time - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+        event_cutoff_text = (reference_time - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
 
         with self._connect() as conn:
             deleted_messages = conn.execute("DELETE FROM messages WHERE datetime(created_at) < datetime(?)", (cutoff_text,)).rowcount
+            deleted_events = conn.execute("DELETE FROM events WHERE datetime(created_at) < datetime(?)", (event_cutoff_text,)).rowcount
             rows = conn.execute(
                 """
                 SELECT id, card_json
@@ -365,6 +447,7 @@ class SQLiteRepository:
         return RetentionCleanupResult(
             deleted_messages=max(deleted_messages, 0),
             anonymized_orders=anonymized_orders,
+            deleted_events=max(deleted_events, 0),
         )
 
     def delete_client_data_by_telegram_id(self, telegram_id: int) -> bool:
@@ -373,6 +456,7 @@ class SQLiteRepository:
         if client is None:
             return False
         with self._connect() as conn:
+            conn.execute("DELETE FROM events WHERE client_id = ?", (client.id,))
             conn.execute("DELETE FROM messages WHERE client_id = ?", (client.id,))
             conn.execute("DELETE FROM orders WHERE client_id = ?", (client.id,))
             conn.execute("DELETE FROM clients WHERE id = ?", (client.id,))
