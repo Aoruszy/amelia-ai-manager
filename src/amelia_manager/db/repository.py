@@ -21,6 +21,7 @@ class ClientRecord:
     username: str | None
     stage: str
     summary: str
+    opted_out_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,19 @@ class EventRecord:
     created_at: str
 
 
+@dataclass(frozen=True)
+class OutboundRecord:
+    id: int
+    client_id: int
+    order_id: int | None
+    kind: str
+    scheduled_at: str
+    sent_at: str | None
+    cancelled_at: str | None
+    attempt_count: int
+    created_at: str
+
+
 def path_from_sqlite_url(database_url: str) -> Path:
     prefix = "sqlite:///"
     if database_url.startswith(prefix):
@@ -81,6 +95,7 @@ class SQLiteRepository:
                     username TEXT,
                     stage TEXT NOT NULL DEFAULT 'new_lead',
                     summary TEXT NOT NULL DEFAULT '',
+                    opted_out_at TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -129,12 +144,29 @@ class SQLiteRepository:
                     FOREIGN KEY(order_id) REFERENCES orders(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS outbound (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    order_id INTEGER,
+                    kind TEXT NOT NULL,
+                    scheduled_at TEXT NOT NULL,
+                    sent_at TEXT,
+                    cancelled_at TEXT,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(client_id) REFERENCES clients(id),
+                    FOREIGN KEY(order_id) REFERENCES orders(id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_messages_client_id ON messages(client_id);
                 CREATE INDEX IF NOT EXISTS idx_orders_client_status ON orders(client_id, status);
                 CREATE INDEX IF NOT EXISTS idx_events_event_created_at ON events(event, created_at);
                 CREATE INDEX IF NOT EXISTS idx_events_client_id ON events(client_id);
+                CREATE INDEX IF NOT EXISTS idx_outbound_scheduled_sent ON outbound(scheduled_at, sent_at);
+                CREATE INDEX IF NOT EXISTS idx_outbound_client_kind ON outbound(client_id, kind);
                 """
             )
+            _ensure_column(conn, "clients", "opted_out_at", "TEXT")
             _ensure_column(conn, "daily_stock", "price", "INTEGER")
             _ensure_column(conn, "daily_stock", "unit", "TEXT")
 
@@ -158,8 +190,16 @@ class SQLiteRepository:
     def get_client_by_telegram_id(self, telegram_id: int) -> ClientRecord | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, telegram_id, username, stage, summary FROM clients WHERE telegram_id = ?",
+                "SELECT id, telegram_id, username, stage, summary, opted_out_at FROM clients WHERE telegram_id = ?",
                 (telegram_id,),
+            ).fetchone()
+        return self._client_from_row(row) if row else None
+
+    def get_client_by_id(self, client_id: int) -> ClientRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, telegram_id, username, stage, summary, opted_out_at FROM clients WHERE id = ?",
+                (client_id,),
             ).fetchone()
         return self._client_from_row(row) if row else None
 
@@ -168,6 +208,13 @@ class SQLiteRepository:
             conn.execute(
                 "UPDATE clients SET stage = ?, summary = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (stage, summary, client_id),
+            )
+
+    def mark_client_opted_out(self, *, client_id: int, opted_out_at: datetime | None = None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE clients SET opted_out_at = COALESCE(opted_out_at, ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (_format_dt(opted_out_at), client_id),
             )
 
     def add_message(self, *, client_id: int, direction: str, text: str) -> MessageRecord:
@@ -278,7 +325,8 @@ class SQLiteRepository:
                     c.telegram_id AS client_telegram_id,
                     c.username AS client_username,
                     c.stage AS client_stage,
-                    c.summary AS client_summary
+                    c.summary AS client_summary,
+                    c.opted_out_at AS client_opted_out_at
                 FROM orders o
                 JOIN clients c ON c.id = o.client_id
                 WHERE o.status = 'active'
@@ -301,6 +349,7 @@ class SQLiteRepository:
                     username=row["client_username"],
                     stage=row["client_stage"],
                     summary=row["client_summary"],
+                    opted_out_at=row["client_opted_out_at"],
                 ),
             )
             for row in rows
@@ -360,6 +409,114 @@ class SQLiteRepository:
             for row in rows
         ]
 
+    def schedule_outbound(self, *, client_id: int, order_id: int | None, kind, scheduled_at: datetime) -> OutboundRecord:
+        kind_value = kind.value if hasattr(kind, "value") else str(kind)
+        scheduled_at_text = _format_dt(scheduled_at)
+        with self._connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT id, client_id, order_id, kind, scheduled_at, sent_at, cancelled_at, attempt_count, created_at
+                FROM outbound
+                WHERE client_id = ? AND kind = ? AND sent_at IS NULL AND cancelled_at IS NULL
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (client_id, kind_value),
+            ).fetchone()
+            if existing:
+                return self._outbound_from_row(existing)
+            cursor = conn.execute(
+                "INSERT INTO outbound (client_id, order_id, kind, scheduled_at) VALUES (?, ?, ?, ?)",
+                (client_id, order_id, kind_value, scheduled_at_text),
+            )
+            row = conn.execute(
+                "SELECT id, client_id, order_id, kind, scheduled_at, sent_at, cancelled_at, attempt_count, created_at FROM outbound WHERE id = ?",
+                (int(cursor.lastrowid),),
+            ).fetchone()
+        return self._outbound_from_row(row)
+
+    def get_outbound(self, outbound_id: int) -> OutboundRecord:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, client_id, order_id, kind, scheduled_at, sent_at, cancelled_at, attempt_count, created_at FROM outbound WHERE id = ?",
+                (outbound_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(outbound_id)
+        return self._outbound_from_row(row)
+
+    def list_due_outbound(self, *, now: datetime) -> list[OutboundRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, client_id, order_id, kind, scheduled_at, sent_at, cancelled_at, attempt_count, created_at
+                FROM outbound
+                WHERE datetime(scheduled_at) <= datetime(?) AND sent_at IS NULL AND cancelled_at IS NULL
+                ORDER BY datetime(scheduled_at), id
+                """,
+                (_format_dt(now),),
+            ).fetchall()
+        return [self._outbound_from_row(row) for row in rows]
+
+    def has_outbound(self, *, client_id: int | None = None, order_id: int | None = None, kind=None) -> bool:
+        clauses: list[str] = []
+        params: list[object] = []
+        if client_id is not None:
+            clauses.append("client_id = ?")
+            params.append(client_id)
+        if order_id is not None:
+            clauses.append("order_id = ?")
+            params.append(order_id)
+        if kind is not None:
+            clauses.append("kind = ?")
+            params.append(kind.value if hasattr(kind, "value") else str(kind))
+        where = " AND ".join(clauses) or "1=1"
+        with self._connect() as conn:
+            row = conn.execute(f"SELECT 1 FROM outbound WHERE {where} LIMIT 1", params).fetchone()
+        return row is not None
+
+    def mark_outbound_sent(self, outbound_id: int, *, sent_at: datetime) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE outbound SET sent_at = ? WHERE id = ?", (_format_dt(sent_at), outbound_id))
+
+    def reschedule_outbound(self, outbound_id: int, *, scheduled_at: datetime) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE outbound SET scheduled_at = ? WHERE id = ?", (_format_dt(scheduled_at), outbound_id))
+
+    def increment_outbound_attempt(self, outbound_id: int, *, now: datetime, cancel_after_attempts: int = 3) -> OutboundRecord:
+        with self._connect() as conn:
+            conn.execute("UPDATE outbound SET attempt_count = attempt_count + 1 WHERE id = ?", (outbound_id,))
+            row = conn.execute(
+                "SELECT id, client_id, order_id, kind, scheduled_at, sent_at, cancelled_at, attempt_count, created_at FROM outbound WHERE id = ?",
+                (outbound_id,),
+            ).fetchone()
+            if row and int(row["attempt_count"]) >= cancel_after_attempts:
+                conn.execute("UPDATE outbound SET cancelled_at = ? WHERE id = ?", (_format_dt(now), outbound_id))
+                row = conn.execute(
+                    "SELECT id, client_id, order_id, kind, scheduled_at, sent_at, cancelled_at, attempt_count, created_at FROM outbound WHERE id = ?",
+                    (outbound_id,),
+                ).fetchone()
+        return self._outbound_from_row(row)
+
+    def cancel_pending_followups(self, *, client_id: int, cancelled_at: datetime | None = None) -> list[OutboundRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, client_id, order_id, kind, scheduled_at, sent_at, cancelled_at, attempt_count, created_at
+                FROM outbound
+                WHERE client_id = ? AND kind IN ('followup_1', 'followup_2') AND sent_at IS NULL AND cancelled_at IS NULL
+                """,
+                (client_id,),
+            ).fetchall()
+            conn.execute(
+                """
+                UPDATE outbound SET cancelled_at = ?
+                WHERE client_id = ? AND kind IN ('followup_1', 'followup_2') AND sent_at IS NULL AND cancelled_at IS NULL
+                """,
+                (_format_dt(cancelled_at), client_id),
+            )
+        return [self._outbound_from_row(row) for row in rows]
+
     def get_active_order(self, *, client_id: int) -> OrderRecord | None:
         with self._connect() as conn:
             row = conn.execute(
@@ -371,6 +528,14 @@ class SQLiteRepository:
                 LIMIT 1
                 """,
                 (client_id,),
+            ).fetchone()
+        return self._order_from_row(row) if row else None
+
+    def get_order_by_id(self, order_id: int) -> OrderRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, client_id, status, card_json, created_at, updated_at FROM orders WHERE id = ?",
+                (order_id,),
             ).fetchone()
         return self._order_from_row(row) if row else None
 
@@ -482,6 +647,21 @@ class SQLiteRepository:
             username=row["username"],
             stage=row["stage"],
             summary=row["summary"],
+            opted_out_at=row["opted_out_at"] if "opted_out_at" in row.keys() else None,
+        )
+
+    @staticmethod
+    def _outbound_from_row(row: sqlite3.Row) -> OutboundRecord:
+        return OutboundRecord(
+            id=int(row["id"]),
+            client_id=int(row["client_id"]),
+            order_id=int(row["order_id"]) if row["order_id"] is not None else None,
+            kind=row["kind"],
+            scheduled_at=row["scheduled_at"],
+            sent_at=row["sent_at"],
+            cancelled_at=row["cancelled_at"],
+            attempt_count=int(row["attempt_count"]),
+            created_at=row["created_at"],
         )
 
     @staticmethod
@@ -535,3 +715,10 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _format_dt(value: datetime | None) -> str:
+    current = value or datetime.now(timezone.utc).replace(tzinfo=None)
+    if current.tzinfo is not None:
+        current = current.replace(tzinfo=None)
+    return current.strftime("%Y-%m-%d %H:%M:%S")

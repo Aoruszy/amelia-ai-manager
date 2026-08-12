@@ -23,6 +23,8 @@ SAFE_PAYLOAD_KEYS = {
     "retry_succeeded",
     "stage",
     "source_name",
+    "kind",
+    "step_code",
 }
 
 

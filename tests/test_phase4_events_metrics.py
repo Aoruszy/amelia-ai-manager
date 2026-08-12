@@ -87,6 +87,10 @@ def test_metrics_calculate_conversion_funnel_quality_and_ops(tmp_path):
     repo.record_event(client_id=c2.id, order_id=2, event=EventName.SAFETY_TRIGGERED, payload={"reasons": ["x"], "retry_succeeded": True}, created_at=start)
     repo.record_event(client_id=c2.id, order_id=2, event=EventName.LLM_FAILED, payload={"stage": "eval"}, created_at=start)
     repo.record_event(client_id=c2.id, order_id=2, event=EventName.OFF_HOURS_REPLY, payload={}, created_at=start)
+    repo.record_event(client_id=c1.id, order_id=1, event=EventName.FOLLOWUP_SENT, payload={"kind": "followup_1"}, created_at=start)
+    repo.record_event(client_id=c1.id, order_id=1, event=EventName.FOLLOWUP_REPLIED, payload={"kind": "followup_1"}, created_at=start)
+    repo.record_event(client_id=c2.id, order_id=2, event=EventName.FOLLOWUP_SENT, payload={"kind": "followup_1"}, created_at=start)
+    repo.record_event(client_id=c2.id, order_id=2, event=EventName.OPT_OUT, payload={}, created_at=start)
 
     metrics = calculate_metrics(repo, date_from=start.date(), date_to=start.date())
 
@@ -103,6 +107,9 @@ def test_metrics_calculate_conversion_funnel_quality_and_ops(tmp_path):
     assert metrics["ops"]["reply_latency_seconds"]["median"] == 10
     assert metrics["ops"]["off_hours_rate"] == 0.5
     assert metrics["ops"]["average_budget"] == 5000
+    assert metrics["outbound"]["followup_reply_rate"] == 0.5
+    assert metrics["outbound"]["followup_to_admin_request_rate"] == 1.0
+    assert metrics["outbound"]["opt_out_rate"] == 0.5
 
 
 def test_metrics_empty_period_is_zero_safe(tmp_path):

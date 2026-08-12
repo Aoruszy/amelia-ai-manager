@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import re
@@ -26,6 +27,13 @@ from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
 from amelia_manager.order_sheet import SheetsOrderAppender, append_order_to_sheet_if_needed, send_pending_sheet_rows
 from amelia_manager.order_state import extract_order_state
+from amelia_manager.outbound import (
+    build_order_status_reply,
+    is_opt_out_text,
+    is_order_status_question,
+    process_outbound_tick,
+    schedule_followups_after_reply,
+)
 from amelia_manager.stock import build_stock_context, format_stock_ack, parse_stock_text
 from amelia_manager.stock_source import ManualStockSource, SheetsStockSource, StockSnapshot, StockSource
 from amelia_manager.observability import EventRecorder, configure_logging
@@ -495,6 +503,10 @@ class PerSenderDebounceProcessor:
                 return
             await asyncio.gather(*tasks)
 
+    async def active_sender_ids(self) -> set[int]:
+        async with self._lock:
+            return set(self._buffers.keys())
+
     async def _run_sender(self, sender_id: int) -> None:
         first_turn = True
         while True:
@@ -601,6 +613,35 @@ async def weekly_stats_loop(
         await sleep(3600)
 
 
+async def outbound_scheduler_loop(
+    telegram_client,
+    *,
+    repo: SQLiteRepository,
+    settings: Settings,
+    company_profile: CompanyProfile,
+    debounce_processor: PerSenderDebounceProcessor,
+    llm_client: GeminiClient,
+    sleep=asyncio.sleep,
+) -> None:
+    while True:
+        active_telegram_ids = await debounce_processor.active_sender_ids()
+        active_clients = {
+            client.id
+            for telegram_id in active_telegram_ids
+            if (client := repo.get_client_by_telegram_id(telegram_id)) is not None
+        }
+        await process_outbound_tick(
+            telegram_client,
+            repo=repo,
+            settings=settings,
+            company_profile=company_profile,
+            now=datetime.now(ZoneInfo(company_profile.timezone_name)),
+            active_buffers=active_clients,
+            llm_client=llm_client,
+        )
+        await sleep(settings.scheduler_interval_minutes * 60)
+
+
 def should_send_off_hours_reply(repo: SQLiteRepository, *, client_id: int, now: datetime, settings: Settings) -> bool:
     """Return false after this client already received the current off-hours notice."""
     reply = build_off_hours_reply(settings=settings)
@@ -667,6 +708,28 @@ async def run_listener(settings: Settings) -> None:
         username = sender_usernames.get(sender_id)
         existing_client = repo.get_client_by_telegram_id(sender_id)
         db_client = repo.upsert_client(telegram_id=sender_id, username=username)
+        cancelled_followups = repo.cancel_pending_followups(client_id=db_client.id)
+        for cancelled in cancelled_followups:
+            event_recorder.record(
+                EventName.FOLLOWUP_CANCELLED,
+                client_id=db_client.id,
+                order_id=cancelled.order_id,
+                payload={"kind": cancelled.kind, "reason": "client_replied"},
+            )
+        sent_followups = [
+            row
+            for row in repo.list_events()
+            if row.client_id == db_client.id and row.event == EventName.FOLLOWUP_SENT.value
+        ]
+        if sent_followups:
+            event_recorder.record(
+                EventName.FOLLOWUP_REPLIED,
+                client_id=db_client.id,
+                payload={"kind": json.loads(sent_followups[-1].payload_json or "{}").get("kind")},
+            )
+        if any(is_opt_out_text(text) for text in texts):
+            repo.mark_client_opted_out(client_id=db_client.id)
+            event_recorder.record(EventName.OPT_OUT, client_id=db_client.id)
         if existing_client is None:
             event_recorder.record(EventName.DIALOG_STARTED, client_id=db_client.id)
         for text in texts:
@@ -708,6 +771,22 @@ async def run_listener(settings: Settings) -> None:
             f"{'Клиент' if message.direction == 'in' else 'Менеджер'}: {message.text}"
             for message in recent_db_messages
         ]
+        if is_order_status_question("\n".join(texts)):
+            active_order_for_status = repo.get_active_order(client_id=db_client.id)
+            reply = build_order_status_reply(repo, client_id=db_client.id, company_profile=company_profile)
+            if settings.auto_reply_enabled:
+                await send_typing_and_messages(
+                    client,
+                    sender_id=sender_id,
+                    messages=[reply],
+                    initial_delay=settings.min_reply_delay_seconds,
+                    max_initial_delay=settings.max_reply_delay_seconds,
+                    max_chars=settings.max_reply_chars,
+                )
+            repo.add_message(client_id=db_client.id, direction="out", text=_limit_reply_chars(reply, max_chars=settings.max_reply_chars))
+            event_recorder.record(EventName.STATUS_ANSWERED, client_id=db_client.id, order_id=active_order_for_status.id if active_order_for_status else None)
+            event_recorder.record(EventName.REPLY_SENT, client_id=db_client.id, order_id=active_order_for_status.id if active_order_for_status else None, payload={"llm_used": False, "intent": "status"})
+            return
         order_card = await update_active_order_from_messages_with_optional_llm(
             repo,
             settings=settings,
@@ -833,6 +912,18 @@ async def run_listener(settings: Settings) -> None:
                     "llm_used": action.confidence is not None or action.intent is not None,
                 },
             )
+            refreshed_client = repo.get_client_by_id(db_client.id) or db_client
+            inbound_count = sum(1 for message in repo.list_messages(client_id=db_client.id, limit=30) if message.direction == "in")
+            if active_order:
+                schedule_followups_after_reply(
+                    repo,
+                    client=refreshed_client,
+                    order=active_order,
+                    inbound_count=inbound_count,
+                    action_kind=action.kind,
+                    now=datetime.now(ZoneInfo(company_profile.timezone_name)),
+                    company_profile=company_profile,
+                )
         else:
             LOGGER.info(
                 "dry_run_reply",
@@ -892,6 +983,16 @@ async def run_listener(settings: Settings) -> None:
                 admin_chat_id=settings.admin_chat_id,
                 settings=settings,
                 timezone_name=company_profile.timezone_name,
+            )
+        )
+        asyncio.create_task(
+            outbound_scheduler_loop(
+                client,
+                repo=repo,
+                settings=settings,
+                company_profile=company_profile,
+                debounce_processor=debounce_processor,
+                llm_client=llm,
             )
         )
     await client.run_until_disconnected()

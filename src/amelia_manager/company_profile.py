@@ -74,6 +74,8 @@ class CompanyProfile:
     timezone_name: str = "Europe/Kaliningrad"
     stock_terms: tuple[str, ...] = ("в наличии",)
     alternative_offer_text: str = "могу предложить близкий вариант"
+    followup_fallbacks: dict[str, str] = field(default_factory=dict)
+    order_reminder_fallback: str = "Напоминаю про заказ на завтра. Если что-то изменилось, можно просто написать сюда."
     sensitive_occasion_tone_rule: str = "сдержанно, без эмодзи, по делу и коротко"
     sensitive_occasion_forbidden_words: tuple[str, ...] = ()
     stock_source: StockSourceConfig = field(default_factory=StockSourceConfig)
@@ -101,6 +103,13 @@ _DEFAULT_PROFILES = {
         max_bouquet_estimate=10000,
         stock_terms=("пионы", "редкие", "в наличии", "точно есть"),
         alternative_offer_text="могу предложить близкий вариант по стилю",
+        followup_fallbacks={
+            "budget": "Если удобно, напишите примерный бюджет — подскажу варианты. Можно не отвечать, если уже неактуально.",
+            "format": "Можем оформить самовывоз или доставку — как вам удобнее? Можно не отвечать, если уже неактуально.",
+            "address": "Если нужна доставка, пришлите адрес — проверю по заказу. Можно не отвечать, если уже неактуально.",
+            "default": "Если заказ ещё актуален, напишите — продолжим с того места. Можно не отвечать, если уже неактуально.",
+        },
+        order_reminder_fallback="Напоминаю про заказ на завтра: проверьте, пожалуйста, дату, время и формат. Если что-то изменилось, просто напишите сюда.",
         sensitive_occasion_tone_rule="сдержанно, без эмодзи, без радостного тона; по делу и коротко",
         sensitive_occasion_forbidden_words=("яркий", "нежный", "порадовать", "сюрприз"),
         product_categories=_DEFAULT_CATEGORIES,

@@ -21,6 +21,9 @@ def calculate_metrics(repo, *, date_from: date, date_to: date) -> dict[str, Any]
     safety_clients = _clients_for(by_event[EventName.SAFETY_TRIGGERED.value])
     llm_failed_clients = _clients_for(by_event[EventName.LLM_FAILED.value])
     off_hours_clients = _clients_for(by_event[EventName.OFF_HOURS_REPLY.value])
+    followup_sent_clients = _clients_for(by_event[EventName.FOLLOWUP_SENT.value])
+    followup_replied_clients = _clients_for(by_event[EventName.FOLLOWUP_REPLIED.value])
+    opt_out_clients = _clients_for(by_event[EventName.OPT_OUT.value])
     dialog_count = len(dialogs)
 
     confidence_values = []
@@ -51,6 +54,14 @@ def calculate_metrics(repo, *, date_from: date, date_to: date) -> dict[str, Any]
             "reply_latency_seconds": _reply_latency(by_event[EventName.MESSAGE_RECEIVED.value], by_event[EventName.REPLY_SENT.value]),
             "off_hours_rate": _rate(len(off_hours_clients & dialogs), dialog_count),
             "average_budget": _average_budget(by_event[EventName.ORDER_READY.value]),
+        },
+        "outbound": {
+            "followups_sent": len(by_event[EventName.FOLLOWUP_SENT.value]),
+            "followup_replies": len(by_event[EventName.FOLLOWUP_REPLIED.value]),
+            "followup_reply_rate": _rate(len(followup_replied_clients), len(followup_sent_clients)),
+            "followup_to_admin_request_rate": _rate(len(followup_replied_clients & admin_requests), len(followup_replied_clients)),
+            "opt_outs": len(opt_out_clients),
+            "opt_out_rate": _rate(len(opt_out_clients & dialogs), dialog_count),
         },
     }
 

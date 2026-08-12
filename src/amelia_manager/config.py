@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     work_hours_end: str = "20:00"
     delivery_hours_start: str = "08:00"
     delivery_hours_end: str = "22:00"
+    scheduler_interval_minutes: int = Field(default=15, ge=1, le=1440)
 
     @field_validator("max_reply_delay_seconds")
     @classmethod

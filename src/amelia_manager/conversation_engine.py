@@ -12,7 +12,7 @@ from amelia_manager.humanizer import split_into_telegram_messages, suppress_emoj
 from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
-from amelia_manager.order_card import OrderCard
+from amelia_manager.order_card import OrderCard, merge_order_patch
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.prompts import build_manager_prompt
@@ -181,7 +181,12 @@ class ConversationEngine:
                 "next_step": decision.next_step,
                 "confidence": decision.confidence,
             }
-            reply = _ensure_pickup_address_for_pickup_time(reply, decision.next_step, order_card, self.company_profile)
+            reply = _ensure_pickup_address_for_pickup_time(
+                reply,
+                decision.next_step,
+                merge_order_patch(order_card or OrderCard(), dict(decision.case_patch)),
+                self.company_profile,
+            )
             if decision.confidence is not None and decision.confidence < 0.5:
                 return ConversationAction(
                     kind="human_review",
