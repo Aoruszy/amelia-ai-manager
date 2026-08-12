@@ -8,7 +8,7 @@ from amelia_manager.client_order_summary import format_client_order_summary
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.deterministic_replies import deterministic_order_reply
 from amelia_manager.emoji_variation import vary_reply_emoji
-from amelia_manager.humanizer import split_into_telegram_messages, suppress_sensitive_tone_words
+from amelia_manager.humanizer import split_into_telegram_messages, suppress_emojis
 from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
@@ -17,7 +17,7 @@ from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
-from amelia_manager.safety import check_reply_safety
+from amelia_manager.safety import SafetyResult, check_reply_safety
 from amelia_manager.structured_generation import generate_with_optional_schema
 
 
@@ -172,6 +172,7 @@ class ConversationEngine:
                 "next_step": decision.next_step,
                 "confidence": decision.confidence,
             }
+            reply = _ensure_pickup_address_for_pickup_time(reply, decision.next_step, order_card, self.company_profile)
             if decision.confidence is not None and decision.confidence < 0.5:
                 return ConversationAction(
                     kind="human_review",
@@ -191,6 +192,9 @@ class ConversationEngine:
                     **action_metadata,
                 )
             safety = check_reply_safety(reply, stock_context=stock_context)
+        sensitive_tone_reasons = _sensitive_tone_violations(reply, self.company_profile) if sensitive_occasion else []
+        if sensitive_tone_reasons:
+            safety = SafetyResult(is_safe=False, reasons=[*safety.reasons, *sensitive_tone_reasons])
         if not safety.is_safe:
             try:
                 rewrite_prompt = (
@@ -215,6 +219,14 @@ class ConversationEngine:
                             safety_reasons=["model_decision_needs_human"],
                         )
                 retry_safety = check_reply_safety(retry_reply, stock_context=stock_context)
+                retry_sensitive_reasons = (
+                    _sensitive_tone_violations(retry_reply, self.company_profile) if sensitive_occasion else []
+                )
+                if retry_sensitive_reasons:
+                    retry_safety = SafetyResult(
+                        is_safe=False,
+                        reasons=[*retry_safety.reasons, *retry_sensitive_reasons],
+                    )
                 if retry_safety.is_safe:
                     return ConversationAction(
                         kind="send",
@@ -337,6 +349,31 @@ def _sensitive_occasion_patch(category: RiskCategory) -> dict[str, object]:
     return {}
 
 
+def _sensitive_tone_violations(reply: str, profile: CompanyProfile) -> list[str]:
+    normalized_reply = reply.lower().replace("ё", "е")
+    violations: list[str] = []
+    for word in profile.sensitive_occasion_forbidden_words:
+        normalized_word = word.lower().replace("ё", "е")
+        if re.search(rf"\b{re.escape(normalized_word)}\w*\b", normalized_reply):
+            violations.append(f"запрещённые слова для чувствительного повода: {word}")
+    return violations
+
+
+def _ensure_pickup_address_for_pickup_time(
+    reply: str,
+    next_step: str | None,
+    order_card: OrderCard | None,
+    profile: CompanyProfile,
+) -> str:
+    if next_step != "ask_pickup_time" or not order_card or order_card.fulfillment_type != "pickup":
+        return reply
+    if not profile.pickup_address or profile.pickup_address.lower() in reply.lower():
+        return reply
+    if "самовывоз" not in reply.lower() and "забрать" not in reply.lower():
+        return reply
+    return f"{reply.rstrip()} Самовывоз: {profile.pickup_address}."
+
+
 def _unavailable_stock_item(stock_context: str | None) -> str | None:
     if not stock_context:
         return None
@@ -355,6 +392,5 @@ def _finalize_messages(
 ) -> list[str]:
     messages = split_into_telegram_messages(reply)
     if sensitive_occasion:
-        profile = company_profile or load_company_profile("amelia_flowers")
-        return [suppress_sensitive_tone_words(message, profile.sensitive_occasion_forbidden_words) for message in messages]
+        return [suppress_emojis(message) for message in messages]
     return [vary_reply_emoji(message, seed=len(message)) for message in messages]

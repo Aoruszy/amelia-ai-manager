@@ -68,12 +68,18 @@ async def test_sensitive_occasion_uses_calm_reply_without_emoji():
 @pytest.mark.asyncio
 async def test_sensitive_occasion_stays_sticky_across_later_turns():
     class SensitiveAwareLLM:
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+
         async def generate(self, prompt: str, **kwargs) -> str:
+            self.prompts.append(prompt)
             assert "occasion_sensitive" in prompt
             assert "без эмодзи" in prompt
             assert "яркий" in prompt
-            self.last_prompt = prompt
-            return '{"intent":"order","emotion":"grief","reply":"Соберу очень нежный и яркий букет 🌸 На какое время подготовить?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
+            if len(self.prompts) == 1:
+                return '{"intent":"order","emotion":"grief","reply":"Соберу очень нежный и яркий букет 🌸 На какое время подготовить?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
+            assert "запрещённые слова для чувствительного повода" in prompt
+            return '{"intent":"order","emotion":"grief","reply":"Поняла. Сделаю сдержанно и по делу. На какое время подготовить?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
 
     card = OrderCard(
         occasion="похороны",
@@ -84,7 +90,8 @@ async def test_sensitive_occasion_stays_sticky_across_later_turns():
         custom_fields={"occasion_sensitive": True},
     )
 
-    action = await ConversationEngine(SensitiveAwareLLM()).handle_messages(
+    llm = SensitiveAwareLLM()
+    action = await ConversationEngine(llm).handle_messages(
         client_summary="Клиент заказал венок на похороны",
         recent_messages=["Клиент: Хорошо, давайте белый"],
         stage="pickup",
@@ -93,19 +100,29 @@ async def test_sensitive_occasion_stays_sticky_across_later_turns():
 
     text = action.messages[0].lower()
     assert action.kind == "send"
+    assert len(llm.prompts) == 2
     assert "🌸" not in text
     assert "ярк" not in text
     assert "нежн" not in text
+    assert "очень и букет" not in text
 
 
 @pytest.mark.asyncio
 async def test_sensitive_occasion_context_from_history_protects_even_without_order_card():
     class UnsafeSensitiveLLM:
-        async def generate(self, prompt: str, **kwargs) -> str:
-            assert "occasion_sensitive" in prompt
-            return '{"intent":"order","emotion":"grief","reply":"Соберу очень нежный и яркий букет 🌸","case_patch":{},"next_step":"ask_bouquet_preferences","needs_human":false,"confidence":0.9}'
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
 
-    action = await ConversationEngine(UnsafeSensitiveLLM()).handle_messages(
+        async def generate(self, prompt: str, **kwargs) -> str:
+            self.prompts.append(prompt)
+            assert "occasion_sensitive" in prompt
+            if len(self.prompts) == 1:
+                return '{"intent":"order","emotion":"grief","reply":"Соберу очень нежный и яркий букет 🌸","case_patch":{},"next_step":"ask_bouquet_preferences","needs_human":false,"confidence":0.9}'
+            assert "запрещённые слова для чувствительного повода" in prompt
+            return '{"intent":"order","emotion":"grief","reply":"Поняла. Сделаю сдержанно и по делу.","case_patch":{},"next_step":"ask_bouquet_preferences","needs_human":false,"confidence":0.9}'
+
+    llm = UnsafeSensitiveLLM()
+    action = await ConversationEngine(llm).handle_messages(
         client_summary="",
         recent_messages=[
             "Клиент: Нужен венок на похороны",
@@ -118,9 +135,28 @@ async def test_sensitive_occasion_context_from_history_protects_even_without_ord
 
     text = action.messages[0].lower()
     assert action.kind == "send"
+    assert len(llm.prompts) == 2
     assert "🌸" not in text
     assert "ярк" not in text
     assert "нежн" not in text
+    assert "очень и букет" not in text
+
+
+@pytest.mark.asyncio
+async def test_pickup_time_reply_keeps_pickup_address_when_model_omits_it():
+    class PickupTimeLLM:
+        async def generate(self, prompt: str, **kwargs) -> str:
+            return '{"intent":"order","emotion":"neutral","reply":"Записала: до 5000 ₽, самовывоз сегодня. К какому времени удобно забрать?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
+
+    action = await ConversationEngine(PickupTimeLLM()).handle_messages(
+        client_summary="Клиент выбрал самовывоз сегодня до 5000 ₽",
+        recent_messages=["Клиент: до 5000, самовывоз сегодня"],
+        stage="pickup",
+        order_card=OrderCard(budget=5000, fulfillment_type="pickup", delivery_date="сегодня"),
+    )
+
+    assert action.kind == "send"
+    assert "Сергеева, 61" in action.messages[0]
 
 
 @pytest.mark.asyncio
