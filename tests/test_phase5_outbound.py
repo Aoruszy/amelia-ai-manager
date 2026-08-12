@@ -70,6 +70,30 @@ def test_opt_out_sets_client_flag_and_prevents_future_initiative(tmp_path):
     assert refreshed.opted_out_at is not None
 
 
+def test_opt_out_does_not_match_order_negation_phrases():
+    assert is_opt_out_text("не надо доставку, я сам заберу") is False
+    assert is_opt_out_text("мне не надо цветы") is False
+    assert is_opt_out_text("не надо") is False
+    assert is_opt_out_text("отпишите меня") is True
+    assert is_opt_out_text("пожалуйста, не беспокойте") is True
+
+
+def test_event_lookup_filters_by_client_and_event(tmp_path):
+    repo = SQLiteRepository(tmp_path / "db.sqlite3")
+    repo.initialize()
+    first = repo.upsert_client(telegram_id=10, username=None)
+    second = repo.upsert_client(telegram_id=20, username=None)
+    repo.record_event(client_id=first.id, order_id=None, event=EventName.FOLLOWUP_SENT, payload={"kind": "followup_1"})
+    repo.record_event(client_id=first.id, order_id=None, event=EventName.MESSAGE_RECEIVED)
+    repo.record_event(client_id=second.id, order_id=None, event=EventName.FOLLOWUP_SENT, payload={"kind": "followup_2"})
+
+    rows = repo.list_events(client_id=first.id, event=EventName.FOLLOWUP_SENT)
+
+    assert len(rows) == 1
+    assert rows[0].client_id == first.id
+    assert rows[0].event == EventName.FOLLOWUP_SENT.value
+
+
 def test_status_question_answers_from_active_order_card(tmp_path):
     repo = SQLiteRepository(tmp_path / "db.sqlite3")
     repo.initialize()
@@ -81,9 +105,12 @@ def test_status_question_answers_from_active_order_card(tmp_path):
     )
 
     assert is_order_status_question("Что там с моим заказом?") is True
+    assert is_order_status_question("а где мой букет?") is True
+    assert is_order_status_question("как там заказ") is True
     reply = build_order_status_reply(repo, client_id=client.id, company_profile=load_company_profile("amelia_flowers"))
 
-    assert "2026-08-15" in reply
+    assert "15 августа" in reply or "завтра" in reply
+    assert "2026-08-15" not in reply
     assert "15:00" in reply
     assert "доставка" in reply.lower()
     assert "курьер выехал" not in reply.lower()

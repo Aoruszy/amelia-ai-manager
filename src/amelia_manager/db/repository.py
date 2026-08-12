@@ -377,7 +377,14 @@ class SQLiteRepository:
                 (client_id, order_id, event_value, payload_json, created_at_text),
             )
 
-    def list_events(self, *, date_from: date | None = None, date_to: date | None = None) -> list[EventRecord]:
+    def list_events(
+        self,
+        *,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        client_id: int | None = None,
+        event: EventName | str | None = None,
+    ) -> list[EventRecord]:
         clauses: list[str] = []
         params: list[object] = []
         if date_from is not None:
@@ -386,6 +393,12 @@ class SQLiteRepository:
         if date_to is not None:
             clauses.append("date(created_at) <= date(?)")
             params.append(date_to.isoformat())
+        if client_id is not None:
+            clauses.append("client_id = ?")
+            params.append(client_id)
+        if event is not None:
+            clauses.append("event = ?")
+            params.append(event.value if isinstance(event, EventName) else str(event))
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
         with self._connect() as conn:
             rows = conn.execute(

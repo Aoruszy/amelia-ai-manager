@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from amelia_manager.company_profile import CompanyProfile
 from amelia_manager.config import Settings
+from amelia_manager.date_formatting import format_human_date
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository
 from amelia_manager.events import EventName
 from amelia_manager.order_card import OrderCard
@@ -21,12 +22,19 @@ class OutboundKind(StrEnum):
     ORDER_REMINDER = "order_reminder"
 
 
-_OPT_OUT_RE = re.compile(r"\b(не\s+пишите|не\s+надо|отстаньте|не\s+беспокоить|хватит\s+писать)\b", re.IGNORECASE)
-_STATUS_RE = re.compile(r"\b(что\s+(там\s+)?с\s+моим\s+заказом|когда\s+привезут|заказ\s+готов|статус\s+заказа)\b", re.IGNORECASE)
+_OPT_OUT_RE = re.compile(r"\b(не\s+пишите|отстаньте|не\s+беспоко(?:ить|йте)|хватит\s+писать|отпишите)\b", re.IGNORECASE)
+_STATUS_RE = re.compile(
+    r"\b(что\s+(там\s+)?с\s+моим\s+заказом|когда\s+привезут|заказ\s+готов|статус\s+заказа|где\s+мой\s+букет|как\s+там\s+заказ)\b",
+    re.IGNORECASE,
+)
+_ORDER_CONTEXT_RE = re.compile(r"\b(доставк\w*|сам\s+заберу|самовывоз|цвет\w*|букет|открытк\w*|адрес|время|дат\w*)\b", re.IGNORECASE)
 
 
 def is_opt_out_text(text: str) -> bool:
-    return bool(_OPT_OUT_RE.search(text or ""))
+    normalized = " ".join((text or "").strip().split())
+    if not normalized or len(normalized.split()) > 6 or _ORDER_CONTEXT_RE.search(normalized):
+        return False
+    return bool(_OPT_OUT_RE.search(normalized))
 
 
 def is_order_status_question(text: str) -> bool:
@@ -40,7 +48,7 @@ def build_order_status_reply(repo: SQLiteRepository, *, client_id: int, company_
     card = order.card
     parts = []
     if card.delivery_date:
-        parts.append(f"дата: {card.delivery_date}")
+        parts.append(f"дата: {format_human_date(card.delivery_date, timezone_name=company_profile.timezone_name)}")
     if card.delivery_time:
         parts.append(f"время: {card.delivery_time}")
     if card.fulfillment_type:

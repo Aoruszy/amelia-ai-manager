@@ -716,11 +716,7 @@ async def run_listener(settings: Settings) -> None:
                 order_id=cancelled.order_id,
                 payload={"kind": cancelled.kind, "reason": "client_replied"},
             )
-        sent_followups = [
-            row
-            for row in repo.list_events()
-            if row.client_id == db_client.id and row.event == EventName.FOLLOWUP_SENT.value
-        ]
+        sent_followups = repo.list_events(client_id=db_client.id, event=EventName.FOLLOWUP_SENT)
         if sent_followups:
             event_recorder.record(
                 EventName.FOLLOWUP_REPLIED,
