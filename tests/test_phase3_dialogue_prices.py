@@ -53,3 +53,22 @@ async def test_catalog_missing_price_does_not_invent_price():
 
     assert "уточ" in action.messages[0].lower()
     assert "4500" not in action.messages[0]
+
+
+@pytest.mark.asyncio
+async def test_bouquet_cost_question_gets_catalog_range_not_exact_single_price():
+    engine = ConversationEngine(FailingLLM())
+
+    action = await engine.handle_messages(
+        client_summary="Eval",
+        recent_messages=["Клиент: сколько выйдет букет с пионами?"],
+        stage="eval",
+        stock_context="По наличию на сегодня релевантно:\n- пионы — 12, 4500 ₽/шт",
+    )
+
+    reply = action.messages[0].lower()
+    assert "примерно" in reply
+    assert "4000" in reply
+    assert "4500" in reply
+    assert "итог" in reply and "менеджер" in reply
+    assert "4500 ₽/шт" not in reply

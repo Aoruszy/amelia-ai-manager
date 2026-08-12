@@ -7,6 +7,7 @@ import pytest
 from amelia_manager.company_profile import CompanyProfile, StockSourceConfig, SheetsStockConfig
 from amelia_manager.db.repository import SQLiteRepository
 from amelia_manager.safety import check_reply_safety
+import amelia_manager.stock as stock_module
 from amelia_manager.stock import StockItem, StockStatus, build_stock_context, format_stock_ack, parse_stock_text
 from amelia_manager.stock_source import ManualStockSource, SheetsStockSource
 
@@ -78,6 +79,21 @@ def test_build_stock_context_includes_known_price_shortly():
 
     assert "пионы" in context
     assert "4500 ₽/шт" in context
+
+
+def test_build_stock_context_uses_profile_timezone_today(monkeypatch):
+    monkeypatch.setattr(stock_module, "_today_in_timezone", lambda timezone_name: date(2026, 8, 14))
+
+    context = build_stock_context(
+        items=[StockItem(name="пионы", status=StockStatus.AVAILABLE, quantity_text="12", quantity_number=12)],
+        colors=[],
+        desired_text="пионы",
+        stock_date=date(2026, 8, 14),
+        timezone_name="Europe/Kaliningrad",
+    )
+
+    assert "устарело" not in context
+    assert "пионы" in context
 
 
 def test_sheets_stock_source_parses_rows_mirrors_to_sqlite_and_manual_source_reads_latest(tmp_path):
@@ -155,6 +171,23 @@ def test_safety_rejects_catalog_price_not_supported_by_context():
     result = check_reply_safety("Пионы стоят 5000 ₽ за штуку", stock_context=stock_context)
     assert not result.is_safe
     assert "unsupported_price_quote" in result.reasons
+
+
+def test_safety_allows_bouquet_range_derived_from_catalog_price():
+    stock_context = "По наличию на сегодня релевантно:\n- пионы — 12, 4500 ₽/шт"
+
+    result = check_reply_safety("Букет выйдет примерно 4000–4500 ₽, итог подтвердит менеджер.", stock_context=stock_context)
+
+    assert result.is_safe
+
+
+def test_safety_allows_profile_prices_when_profile_is_passed():
+    profile = sheets_profile()
+    profile = CompanyProfile(**{**profile.__dict__, "delivery_city_price": 400, "free_delivery_from": 5000})
+
+    result = check_reply_safety("Доставка стоит 400 ₽, от 5000 ₽ бесплатная.", company_profile=profile)
+
+    assert result.is_safe
 
 
 def test_stock_ack_mentions_manual_override_when_sheets_active():

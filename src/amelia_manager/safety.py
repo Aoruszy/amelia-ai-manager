@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from amelia_manager.company_profile import CompanyProfile
+
 
 @dataclass(frozen=True)
 class SafetyResult:
@@ -57,7 +59,12 @@ _UNSUPPORTED_PAYMENT_CONFIRMATION_PATTERNS = (
 )
 
 
-def check_reply_safety(reply: str, *, stock_context: str | None = None) -> SafetyResult:
+def check_reply_safety(
+    reply: str,
+    *,
+    stock_context: str | None = None,
+    company_profile: CompanyProfile | None = None,
+) -> SafetyResult:
     normalized = reply.lower().replace("ё", "е")
     reasons: list[str] = []
 
@@ -80,7 +87,7 @@ def check_reply_safety(reply: str, *, stock_context: str | None = None) -> Safet
         reasons.append("shop_address_as_delivery")
     if "самовывоз" in normalized and "получател" in normalized and ("телефон" in normalized or "номер" in normalized):
         reasons.append("pickup_recipient_question")
-    if _has_unsupported_price_quote(normalized, stock_context):
+    if _has_unsupported_price_quote(normalized, stock_context, company_profile=company_profile):
         reasons.append("unsupported_price_quote")
 
     return SafetyResult(is_safe=not reasons, reasons=reasons)
@@ -124,7 +131,12 @@ def _contradicts_unavailable_stock(reply: str, stock_context: str | None) -> boo
     return any(item and item in reply for item in unavailable)
 
 
-def _has_unsupported_price_quote(reply: str, stock_context: str | None) -> bool:
+def _has_unsupported_price_quote(
+    reply: str,
+    stock_context: str | None,
+    *,
+    company_profile: CompanyProfile | None = None,
+) -> bool:
     price_quotes = []
     for match in re.finditer(r"\b(\d[\d ]{2,})\s*(?:₽|руб|р\b)", reply):
         window = reply[max(0, match.start() - 48): match.end() + 48]
@@ -138,4 +150,13 @@ def _has_unsupported_price_quote(reply: str, stock_context: str | None) -> bool:
             match.group(1).replace(" ", "")
             for match in re.finditer(r"\b(\d[\d ]{2,})\s*(?:₽|руб|р\b)", stock_context.lower().replace("ё", "е"))
         }
+    if company_profile is not None:
+        allowed_prices.update(
+            str(value)
+            for value in (
+                company_profile.delivery_city_price,
+                company_profile.free_delivery_from,
+            )
+            if value is not None
+        )
     return any(price not in allowed_prices for price in price_quotes)

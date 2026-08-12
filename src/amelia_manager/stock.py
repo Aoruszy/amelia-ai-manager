@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 
+from amelia_manager.date_formatting import _today_in_timezone
+
 
 class StockStatus(StrEnum):
     AVAILABLE = "available"
@@ -75,8 +77,9 @@ def build_stock_context(
     colors: list[str],
     desired_text: str,
     stock_date: date | None,
+    timezone_name: str = "Europe/Kaliningrad",
 ) -> str:
-    today = date.today()
+    today = _today_in_timezone(timezone_name)
     if not stock_date or not items:
         return "наличие на сегодня не внесено. Не обещай конкретные цветы; при необходимости скажи, что наличие нужно уточнить по смене."
     if stock_date != today:

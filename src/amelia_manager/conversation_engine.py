@@ -165,7 +165,7 @@ class ConversationEngine:
                 risk_level=risk_level,
                 safety_reasons=["llm_error"],
             )
-        safety = check_reply_safety(reply, stock_context=stock_context)
+        safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
         decision = parse_model_decision(reply)
         action_metadata: dict[str, object] = {}
         if decision is not None:
@@ -195,7 +195,7 @@ class ConversationEngine:
                     safety_reasons=["model_decision_needs_human"],
                     **action_metadata,
                 )
-            safety = check_reply_safety(reply, stock_context=stock_context)
+            safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
         sensitive_tone_reasons = _sensitive_tone_violations(reply, self.company_profile) if sensitive_occasion else []
         if sensitive_tone_reasons:
             safety = SafetyResult(is_safe=False, reasons=[*safety.reasons, *sensitive_tone_reasons])
@@ -222,7 +222,11 @@ class ConversationEngine:
                             risk_level=risk_level,
                             safety_reasons=["model_decision_needs_human"],
                         )
-                retry_safety = check_reply_safety(retry_reply, stock_context=stock_context)
+                retry_safety = check_reply_safety(
+                    retry_reply,
+                    stock_context=stock_context,
+                    company_profile=self.company_profile,
+                )
                 retry_sensitive_reasons = (
                     _sensitive_tone_violations(retry_reply, self.company_profile) if sensitive_occasion else []
                 )
@@ -304,22 +308,34 @@ def _cautious_reply_for_medium_risk(
 
 def _catalog_price_reply_for_question(text: str, stock_context: str | None) -> str | None:
     normalized = text.lower().replace("ё", "е")
-    if not re.search(r"\b(?:сколько\s+сто\w*|цен\w*|почем|за\s+сколько)\b", normalized):
+    if not re.search(r"\b(?:сколько\s+(?:сто\w*|выйд\w*)|цен\w*|почем|за\s+сколько|обойд\w*)\b", normalized):
         return None
     requested_tokens = set(re.findall(r"[а-яa-z]{4,}", normalized))
     if not stock_context:
         return "По цене лучше уточню у менеджера, чтобы не назвать неверно."
+    bouquet_cost_question = "букет" in normalized or re.search(r"\b(?:выйд\w*|обойд\w*)\b", normalized)
     for line in stock_context.splitlines():
         match = re.search(r"-\s*(?P<name>[^—-]+)\s*[—-].*?\b(?P<price>\d[\d ]{2,})\s*₽(?:/(?P<unit>\S+))?", line)
         if not match:
             continue
         name = match.group("name").strip().lower().replace("ё", "е")
         name_tokens = set(re.findall(r"[а-яa-z]{4,}", name))
-        if requested_tokens & name_tokens:
-            price = match.group("price").replace(" ", "")
+        if _tokens_overlap(requested_tokens, name_tokens):
+            price = int(match.group("price").replace(" ", ""))
+            if bouquet_cost_question:
+                lower = max(0, price - 500)
+                return f"По каталогу можно ориентироваться примерно на {lower}–{price} ₽, но состав определяет флорист. Итоговую стоимость подтвердит менеджер."
             unit = match.group("unit") or "шт"
             return f"{match.group('name').strip().capitalize()} по каталогу — {price} ₽/{unit}. Итоговую стоимость букета подтвердит менеджер после состава."
     return "По этой цене лучше уточню у менеджера: в каталоге сейчас нет подтверждённой цены."
+
+
+def _tokens_overlap(left: set[str], right: set[str]) -> bool:
+    for left_token in left:
+        for right_token in right:
+            if left_token == right_token or left_token.startswith(right_token[:4]) or right_token.startswith(left_token[:4]):
+                return True
+    return False
 
 
 def _format_order_card_context(card: OrderCard) -> str:

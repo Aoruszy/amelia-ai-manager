@@ -674,6 +674,7 @@ async def run_listener(settings: Settings) -> None:
             colors=order_card.colors,
             desired_text="\n".join(recent_messages),
             stock_date=stock_snapshot.fetched_at.date() if stock_snapshot.items else None,
+            timezone_name=company_profile.timezone_name,
         )
 
         action = await engine.handle_messages(

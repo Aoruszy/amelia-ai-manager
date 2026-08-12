@@ -192,7 +192,7 @@ def _evaluate_checks(
         _check("non_empty_output", bool(output.strip()), {}),
     ]
     if scenario.require_safe:
-        safety = check_reply_safety(output, stock_context=scenario.stock_context)
+        safety = check_reply_safety(output, stock_context=scenario.stock_context, company_profile=profile)
     else:
         safety = None
     for structural_check in _structural_checks_for(scenario):
