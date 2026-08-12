@@ -72,6 +72,36 @@ def build_stock_source(repo: SQLiteRepository, company_profile: CompanyProfile) 
     return ManualStockSource(repo)
 
 
+def handle_admin_control_command(repo: SQLiteRepository, text: str, *, admin_id: int) -> str:
+    parts = text.strip().split()
+    if not parts:
+        return "Неизвестная команда."
+    command = parts[0].lower()
+    if command == "/paused":
+        paused = repo.list_paused_clients()
+        if not paused:
+            return "Диалогов на паузе нет."
+        lines = ["Диалоги на паузе:"]
+        for record in paused:
+            username = f" @{record.username}" if record.username else ""
+            lines.append(f"• {record.telegram_id}{username} — {record.stage}")
+        return "\n".join(lines)
+    if command not in {"/pause", "/resume"} or len(parts) < 2:
+        return "Используйте /pause <telegram_id>, /resume <telegram_id> или /paused."
+    try:
+        telegram_id = int(parts[1])
+    except ValueError:
+        return "telegram_id должен быть числом."
+    client = repo.get_client_by_telegram_id(telegram_id)
+    if client is None:
+        return "Клиент не найден."
+    if command == "/pause":
+        repo.pause_client(client_id=client.id, paused_by=str(admin_id), reason="manual")
+        return f"Пауза включена для {telegram_id}."
+    repo.resume_client(client_id=client.id, reason="manual")
+    return f"Вернул боту диалог {telegram_id}."
+
+
 def get_current_stock_snapshot(source: StockSource) -> StockSnapshot:
     return source.fetch()
 
@@ -735,6 +765,8 @@ async def run_listener(settings: Settings) -> None:
                 client_id=db_client.id,
                 payload={"has_media": "[photo]" in text or "[media]" in text},
             )
+        if db_client.bot_paused_at:
+            return
         now = datetime.now(ZoneInfo(company_profile.timezone_name))
         if (
             settings.auto_reply_enabled
@@ -849,6 +881,8 @@ async def run_listener(settings: Settings) -> None:
             ):
                 event_recorder.record(EventName.ADMIN_REQUEST_SENT, client_id=db_client.id, order_id=active_order.id)
 
+        if action.kind == "human_takeover":
+            repo.pause_client(client_id=db_client.id, paused_by="auto", reason="escalation")
         if settings.auto_reply_enabled and action.kind in {"human_takeover", "human_review"}:
             event_recorder.record(
                 EventName.ESCALATED,
@@ -952,6 +986,10 @@ async def run_listener(settings: Settings) -> None:
 
         if sender_id == int(settings.admin_chat_id) and incoming.text.strip().lower().startswith("/stats"):
             await client.send_message(sender_id, format_stats_report(repo, days=parse_stats_days(incoming.text), timezone_name=company_profile.timezone_name))
+            return
+
+        if sender_id == int(settings.admin_chat_id) and incoming.text.strip().lower().split(maxsplit=1)[0] in {"/pause", "/resume", "/paused"}:
+            await client.send_message(sender_id, handle_admin_control_command(repo, incoming.text, admin_id=sender_id))
             return
 
         sender_usernames.set(sender_id, getattr(sender, "username", None))

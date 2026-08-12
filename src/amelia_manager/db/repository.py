@@ -22,6 +22,8 @@ class ClientRecord:
     stage: str
     summary: str
     opted_out_at: str | None = None
+    bot_paused_at: str | None = None
+    paused_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,14 @@ class OutboundRecord:
     created_at: str
 
 
+@dataclass(frozen=True)
+class DialogueRecord:
+    client: ClientRecord
+    active_order: OrderRecord | None
+    last_message_at: str | None
+    last_message_text: str | None
+
+
 def path_from_sqlite_url(database_url: str) -> Path:
     prefix = "sqlite:///"
     if database_url.startswith(prefix):
@@ -96,6 +106,8 @@ class SQLiteRepository:
                     stage TEXT NOT NULL DEFAULT 'new_lead',
                     summary TEXT NOT NULL DEFAULT '',
                     opted_out_at TEXT,
+                    bot_paused_at TEXT,
+                    paused_by TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -167,6 +179,8 @@ class SQLiteRepository:
                 """
             )
             _ensure_column(conn, "clients", "opted_out_at", "TEXT")
+            _ensure_column(conn, "clients", "bot_paused_at", "TEXT")
+            _ensure_column(conn, "clients", "paused_by", "TEXT")
             _ensure_column(conn, "daily_stock", "price", "INTEGER")
             _ensure_column(conn, "daily_stock", "unit", "TEXT")
 
@@ -190,7 +204,7 @@ class SQLiteRepository:
     def get_client_by_telegram_id(self, telegram_id: int) -> ClientRecord | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, telegram_id, username, stage, summary, opted_out_at FROM clients WHERE telegram_id = ?",
+                "SELECT id, telegram_id, username, stage, summary, opted_out_at, bot_paused_at, paused_by FROM clients WHERE telegram_id = ?",
                 (telegram_id,),
             ).fetchone()
         return self._client_from_row(row) if row else None
@@ -198,7 +212,7 @@ class SQLiteRepository:
     def get_client_by_id(self, client_id: int) -> ClientRecord | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, telegram_id, username, stage, summary, opted_out_at FROM clients WHERE id = ?",
+                "SELECT id, telegram_id, username, stage, summary, opted_out_at, bot_paused_at, paused_by FROM clients WHERE id = ?",
                 (client_id,),
             ).fetchone()
         return self._client_from_row(row) if row else None
@@ -216,6 +230,61 @@ class SQLiteRepository:
                 "UPDATE clients SET opted_out_at = COALESCE(opted_out_at, ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (_format_dt(opted_out_at), client_id),
             )
+
+    def pause_client(self, *, client_id: int, paused_by: str, reason: str, paused_at: datetime | None = None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE clients SET bot_paused_at = COALESCE(bot_paused_at, ?), paused_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (_format_dt(paused_at), paused_by, client_id),
+            )
+        self.record_event(client_id=client_id, order_id=None, event=EventName.BOT_PAUSED, payload={"reason": reason}, created_at=paused_at)
+
+    def resume_client(self, *, client_id: int, reason: str, resumed_at: datetime | None = None) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE clients SET bot_paused_at = NULL, paused_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (client_id,))
+        self.record_event(client_id=client_id, order_id=None, event=EventName.BOT_RESUMED, payload={"reason": reason}, created_at=resumed_at)
+
+    def list_paused_clients(self) -> list[ClientRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, telegram_id, username, stage, summary, opted_out_at, bot_paused_at, paused_by FROM clients WHERE bot_paused_at IS NOT NULL ORDER BY updated_at DESC, id DESC"
+            ).fetchall()
+        return [self._client_from_row(row) for row in rows]
+
+    def list_dialogues(self, *, filter_name: str | None = None, active_days: int | None = None, limit: int = 200) -> list[DialogueRecord]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if filter_name == "paused":
+            clauses.append("c.bot_paused_at IS NOT NULL")
+        elif filter_name == "ready":
+            clauses.append("o.card_json LIKE '%\"admin_request_sent\": true%'")
+        if active_days is not None:
+            clauses.append("datetime(lm.last_message_at) >= datetime('now', ?)")
+            params.append(f"-{active_days} days")
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    c.id AS client_id, c.telegram_id, c.username, c.stage, c.summary,
+                    c.opted_out_at, c.bot_paused_at, c.paused_by,
+                    o.id AS order_id, o.status AS order_status, o.card_json, o.created_at AS order_created_at, o.updated_at AS order_updated_at,
+                    lm.last_message_at, lm.last_message_text
+                FROM clients c
+                LEFT JOIN orders o ON o.client_id = c.id AND o.status = 'active'
+                LEFT JOIN (
+                    SELECT m1.client_id, m1.created_at AS last_message_at, m1.text AS last_message_text
+                    FROM messages m1
+                    JOIN (SELECT client_id, MAX(id) AS max_id FROM messages GROUP BY client_id) latest ON latest.max_id = m1.id
+                ) lm ON lm.client_id = c.id
+                {where}
+                ORDER BY datetime(COALESCE(lm.last_message_at, '1970-01-01')) DESC, c.id DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        return [self._dialogue_from_row(row) for row in rows]
 
     def add_message(self, *, client_id: int, direction: str, text: str) -> MessageRecord:
         with self._connect() as conn:
@@ -326,7 +395,9 @@ class SQLiteRepository:
                     c.username AS client_username,
                     c.stage AS client_stage,
                     c.summary AS client_summary,
-                    c.opted_out_at AS client_opted_out_at
+                    c.opted_out_at AS client_opted_out_at,
+                    c.bot_paused_at AS client_bot_paused_at,
+                    c.paused_by AS client_paused_by
                 FROM orders o
                 JOIN clients c ON c.id = o.client_id
                 WHERE o.status = 'active'
@@ -350,6 +421,8 @@ class SQLiteRepository:
                     stage=row["client_stage"],
                     summary=row["client_summary"],
                     opted_out_at=row["client_opted_out_at"],
+                    bot_paused_at=row["client_bot_paused_at"],
+                    paused_by=row["client_paused_by"],
                 ),
             )
             for row in rows
@@ -661,7 +734,33 @@ class SQLiteRepository:
             stage=row["stage"],
             summary=row["summary"],
             opted_out_at=row["opted_out_at"] if "opted_out_at" in row.keys() else None,
+            bot_paused_at=row["bot_paused_at"] if "bot_paused_at" in row.keys() else None,
+            paused_by=row["paused_by"] if "paused_by" in row.keys() else None,
         )
+
+    @staticmethod
+    def _dialogue_from_row(row: sqlite3.Row) -> DialogueRecord:
+        client = ClientRecord(
+            id=int(row["client_id"]),
+            telegram_id=int(row["telegram_id"]),
+            username=row["username"],
+            stage=row["stage"],
+            summary=row["summary"],
+            opted_out_at=row["opted_out_at"],
+            bot_paused_at=row["bot_paused_at"],
+            paused_by=row["paused_by"],
+        )
+        order = None
+        if row["order_id"] is not None:
+            order = OrderRecord(
+                id=int(row["order_id"]),
+                client_id=client.id,
+                status=row["order_status"],
+                card=OrderCard.from_dict(json.loads(row["card_json"] or "{}")),
+                created_at=row["order_created_at"],
+                updated_at=row["order_updated_at"],
+            )
+        return DialogueRecord(client=client, active_order=order, last_message_at=row["last_message_at"], last_message_text=row["last_message_text"])
 
     @staticmethod
     def _outbound_from_row(row: sqlite3.Row) -> OutboundRecord:

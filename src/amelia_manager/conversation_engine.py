@@ -423,7 +423,9 @@ def _ensure_pickup_address_for_pickup_time(
     order_card: OrderCard | None,
     profile: CompanyProfile,
 ) -> str:
-    if next_step != "ask_pickup_time" or not order_card or order_card.fulfillment_type != "pickup":
+    if next_step != "ask_pickup_time":
+        return reply
+    if order_card and order_card.fulfillment_type not in (None, "pickup"):
         return reply
     if not profile.pickup_address or profile.pickup_address.lower() in reply.lower():
         return reply

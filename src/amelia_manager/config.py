@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     # Admin
     admin_chat_id: int | None = None
     test_allowlist_ids: str = ""
+    admin_username: str = "admin"
+    admin_password: str = "admin"
 
     # LLM
     llm_provider: str = "gemini"

@@ -160,6 +160,23 @@ async def test_pickup_time_reply_keeps_pickup_address_when_model_omits_it():
 
 
 @pytest.mark.asyncio
+async def test_pickup_time_reply_keeps_pickup_address_even_without_card_patch():
+    class PickupTimeLLM:
+        async def generate(self, prompt: str, **kwargs) -> str:
+            return '{"intent":"order","emotion":"neutral","reply":"Записала: самовывоз сегодня. К какому времени удобно забрать?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
+
+    action = await ConversationEngine(PickupTimeLLM()).handle_messages(
+        client_summary="Клиент выбрал самовывоз сегодня",
+        recent_messages=["Клиент: самовывоз сегодня"],
+        stage="pickup",
+        order_card=None,
+    )
+
+    assert action.kind == "send"
+    assert "Сергеева, 61" in action.messages[0]
+
+
+@pytest.mark.asyncio
 async def test_guarantee_request_gets_cautious_reply_without_promise():
     action = await ConversationEngine(FakeLLM()).handle_messages(
         client_summary="Клиент",

@@ -68,7 +68,7 @@ def schedule_followups_after_reply(
     now: datetime,
     company_profile: CompanyProfile | None = None,
 ) -> int:
-    if order is None or client.opted_out_at:
+    if order is None or client.opted_out_at or client.bot_paused_at:
         return 0
     if inbound_count <= 1 or action_kind in {"human_takeover", "human_review"}:
         return 0
@@ -117,7 +117,7 @@ async def process_outbound_tick(
                 continue
             if client.id in active_buffers:
                 continue
-            if item.kind in {OutboundKind.FOLLOWUP_1.value, OutboundKind.FOLLOWUP_2.value} and client.opted_out_at:
+            if item.kind in {OutboundKind.FOLLOWUP_1.value, OutboundKind.FOLLOWUP_2.value} and (client.opted_out_at or client.bot_paused_at):
                 continue
             if not _within_work_hours(now, settings=settings):
                 repo.reschedule_outbound(item.id, scheduled_at=_next_work_start(now, company_profile.timezone_name, settings=settings))
