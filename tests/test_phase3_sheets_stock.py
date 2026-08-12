@@ -181,6 +181,25 @@ def test_safety_allows_bouquet_range_derived_from_catalog_price():
     assert result.is_safe
 
 
+def test_safety_allows_approximate_bouquet_range_without_catalog_exact_match():
+    result = check_reply_safety("Такой букет обойдётся примерно в 4000–4500 ₽.")
+
+    assert result.is_safe
+
+
+def test_safety_allows_approximate_single_bouquet_estimate_without_catalog_exact_match():
+    result = check_reply_safety("Букет выйдет около 4500 ₽.")
+
+    assert result.is_safe
+
+
+def test_safety_blocks_exact_bouquet_price_without_approximation_or_catalog():
+    result = check_reply_safety("Такой букет обойдётся в 4500 ₽.")
+
+    assert not result.is_safe
+    assert "unsupported_price_quote" in result.reasons
+
+
 def test_safety_allows_profile_prices_when_profile_is_passed():
     profile = sheets_profile()
     profile = CompanyProfile(**{**profile.__dict__, "delivery_city_price": 400, "free_delivery_from": 5000})

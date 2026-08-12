@@ -141,6 +141,8 @@ def _has_unsupported_price_quote(
     for match in re.finditer(r"\b(\d[\d ]{2,})\s*(?:₽|руб|р\b)", reply):
         window = reply[max(0, match.start() - 48): match.end() + 48]
         if re.search(r"\b(?:сто\w*|цен\w*|за\s+штук\w*|за\s+букет|обойд\w*|выйд\w*)\b", window):
+            if _is_approximate_bouquet_estimate(reply, window):
+                continue
             price_quotes.append(match.group(1).replace(" ", ""))
     if not price_quotes:
         return False
@@ -160,3 +162,13 @@ def _has_unsupported_price_quote(
             if value is not None
         )
     return any(price not in allowed_prices for price in price_quotes)
+
+
+def _is_approximate_bouquet_estimate(reply: str, window: str) -> bool:
+    if "букет" not in reply:
+        return False
+    if not re.search(r"\b(?:обойд\w*|выйд\w*|сто\w*)\b", window):
+        return False
+    has_approx_marker = re.search(r"\b(?:примерно|около|ориентировочно|порядка|в\s+районе)\b", window)
+    has_range_marker = re.search(r"\b\d[\d ]{2,}\s*[–—-]\s*\d[\d ]{2,}\s*(?:₽|руб|р\b)", window)
+    return bool(has_approx_marker or has_range_marker)
