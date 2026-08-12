@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from amelia_manager.company_profile import SheetsStockConfig
 from amelia_manager.db.repository import SQLiteRepository
@@ -41,16 +42,19 @@ class SheetsStockSource:
         client: Any | None = None,
         ttl: timedelta = timedelta(seconds=60),
         now=lambda: datetime.now(timezone.utc),
+        timezone_name: str = "Europe/Kaliningrad",
     ) -> None:
         self.repo = repo
         self.config = config
         self.client = client
         self.ttl = ttl
         self.now = now
+        self.timezone_name = timezone_name
         self._cached: StockSnapshot | None = None
 
     def fetch(self) -> StockSnapshot:
         current = self.now()
+        local_current = current.astimezone(ZoneInfo(self.timezone_name)) if current.tzinfo else current.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(self.timezone_name))
         if self._cached and current - self._cached.fetched_at < self.ttl:
             return self._cached
         try:
@@ -58,10 +62,10 @@ class SheetsStockSource:
             items = parse_sheets_stock_rows(rows, columns=self.config.assortment_columns)
             snapshot = StockSnapshot(
                 items=items,
-                fetched_at=current,
+                fetched_at=local_current,
                 source_name=f"google_sheets:{self.config.assortment_sheet_name}",
             )
-            self.repo.replace_daily_stock(stock_date=current.date(), items=items, updated_by=0)
+            self.repo.replace_daily_stock(stock_date=local_current.date(), items=items, updated_by=0)
             self._cached = snapshot
             return snapshot
         except Exception:  # noqa: BLE001 - stock must degrade, never break dialogue

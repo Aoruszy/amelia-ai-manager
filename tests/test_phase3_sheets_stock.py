@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from amelia_manager.company_profile import CompanyProfile, StockSourceConfig, SheetsStockConfig
+from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.db.repository import SQLiteRepository
 from amelia_manager.safety import check_reply_safety
 import amelia_manager.stock as stock_module
@@ -74,7 +75,7 @@ def test_build_stock_context_includes_known_price_shortly():
         items=[StockItem(name="пионы", status=StockStatus.AVAILABLE, quantity_text="12", quantity_number=12, price=4500, unit="шт")],
         colors=[],
         desired_text="сколько стоят пионы?",
-        stock_date=date.today(),
+        stock_date=_today_in_timezone("Europe/Kaliningrad"),
     )
 
     assert "пионы" in context
@@ -122,6 +123,24 @@ def test_sheets_stock_source_parses_rows_mirrors_to_sqlite_and_manual_source_rea
     latest_date, latest_items = ManualStockSource(repo).fetch().fetched_at.date(), ManualStockSource(repo).fetch().items
     assert latest_date == date(2026, 8, 13)
     assert latest_items[0].price == 4500
+
+
+def test_sheets_stock_source_mirrors_by_profile_timezone_day(tmp_path):
+    repo = SQLiteRepository(tmp_path / "db.sqlite3")
+    repo.initialize()
+    worksheet = FakeWorksheet([{"название": "пионы", "количество": "10", "цена": "4500"}])
+
+    snapshot = SheetsStockSource(
+        repo,
+        config=sheets_profile().stock_source.sheets,
+        client=FakeSheetsClient(worksheet),
+        now=lambda: datetime(2026, 8, 12, 22, 11, tzinfo=timezone.utc),
+        timezone_name="Europe/Kaliningrad",
+    ).fetch()
+
+    latest_date, _ = repo.get_latest_daily_stock()
+    assert snapshot.fetched_at.date() == date(2026, 8, 13)
+    assert latest_date == date(2026, 8, 13)
 
 
 def test_sheets_stock_source_falls_back_to_sqlite_when_api_unavailable(tmp_path):

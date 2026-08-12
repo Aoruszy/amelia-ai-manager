@@ -18,6 +18,7 @@ from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
+from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
 from amelia_manager.llm_client import GeminiClient
 from amelia_manager.order_card import OrderCard, merge_order_patch, merge_order_state
@@ -48,7 +49,8 @@ def handle_stock_command(
     today: date | None = None,
     company_profile: CompanyProfile | None = None,
 ) -> str:
-    stock_date = today or date.today()
+    timezone_name = (company_profile or load_company_profile("amelia_flowers")).timezone_name
+    stock_date = today or _today_in_timezone(timezone_name)
     items = parse_stock_text(text)
     if items:
         repo.replace_daily_stock(stock_date=stock_date, items=items, updated_by=sender_id)
@@ -58,7 +60,7 @@ def handle_stock_command(
 
 def build_stock_source(repo: SQLiteRepository, company_profile: CompanyProfile) -> StockSource:
     if company_profile.stock_source.type == "sheets" and company_profile.stock_source.sheets is not None:
-        return SheetsStockSource(repo, config=company_profile.stock_source.sheets)
+        return SheetsStockSource(repo, config=company_profile.stock_source.sheets, timezone_name=company_profile.timezone_name)
     return ManualStockSource(repo)
 
 
@@ -594,7 +596,7 @@ async def weekly_stats_loop(
     while True:
         now = datetime.now(ZoneInfo(timezone_name))
         if now.weekday() == 0 and is_within_work_hours(now, settings=settings) and sent_for_date != now.date():
-            await telegram_client.send_message(admin_chat_id, format_stats_report(repo, days=7, today=now.date()))
+            await telegram_client.send_message(admin_chat_id, format_stats_report(repo, days=7, today=now.date(), timezone_name=timezone_name))
             sent_for_date = now.date()
         await sleep(3600)
 
@@ -862,7 +864,7 @@ async def run_listener(settings: Settings) -> None:
             return
 
         if sender_id == int(settings.admin_chat_id) and incoming.text.strip().lower().startswith("/stats"):
-            await client.send_message(sender_id, format_stats_report(repo, days=parse_stats_days(incoming.text)))
+            await client.send_message(sender_id, format_stats_report(repo, days=parse_stats_days(incoming.text), timezone_name=company_profile.timezone_name))
             return
 
         sender_usernames.set(sender_id, getattr(sender, "username", None))

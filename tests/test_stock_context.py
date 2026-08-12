@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.stock import StockItem, StockStatus, build_stock_context
 
 
@@ -12,7 +13,7 @@ def test_build_stock_context_matches_color_and_flower_request():
         ],
         colors=["голубой", "белый"],
         desired_text="хочу букет с гортензией",
-        stock_date=date.today(),
+        stock_date=_today_in_timezone("Europe/Kaliningrad"),
     )
 
     assert "По наличию на сегодня" in context
@@ -29,5 +30,5 @@ def test_build_stock_context_warns_when_stock_is_stale_or_empty():
         items=[StockItem(name="розы", status=StockStatus.AVAILABLE, quantity_text="есть")],
         colors=[],
         desired_text="розы",
-        stock_date=date.today() - timedelta(days=1),
+        stock_date=_today_in_timezone("Europe/Kaliningrad") - timedelta(days=1),
     )

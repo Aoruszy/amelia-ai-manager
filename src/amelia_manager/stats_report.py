@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.metrics import calculate_metrics
 
 
-def format_stats_report(repo, *, days: int, today: date | None = None) -> str:
-    today = today or date.today()
+def format_stats_report(repo, *, days: int, today: date | None = None, timezone_name: str = "Europe/Kaliningrad") -> str:
+    today = today or _today_in_timezone(timezone_name)
     current_from = today - timedelta(days=days - 1)
     previous_to = current_from - timedelta(days=1)
     previous_from = previous_to - timedelta(days=days - 1)
