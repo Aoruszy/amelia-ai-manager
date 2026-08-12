@@ -134,4 +134,5 @@ def _merge_states(regex_state: OrderState, llm_state: OrderState) -> OrderState:
             data[field] = value
     data.pop("admin_request_sent", None)
     data.pop("client_summary_sent", None)
+    data.pop("sheet_row_written", None)
     return OrderState(**data)

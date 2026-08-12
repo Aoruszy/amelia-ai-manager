@@ -84,6 +84,10 @@ class ConversationEngine:
                 risk_level=risk_level,
             )
 
+        catalog_price_reply = _catalog_price_reply_for_question(last_client_text, stock_context)
+        if catalog_price_reply:
+            return ConversationAction(kind="send", messages=[catalog_price_reply], risk_level=risk_level)
+
         cautious_reply = _cautious_reply_for_medium_risk(
             risk.category,
             stock_context=stock_context,
@@ -296,6 +300,26 @@ def _cautious_reply_for_medium_risk(
     if category == RiskCategory.SENSITIVE_OCCASION:
         return "Понимаю. Подскажите, пожалуйста, бюджет и удобный формат: самовывоз или доставка."
     return None
+
+
+def _catalog_price_reply_for_question(text: str, stock_context: str | None) -> str | None:
+    normalized = text.lower().replace("ё", "е")
+    if not re.search(r"\b(?:сколько\s+сто\w*|цен\w*|почем|за\s+сколько)\b", normalized):
+        return None
+    requested_tokens = set(re.findall(r"[а-яa-z]{4,}", normalized))
+    if not stock_context:
+        return "По цене лучше уточню у менеджера, чтобы не назвать неверно."
+    for line in stock_context.splitlines():
+        match = re.search(r"-\s*(?P<name>[^—-]+)\s*[—-].*?\b(?P<price>\d[\d ]{2,})\s*₽(?:/(?P<unit>\S+))?", line)
+        if not match:
+            continue
+        name = match.group("name").strip().lower().replace("ё", "е")
+        name_tokens = set(re.findall(r"[а-яa-z]{4,}", name))
+        if requested_tokens & name_tokens:
+            price = match.group("price").replace(" ", "")
+            unit = match.group("unit") or "шт"
+            return f"{match.group('name').strip().capitalize()} по каталогу — {price} ₽/{unit}. Итоговую стоимость букета подтвердит менеджер после состава."
+    return "По этой цене лучше уточню у менеджера: в каталоге сейчас нет подтверждённой цены."
 
 
 def _format_order_card_context(card: OrderCard) -> str:

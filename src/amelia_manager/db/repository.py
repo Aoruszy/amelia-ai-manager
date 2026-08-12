@@ -88,6 +88,8 @@ class SQLiteRepository:
                     status TEXT NOT NULL,
                     quantity_text TEXT NOT NULL,
                     quantity_number INTEGER,
+                    price INTEGER,
+                    unit TEXT,
                     updated_by INTEGER NOT NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -107,6 +109,8 @@ class SQLiteRepository:
                 CREATE INDEX IF NOT EXISTS idx_orders_client_status ON orders(client_id, status);
                 """
             )
+            _ensure_column(conn, "daily_stock", "price", "INTEGER")
+            _ensure_column(conn, "daily_stock", "unit", "TEXT")
 
     def upsert_client(self, *, telegram_id: int, username: str | None) -> ClientRecord:
         with self._connect() as conn:
@@ -184,8 +188,8 @@ class SQLiteRepository:
             conn.execute("DELETE FROM daily_stock WHERE stock_date = ?", (stock_date.isoformat(),))
             conn.executemany(
                 """
-                INSERT INTO daily_stock (stock_date, item_name, status, quantity_text, quantity_number, updated_by)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO daily_stock (stock_date, item_name, status, quantity_text, quantity_number, price, unit, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -194,6 +198,8 @@ class SQLiteRepository:
                         item.status.value,
                         item.quantity_text,
                         item.quantity_number,
+                        item.price,
+                        item.unit,
                         updated_by,
                     )
                     for item in items
@@ -204,7 +210,7 @@ class SQLiteRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT item_name, status, quantity_text, quantity_number
+                SELECT item_name, status, quantity_text, quantity_number, price, unit
                 FROM daily_stock
                 WHERE stock_date = ?
                 ORDER BY id ASC
@@ -217,6 +223,8 @@ class SQLiteRepository:
                 status=StockStatus(row["status"]),
                 quantity_text=row["quantity_text"],
                 quantity_number=row["quantity_number"],
+                price=row["price"],
+                unit=row["unit"],
             )
             for row in rows
         ]
@@ -435,4 +443,11 @@ def _anonymize_order_card(card: OrderCard) -> OrderCard:
         custom_fields={},
         admin_request_sent=card.admin_request_sent,
         client_summary_sent=card.client_summary_sent,
+        sheet_row_written=card.sheet_row_written,
     )
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

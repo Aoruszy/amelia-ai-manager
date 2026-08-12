@@ -18,6 +18,8 @@ class StockItem:
     status: StockStatus
     quantity_text: str
     quantity_number: int | None = None
+    price: int | None = None
+    unit: str | None = None
 
 
 def parse_stock_text(text: str) -> list[StockItem]:
@@ -51,7 +53,7 @@ def parse_stock_text(text: str) -> list[StockItem]:
     return items
 
 
-def format_stock_ack(items: list[StockItem]) -> str:
+def format_stock_ack(items: list[StockItem], *, source_type: str = "manual") -> str:
     if not items:
         return "Не нашла позиций в сообщении. Пришлите в формате: гортензия голубая — 8"
     lines = ["Приняла наличие на сегодня:"]
@@ -62,6 +64,8 @@ def format_stock_ack(items: list[StockItem]) -> str:
             StockStatus.UNAVAILABLE: "❌",
         }[item.status]
         lines.append(f"{icon} {item.name} — {item.quantity_text}")
+    if source_type == "sheets":
+        lines.append("Ручной ввод перекроет таблицу до следующего успешного чтения Google Sheets.")
     return "\n".join(lines)
 
 
@@ -87,7 +91,8 @@ def build_stock_context(
         if item.status == StockStatus.UNAVAILABLE:
             lines.append(f"- {item.name} — нет")
         else:
-            lines.append(f"- {item.name} — {item.quantity_text}")
+            price = f", {item.price} ₽/{item.unit or 'шт'}" if item.price is not None else ""
+            lines.append(f"- {item.name} — {item.quantity_text}{price}")
     return "\n".join(lines)
 
 

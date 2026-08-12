@@ -80,6 +80,8 @@ def check_reply_safety(reply: str, *, stock_context: str | None = None) -> Safet
         reasons.append("shop_address_as_delivery")
     if "самовывоз" in normalized and "получател" in normalized and ("телефон" in normalized or "номер" in normalized):
         reasons.append("pickup_recipient_question")
+    if _has_unsupported_price_quote(normalized, stock_context):
+        reasons.append("unsupported_price_quote")
 
     return SafetyResult(is_safe=not reasons, reasons=reasons)
 
@@ -120,3 +122,20 @@ def _contradicts_unavailable_stock(reply: str, stock_context: str | None) -> boo
     if not promises_availability:
         return False
     return any(item and item in reply for item in unavailable)
+
+
+def _has_unsupported_price_quote(reply: str, stock_context: str | None) -> bool:
+    price_quotes = []
+    for match in re.finditer(r"\b(\d[\d ]{2,})\s*(?:₽|руб|р\b)", reply):
+        window = reply[max(0, match.start() - 48): match.end() + 48]
+        if re.search(r"\b(?:сто\w*|цен\w*|за\s+штук\w*|за\s+букет|обойд\w*|выйд\w*)\b", window):
+            price_quotes.append(match.group(1).replace(" ", ""))
+    if not price_quotes:
+        return False
+    allowed_prices = set()
+    if stock_context:
+        allowed_prices = {
+            match.group(1).replace(" ", "")
+            for match in re.finditer(r"\b(\d[\d ]{2,})\s*(?:₽|руб|р\b)", stock_context.lower().replace("ё", "е"))
+        }
+    return any(price not in allowed_prices for price in price_quotes)

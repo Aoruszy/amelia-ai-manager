@@ -10,6 +10,21 @@ class BusinessField:
     required: bool = True
 
 
+@dataclass(frozen=True)
+class SheetsStockConfig:
+    spreadsheet_id: str
+    assortment_sheet_name: str
+    orders_sheet_name: str
+    assortment_columns: dict[str, str] = field(default_factory=dict)
+    order_columns: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class StockSourceConfig:
+    type: str = "manual"
+    sheets: SheetsStockConfig | None = None
+
+
 _DEFAULT_CATEGORIES = (
     "Пионы",
     "Розы",
@@ -60,6 +75,7 @@ class CompanyProfile:
     alternative_offer_text: str = "могу предложить близкий вариант"
     sensitive_occasion_tone_rule: str = "сдержанно, без эмодзи, по делу и коротко"
     sensitive_occasion_forbidden_words: tuple[str, ...] = ()
+    stock_source: StockSourceConfig = field(default_factory=StockSourceConfig)
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]

@@ -29,6 +29,7 @@ class OrderCard:
     custom_fields: dict[str, Any] = field(default_factory=dict)
     admin_request_sent: bool = False
     client_summary_sent: bool = False
+    sheet_row_written: bool = False
 
     @property
     def product_preferences(self) -> list[str]:
@@ -102,6 +103,7 @@ def merge_order_state(existing: OrderCard, state: OrderState) -> OrderCard:
         },
         admin_request_sent=existing.admin_request_sent,
         client_summary_sent=existing.client_summary_sent,
+        sheet_row_written=existing.sheet_row_written,
     )
 
 

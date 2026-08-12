@@ -1,4 +1,6 @@
 .env
+*service-account*.json
+*google*credentials*.json
 *.session
 *.session-journal
 data/

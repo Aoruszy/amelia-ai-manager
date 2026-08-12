@@ -21,8 +21,10 @@ from amelia_manager.llm_client import GeminiClient
 from amelia_manager.order_card import OrderCard, merge_order_patch, merge_order_state
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
+from amelia_manager.order_sheet import SheetsOrderAppender, append_order_to_sheet_if_needed, send_pending_sheet_rows
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.stock import build_stock_context, format_stock_ack, parse_stock_text
+from amelia_manager.stock_source import ManualStockSource, SheetsStockSource, StockSnapshot, StockSource
 from amelia_manager.telegram_login import get_session_path
 
 
@@ -37,12 +39,24 @@ def handle_stock_command(
     sender_id: int,
     text: str,
     today: date | None = None,
+    company_profile: CompanyProfile | None = None,
 ) -> str:
     stock_date = today or date.today()
     items = parse_stock_text(text)
     if items:
         repo.replace_daily_stock(stock_date=stock_date, items=items, updated_by=sender_id)
-    return format_stock_ack(items)
+    source_type = (company_profile.stock_source.type if company_profile is not None else "manual")
+    return format_stock_ack(items, source_type=source_type)
+
+
+def build_stock_source(repo: SQLiteRepository, company_profile: CompanyProfile) -> StockSource:
+    if company_profile.stock_source.type == "sheets" and company_profile.stock_source.sheets is not None:
+        return SheetsStockSource(repo, config=company_profile.stock_source.sheets)
+    return ManualStockSource(repo)
+
+
+def get_current_stock_snapshot(source: StockSource) -> StockSnapshot:
+    return source.fetch()
 
 
 def update_active_order_from_messages(
@@ -350,6 +364,7 @@ async def send_admin_order_request_if_ready(
     admin_chat_id: int,
     client_label: str,
     company_profile: CompanyProfile | None = None,
+    order_sheet_appender: SheetsOrderAppender | None = None,
 ) -> bool:
     admin_order_text = build_admin_order_request_if_needed(
         repo,
@@ -371,6 +386,15 @@ async def send_admin_order_request_if_ready(
             }
         ),
     )
+    if company_profile is not None:
+        refreshed = repo.get_active_order(client_id=order.client_id) or order
+        append_order_to_sheet_if_needed(
+            repo,
+            order=refreshed,
+            client_label=client_label,
+            company_profile=company_profile,
+            appender=order_sheet_appender,
+        )
     return True
 
 
@@ -590,6 +614,7 @@ async def run_listener(settings: Settings) -> None:
     engine = ConversationEngine(llm, company_profile=company_profile)
     repo = SQLiteRepository(path_from_sqlite_url(settings.database_url))
     repo.initialize()
+    stock_source = build_stock_source(repo, company_profile)
     cleanup_result = repo.cleanup_pii_older_than(retention_days=settings.pii_retention_days)
     if cleanup_result.deleted_messages or cleanup_result.anonymized_orders:
         print(
@@ -643,12 +668,12 @@ async def run_listener(settings: Settings) -> None:
             recent_messages=recent_messages,
             company_profile=company_profile,
         )
-        stock_date, stock_items = repo.get_latest_daily_stock()
+        stock_snapshot = get_current_stock_snapshot(stock_source)
         stock_context = build_stock_context(
-            items=stock_items,
+            items=stock_snapshot.items,
             colors=order_card.colors,
             desired_text="\n".join(recent_messages),
-            stock_date=stock_date,
+            stock_date=stock_snapshot.fetched_at.date() if stock_snapshot.items else None,
         )
 
         action = await engine.handle_messages(
@@ -731,7 +756,7 @@ async def run_listener(settings: Settings) -> None:
             return
 
         if sender_id == int(settings.admin_chat_id) and is_stock_command(incoming.text):
-            ack = handle_stock_command(repo, sender_id=sender_id, text=incoming.text)
+            ack = handle_stock_command(repo, sender_id=sender_id, text=incoming.text, company_profile=company_profile)
             await client.send_message(sender_id, ack)
             return
 
@@ -750,6 +775,9 @@ async def run_listener(settings: Settings) -> None:
         )
         if pending_sent:
             print(f"Sent pending admin requests: {pending_sent}")
+        pending_sheet_rows = send_pending_sheet_rows(repo, company_profile=company_profile)
+        if pending_sheet_rows:
+            print(f"Sent pending Google Sheets order rows: {pending_sheet_rows}")
     await client.run_until_disconnected()
 
 
