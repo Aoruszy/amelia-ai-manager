@@ -110,6 +110,8 @@ def merge_order_patch(existing: OrderCard, patch: dict[str, Any]) -> OrderCard:
         return existing
     allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
     cleaned = {key: value for key, value in patch.items() if key in allowed and value not in (None, "", [], {})}
+    if "custom_fields" in cleaned and isinstance(cleaned["custom_fields"], dict):
+        cleaned["custom_fields"] = {**existing.custom_fields, **cleaned["custom_fields"]}
     if not cleaned:
         return existing
     return OrderCard.from_dict({**existing.to_dict(), **cleaned})

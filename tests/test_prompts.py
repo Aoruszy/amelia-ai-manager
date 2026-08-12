@@ -16,8 +16,8 @@ def test_prompt_contains_persona_store_facts_and_safety_rules():
     assert "Amelia Flowers" in prompt
     assert "Калининград" in prompt
     assert "Сергеева 61" in prompt
-    assert "не говори, что ты AI" in prompt
-    assert "не обещай наличие" in prompt
+    assert "Не называй себя AI" in prompt
+    assert "Не выдумывай наличие" in prompt
     assert "bouquet_selection" in prompt
     assert "Клиент хочет букет девушке" in prompt
 
@@ -111,6 +111,6 @@ def test_prompt_contains_explicit_priority_hierarchy_for_direct_questions_and_st
     assert "1. Безопасность" in prompt
     assert "2. Прямой вопрос клиента" in prompt
     assert "3. Обязательный шаг" in prompt
-    assert "4. Один вопрос в сообщении" in prompt
+    assert "4. Один вопрос" in prompt
     assert "шаг переносится" in prompt
     assert "Задай только этот шаг" not in prompt

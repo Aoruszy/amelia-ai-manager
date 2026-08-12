@@ -10,8 +10,7 @@ def test_prompt_tells_manager_not_to_promise_photos_unless_requested():
         risk_level=RiskLevel.LOW,
     )
 
-    assert "не обещай прислать фото" in prompt
-    assert "если клиент не просил фото" in prompt
+    assert "Не выдумывай наличие, цены, сроки, фото" in prompt
 
 
 def test_prompt_requires_contact_details_before_order_is_considered_ready():
@@ -24,4 +23,4 @@ def test_prompt_requires_contact_details_before_order_is_considered_ready():
 
     assert "имя и телефон отправителя" in prompt
     assert "имя и телефон получателя" in prompt
-    assert "не закрывай заказ" in prompt
+    assert "Не закрывай заказ" in prompt

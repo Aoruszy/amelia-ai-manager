@@ -8,7 +8,7 @@ from amelia_manager.client_order_summary import format_client_order_summary
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.deterministic_replies import deterministic_order_reply
 from amelia_manager.emoji_variation import vary_reply_emoji
-from amelia_manager.humanizer import split_into_telegram_messages, suppress_emojis
+from amelia_manager.humanizer import split_into_telegram_messages, suppress_sensitive_tone_words
 from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
@@ -117,6 +117,12 @@ class ConversationEngine:
         order_state = order_card or extract_order_state(recent_messages)
         next_step = get_next_step(order_state, company_profile=self.company_profile)
 
+        sensitive_occasion = _has_sensitive_occasion_context(
+            recent_messages,
+            order_card=order_card,
+            company_profile=self.company_profile,
+        )
+
         prompt = build_manager_prompt(
             client_summary=client_summary,
             recent_messages=recent_messages,
@@ -126,7 +132,7 @@ class ConversationEngine:
             stock_context=stock_context,
             company_profile=self.company_profile,
             order_card_context=_format_order_card_context(order_card) if order_card else None,
-            sensitive_occasion=_is_sensitive_occasion_sticky(order_card),
+            sensitive_occasion=sensitive_occasion,
         )
         try:
             reply = await generate_with_optional_schema(
@@ -179,7 +185,7 @@ class ConversationEngine:
             if decision.needs_human:
                 return ConversationAction(
                     kind="human_review",
-                    messages=_finalize_messages(reply, sensitive_occasion=_is_sensitive_occasion_sticky(order_card)),
+                    messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                     risk_level=risk_level,
                     safety_reasons=["model_decision_needs_human"],
                     **action_metadata,
@@ -204,7 +210,7 @@ class ConversationEngine:
                     if retry_decision.needs_human:
                         return ConversationAction(
                             kind="human_review",
-                            messages=_finalize_messages(retry_reply, sensitive_occasion=_is_sensitive_occasion_sticky(order_card)),
+                            messages=_finalize_messages(retry_reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                             risk_level=risk_level,
                             safety_reasons=["model_decision_needs_human"],
                         )
@@ -212,7 +218,7 @@ class ConversationEngine:
                 if retry_safety.is_safe:
                     return ConversationAction(
                         kind="send",
-                        messages=_finalize_messages(retry_reply, sensitive_occasion=_is_sensitive_occasion_sticky(order_card)),
+                        messages=_finalize_messages(retry_reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                         risk_level=risk_level,
                     )
                 safety = retry_safety
@@ -227,7 +233,7 @@ class ConversationEngine:
 
         return ConversationAction(
             kind="send",
-            messages=_finalize_messages(reply, sensitive_occasion=_is_sensitive_occasion_sticky(order_card)),
+            messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
             risk_level=risk_level,
             **action_metadata,
         )
@@ -310,6 +316,21 @@ def _is_sensitive_occasion_sticky(card: OrderCard | None) -> bool:
     return bool(card and card.custom_fields.get("occasion_sensitive") is True)
 
 
+def _has_sensitive_occasion_context(
+    recent_messages: list[str],
+    *,
+    order_card: OrderCard | None,
+    company_profile: CompanyProfile,
+) -> bool:
+    if _is_sensitive_occasion_sticky(order_card):
+        return True
+    for message in recent_messages:
+        risk = assess_risk(_last_client_text([message]), company_profile=company_profile)
+        if risk.category == RiskCategory.SENSITIVE_OCCASION:
+            return True
+    return False
+
+
 def _sensitive_occasion_patch(category: RiskCategory) -> dict[str, object]:
     if category == RiskCategory.SENSITIVE_OCCASION:
         return {"custom_fields": {"occasion_sensitive": True}}
@@ -326,8 +347,14 @@ def _unavailable_stock_item(stock_context: str | None) -> str | None:
     return None
 
 
-def _finalize_messages(reply: str, *, sensitive_occasion: bool = False) -> list[str]:
+def _finalize_messages(
+    reply: str,
+    *,
+    sensitive_occasion: bool = False,
+    company_profile: CompanyProfile | None = None,
+) -> list[str]:
     messages = split_into_telegram_messages(reply)
     if sensitive_occasion:
-        return [suppress_emojis(message) for message in messages]
+        profile = company_profile or load_company_profile("amelia_flowers")
+        return [suppress_sensitive_tone_words(message, profile.sensitive_occasion_forbidden_words) for message in messages]
     return [vary_reply_emoji(message, seed=len(message)) for message in messages]

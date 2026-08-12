@@ -10,6 +10,6 @@ def test_prompt_contains_soft_sales_style_without_pushiness():
         risk_level=RiskLevel.LOW,
     )
 
-    assert "мягко помогай выбрать" in prompt
-    assert "не дави" in prompt
-    assert "дороже и романтичнее" in prompt
+    assert "Мягко подсказывай лучший вариант" in prompt
+    assert "Продажа без давления" in prompt
+    assert "дороже, романтичнее" in prompt

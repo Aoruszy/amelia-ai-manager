@@ -73,7 +73,7 @@ async def test_sensitive_occasion_stays_sticky_across_later_turns():
             assert "без эмодзи" in prompt
             assert "яркий" in prompt
             self.last_prompt = prompt
-            return '{"intent":"order","emotion":"grief","reply":"Поняла. Сделаю сдержанно и по делу 🌸 На какое время подготовить?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
+            return '{"intent":"order","emotion":"grief","reply":"Соберу очень нежный и яркий букет 🌸 На какое время подготовить?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
 
     card = OrderCard(
         occasion="похороны",
@@ -89,6 +89,31 @@ async def test_sensitive_occasion_stays_sticky_across_later_turns():
         recent_messages=["Клиент: Хорошо, давайте белый"],
         stage="pickup",
         order_card=card,
+    )
+
+    text = action.messages[0].lower()
+    assert action.kind == "send"
+    assert "🌸" not in text
+    assert "ярк" not in text
+    assert "нежн" not in text
+
+
+@pytest.mark.asyncio
+async def test_sensitive_occasion_context_from_history_protects_even_without_order_card():
+    class UnsafeSensitiveLLM:
+        async def generate(self, prompt: str, **kwargs) -> str:
+            assert "occasion_sensitive" in prompt
+            return '{"intent":"order","emotion":"grief","reply":"Соберу очень нежный и яркий букет 🌸","case_patch":{},"next_step":"ask_bouquet_preferences","needs_human":false,"confidence":0.9}'
+
+    action = await ConversationEngine(UnsafeSensitiveLLM()).handle_messages(
+        client_summary="",
+        recent_messages=[
+            "Клиент: Нужен венок на похороны",
+            "Менеджер: Понимаю. Подскажите бюджет и формат.",
+            "Клиент: Давайте белый",
+        ],
+        stage="new",
+        order_card=None,
     )
 
     text = action.messages[0].lower()

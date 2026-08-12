@@ -11,10 +11,10 @@ def test_prompt_includes_andrey_style_behavior_rules_for_florist():
     )
 
     assert "Если клиент задал прямой вопрос — сначала ответь на него" in prompt
-    assert "Не превращай диалог в анкету" in prompt
-    assert "Запрещено задавать больше одного" in prompt
-    assert "Если информации достаточно для следующего шага" in prompt
-    assert "Не используй одинаковые формулировки" in prompt
+    assert "без анкеты" in prompt
+    assert "только один недостающий шаг" in prompt
+    assert "Если поле уже есть" in prompt
+    assert "меняй начало и структуру" in prompt
 
 
 def test_prompt_includes_florist_antimistakes_and_escalation_rules():
@@ -25,8 +25,8 @@ def test_prompt_includes_florist_antimistakes_and_escalation_rules():
         risk_level=RiskLevel.LOW,
     )
 
-    assert "Не выдумывай данные" in prompt
+    assert "Не выдумывай наличие" in prompt
     assert "Сергеева, 61 — это адрес самовывоза" in prompt
-    assert "Статус уже оформленного заказа" in prompt
+    assert "статус оформленного заказа" in prompt
     assert "редкие цветы" in prompt
     assert "Подключается менеджер Алина" in prompt

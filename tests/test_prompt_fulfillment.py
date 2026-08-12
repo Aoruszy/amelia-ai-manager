@@ -10,6 +10,6 @@ def test_prompt_does_not_assume_delivery_when_client_has_not_chosen_fulfillment(
         risk_level=RiskLevel.LOW,
     )
 
-    assert "не говори про доставку как единственный вариант" in prompt
-    assert "доставка или самовывоз" in prompt
-    assert "если клиент уже выбрал доставку" in prompt
+    assert "Доставку/самовывоз спрашивай нейтрально" in prompt
+    assert "Доставку/самовывоз" in prompt
+    assert "адрес доставки — после выбора доставки" in prompt

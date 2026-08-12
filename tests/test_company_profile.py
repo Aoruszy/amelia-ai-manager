@@ -10,7 +10,7 @@ def test_loads_default_amelia_company_profile():
     assert profile.city == "Калининград"
     assert profile.pickup_address == "Сергеева, 61"
     assert "букеты" in profile.services
-    assert "не спрашивать имя/телефон получателя при самовывозе" in profile.business_rules
+    assert "при самовывозе нужны контакты клиента; контакты получателя нужны только для доставки" in profile.business_rules
 
 
 def test_company_profile_defines_required_fields_per_case_type():

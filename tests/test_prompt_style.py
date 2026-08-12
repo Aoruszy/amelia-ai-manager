@@ -11,7 +11,7 @@ def test_prompt_enforces_single_manager_human_style():
     )
 
     assert "Говори от первого лица как один менеджер" in prompt
-    assert "не пиши корпоративное «поможем»" in prompt
-    assert "доставка или самовывоз" in prompt
-    assert "Запрещено задавать больше одного вопроса" in prompt
+    assert "Вместо корпоративного «поможем" in prompt
+    assert "Доставку/самовывоз" in prompt
+    assert "только один недостающий шаг" in prompt
     assert "не задавай больше двух вопросов" not in prompt
