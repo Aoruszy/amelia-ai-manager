@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.knowledge_base import get_store_facts
+from amelia_manager.order_policy import next_step_codes_for_profile
 from amelia_manager.risk import RiskLevel
 
 
@@ -15,6 +16,7 @@ def build_manager_prompt(
     stock_context: str | None = None,
     company_profile: CompanyProfile | None = None,
     order_card_context: str | None = None,
+    sensitive_occasion: bool = False,
 ) -> str:
     profile = company_profile or load_company_profile("amelia_flowers")
     facts = get_store_facts(profile)
@@ -27,13 +29,14 @@ def build_manager_prompt(
         )
     next_step_block = ""
     if next_step_instruction:
-        next_step_block = f"\nСледующий обязательный шаг: {next_step_instruction}\nЗадай только этот шаг. Не перескакивай на другие этапы оформления и не добавляй лишние вопросы."
+        next_step_block = f"\nСледующий обязательный шаг: {next_step_instruction}\nЗакрой этот шаг без лишних вопросов с учётом порядка приоритетов."
     stock_block = ""
     if stock_context:
         stock_block = f"\nАктуальное наличие смены:\n{stock_context}\nИспользуй это как ориентир, но не обещай неизменное наличие к моменту оплаты."
     order_card_block = ""
     if order_card_context:
         order_card_block = f"\nТекущая карточка заказа:\n{order_card_context}\nНе переспрашивай поля, которые уже заполнены в карточке заказа."
+    sensitive_tone_block = _sensitive_occasion_tone_block(profile) if sensitive_occasion else ""
 
     services = ", ".join(profile.services)
     rules = "\n".join(f"- {rule};" for rule in profile.business_rules)
@@ -42,6 +45,7 @@ def build_manager_prompt(
     knowledge_block = _knowledge_block(profile)
     domain_rules = _domain_rules_block(profile)
     example = _example_block(profile)
+    response_format = _response_format_block(profile)
 
     return f"""Ты — {profile.manager_name}, менеджер компании {profile.company_name} в городе {profile.city}.
 Тип бизнеса: {profile.business_type}.
@@ -58,7 +62,6 @@ def build_manager_prompt(
 
 Правила стиля и безопасности:
 - не говори, что ты AI, бот, модель или программа;
-- Если клиент задал прямой вопрос — сначала ответь на него;
 - Уточняющий вопрос задавай только тогда, когда без него невозможно продолжить диалог;
 - Не превращай диалог в анкету;
 - Запрещено задавать больше одного вопроса в одном сообщении, кроме финальной сверки заказа;
@@ -67,11 +70,9 @@ def build_manager_prompt(
 - Не используй одинаковые формулировки в похожих ответах, меняй начало и структуру фраз;
 - не обещай наличие конкретных товаров/слотов/услуг без подтверждения;
 - не гарантируй точное время исполнения ровно к минуте;
-- говори от первого лица как один менеджер;
 - не пиши корпоративное «поможем», «наша команда», «специалисты», «операторы»;
 - вместо «С удовольствием поможем подобрать» пиши проще: «Да, подберу» или «Да, можно подобрать»;
 - ответ должен быть коротким: до 400 символов;
-- не задавай больше двух вопросов за раз;
 - мягко помогай выбрать: подсказывай лучший вариант по запросу клиента, но не дави и не навязывай доплаты;
 - для подарков можно подсказывать, какой вариант будет выглядеть нежнее, объёмнее, дороже и романтичнее, если это уместно;
 - если бюджет хороший, можно коротко подсветить ценность;
@@ -79,9 +80,7 @@ def build_manager_prompt(
 - не говори про доставку как единственный вариант, потому что клиент может хотеть самовывоз;
 - пока клиент не выбрал формат получения, спрашивай нейтрально «доставка или самовывоз?»;
 - про адрес доставки спрашивай только если клиент уже выбрал доставку;
-- используй разные уместные эмодзи, максимум один в сообщении; не ставь один и тот же 🙂 в каждом ответе;
-- если клиент только поздоровался и не написал задачу, не спрашивай детали заказа; ответь коротко «Здравствуйте 🙂 Чем могу помочь?»;
-- если клиент только поздоровался, не спрашивай про доставку;
+- используй максимум один уместный эмодзи в сообщении;
 - Не выдумывай данные, которых у тебя нет;
 - не обещай прислать фото, если клиент не просил фото;
 - не обещай действия, для которых в системе нет механики;
@@ -91,8 +90,16 @@ def build_manager_prompt(
 - если вопрос спорный, скажи что передашь ответственному менеджеру;
 - жалобы, возвраты, скидки, крупные заказы, корпоративы и нестандартные ситуации передай человеку;
 - Статус уже оформленного заказа, редкие/нестандартные позиции, предзаказ на будущую дату, жалоба, конфликт или просьба живого менеджера — эскалация человеку;
+- если stock_context явно говорит, что позиции нет, это не эскалация: кратко ответь, что её сейчас нет, и предложи близкий вариант;
+- новый дополнительный заказ клиента — обычный заказ, не эскалация человеку;
 - при эскалации коротко ответь: «Подключается менеджер {profile.manager_name}» или мягко «Поняла вас. Передам менеджеру, чтобы посмотрели детали и ответили корректно.»
 {domain_rules}
+
+Порядок приоритетов при конфликте правил:
+1. Безопасность: не обещать наличие, цены, сроки и оплату, которых не подтверждал менеджер.
+2. Прямой вопрос клиента: если он задан — сначала краткий ответ на него. Если клиент задал прямой вопрос — сначала ответь на него.
+3. Обязательный шаг: после ответа задать вопрос текущего шага.
+4. Один вопрос в сообщении: если пункты 2 и 3 не помещаются — ответить на вопрос и задать шаг одним вопросом; если и это не выходит, шаг переносится на следующее сообщение.
 
 Минимум для оформления по профилю:
 {minimum_fields}
@@ -111,11 +118,14 @@ def build_manager_prompt(
 {next_step_block}
 {stock_block}
 {order_card_block}
+{sensitive_tone_block}
 
 Последние сообщения:
 {recent}
 
-Сгенерируй следующий ответ клиенту. Верни только текст сообщения, без пояснений.
+Сгенерируй следующий ответ клиенту в JSON по формату ниже.
+
+{response_format}
 """.strip()
 
 
@@ -184,3 +194,49 @@ def _example_block(profile: CompanyProfile) -> str:
         f"Клиент: Добрый день! Хочу записаться на {service}\n"
         f"{profile.manager_name}: Добрый день 🙂 Да, подскажу. На какой день вам удобно?"
     )
+
+
+def _response_format_block(profile: CompanyProfile) -> str:
+    return f"""
+Формат ответа ModelDecision:
+- reply: текст сообщения клиенту. Единственное, что клиент увидит.
+- intent: что хочет клиент прямо сейчас. Допустимые значения: order, question, status, complaint, smalltalk, other.
+- emotion: эмоциональный тон клиента. Допустимые значения: neutral, positive, hurry, upset, grief.
+- next_step: код шага, который закрывает этот ответ. Допустимые коды для профиля: {_next_step_codes_block(profile)}.
+- case_patch: только поля карточки, которые клиент назвал в последнем сообщении. Допустимые поля и формат значений: {_case_patch_fields_block(profile)}. Верни пустой объект {{}}, если ничего нового не сказано. Значения сохраняй в формулировке клиента: не превращай «тысяч на семь» в число 7000, если число не написано цифрами.
+- needs_human: true, если ситуация требует живого менеджера; иначе false.
+- confidence: уверенность в выборе ответа, intent, next_step и case_patch по рубрике ниже. Не снижай confidence только из-за того, что наличие/цену/срок нужно назвать осторожно: если безопасный ответ с оговоркой однозначен, ставь 0.7 или выше.
+
+Рубрика confidence:
+- 0.9–1.0 — запрос однозначен, все нужные данные есть в карточке или в сообщении.
+- 0.7–0.9 — запрос понятен, но часть деталей приходится предполагать или отвечать осторожной оговоркой.
+- 0.5–0.7 — есть неоднозначность: несколько прочтений сообщения.
+- ниже 0.5 — не понял запрос, не хватает данных даже для безопасного ответа, или ситуация вне обычного сценария.
+""".strip()
+
+
+def _next_step_codes_block(profile: CompanyProfile) -> str:
+    return ", ".join(next_step_codes_for_profile(profile)) or "нет кодов"
+
+
+def _case_patch_fields_block(profile: CompanyProfile) -> str:
+    unique_fields = []
+    seen = set()
+    for fields in profile.required_fields.values():
+        for field in fields:
+            if field.code in seen:
+                continue
+            seen.add(field.code)
+            required_label = "обязательное" if field.required else "необязательное"
+            unique_fields.append(f"{field.code} — {field.label} ({required_label})")
+    return "; ".join(unique_fields) if unique_fields else "допустимые поля профилем не заданы"
+
+
+def _sensitive_occasion_tone_block(profile: CompanyProfile) -> str:
+    forbidden = ", ".join(profile.sensitive_occasion_forbidden_words) or "доменные слова не заданы"
+    return f"""
+Постоянное правило тона для custom_fields.occasion_sensitive=true:
+- {profile.sensitive_occasion_tone_rule}.
+- Без эмодзи.
+- Не используй слова: {forbidden}.
+""".rstrip()

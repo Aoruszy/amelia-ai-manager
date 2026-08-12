@@ -39,3 +39,15 @@ def test_medium_stock_cautious_reply_uses_profile_alternative_text():
     assert "другой напиток" in reply
     assert "букет" not in reply
     assert "стил" not in reply
+
+
+def test_medium_stock_cautious_reply_handles_explicit_unavailable_stock_context_without_handoff():
+    reply = _cautious_reply_for_medium_risk(
+        RiskCategory.STOCK_UNCERTAINTY,
+        stock_context="По наличию на сегодня релевантно:\n- пионы — нет",
+    )
+
+    assert reply is not None
+    assert "пионы" in reply.lower()
+    assert "нет" in reply.lower()
+    assert "менеджер" not in reply.lower()

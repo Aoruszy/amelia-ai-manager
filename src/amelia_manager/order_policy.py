@@ -8,10 +8,35 @@ from amelia_manager.order_card import _business_field_value
 from amelia_manager.order_state import OrderState
 
 
+FLORIST_NEXT_STEP_CODES = (
+    "ask_budget",
+    "ask_bouquet_preferences",
+    "ask_fulfillment_type",
+    "ask_date",
+    "ask_pickup_time",
+    "ask_delivery_time",
+    "ask_pickup_time_within_shop_hours",
+    "ask_delivery_address",
+    "ask_sender_contacts",
+    "ask_recipient_contacts",
+    "confirm_pickup_order",
+    "confirm_delivery_order",
+    "ask_anonymous_or_payment",
+)
+
+
 @dataclass(frozen=True)
 class NextStep:
     code: str
     instruction: str
+
+
+def next_step_codes_for_profile(profile: CompanyProfile) -> list[str]:
+    if profile.business_type != "florist":
+        codes = [f"ask_{field.code}" for fields in profile.required_fields.values() for field in fields if field.required]
+        codes.append("confirm_profile_case")
+        return list(dict.fromkeys(codes))
+    return list(FLORIST_NEXT_STEP_CODES)
 
 
 def get_next_step(
@@ -42,7 +67,9 @@ def get_next_step(
         return NextStep("ask_date", "Уточни, на какое число нужен букет.")
     if not state.delivery_time:
         if state.fulfillment_type == "pickup":
-            return NextStep("ask_pickup_time", "Уточни, к какому времени клиенту удобно забрать букет самовывозом.")
+            profile = company_profile or load_company_profile("amelia_flowers")
+            pickup_address = f" на {profile.pickup_address}" if profile.pickup_address else " самовывозом"
+            return NextStep("ask_pickup_time", f"Уточни, к какому времени клиенту удобно забрать букет{pickup_address}.")
         return NextStep("ask_delivery_time", "Уточни удобное время или интервал доставки.")
     if state.fulfillment_type == "pickup" and not _is_pickup_time_within_shop_hours(
         state.delivery_time,

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Protocol
 
 from amelia_manager.client_order_summary import format_client_order_summary
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.deterministic_replies import deterministic_order_reply
 from amelia_manager.emoji_variation import vary_reply_emoji
-from amelia_manager.humanizer import split_into_telegram_messages
+from amelia_manager.humanizer import split_into_telegram_messages, suppress_emojis
 from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
@@ -89,7 +90,8 @@ class ConversationEngine:
             company_profile=self.company_profile,
         )
         if cautious_reply:
-            return ConversationAction(kind="send", messages=[cautious_reply], risk_level=risk_level)
+            order_patch = _sensitive_occasion_patch(risk.category)
+            return ConversationAction(kind="send", messages=[cautious_reply], risk_level=risk_level, order_patch=order_patch)
 
         if order_card and order_card.client_summary_sent and _is_thanks_only(last_client_text):
             return ConversationAction(
@@ -124,6 +126,7 @@ class ConversationEngine:
             stock_context=stock_context,
             company_profile=self.company_profile,
             order_card_context=_format_order_card_context(order_card) if order_card else None,
+            sensitive_occasion=_is_sensitive_occasion_sticky(order_card),
         )
         try:
             reply = await generate_with_optional_schema(
@@ -176,7 +179,7 @@ class ConversationEngine:
             if decision.needs_human:
                 return ConversationAction(
                     kind="human_review",
-                    messages=_finalize_messages(reply),
+                    messages=_finalize_messages(reply, sensitive_occasion=_is_sensitive_occasion_sticky(order_card)),
                     risk_level=risk_level,
                     safety_reasons=["model_decision_needs_human"],
                     **action_metadata,
@@ -201,7 +204,7 @@ class ConversationEngine:
                     if retry_decision.needs_human:
                         return ConversationAction(
                             kind="human_review",
-                            messages=_finalize_messages(retry_reply),
+                            messages=_finalize_messages(retry_reply, sensitive_occasion=_is_sensitive_occasion_sticky(order_card)),
                             risk_level=risk_level,
                             safety_reasons=["model_decision_needs_human"],
                         )
@@ -209,7 +212,7 @@ class ConversationEngine:
                 if retry_safety.is_safe:
                     return ConversationAction(
                         kind="send",
-                        messages=_finalize_messages(retry_reply),
+                        messages=_finalize_messages(retry_reply, sensitive_occasion=_is_sensitive_occasion_sticky(order_card)),
                         risk_level=risk_level,
                     )
                 safety = retry_safety
@@ -224,7 +227,7 @@ class ConversationEngine:
 
         return ConversationAction(
             kind="send",
-            messages=_finalize_messages(reply),
+            messages=_finalize_messages(reply, sensitive_occasion=_is_sensitive_occasion_sticky(order_card)),
             risk_level=risk_level,
             **action_metadata,
         )
@@ -264,8 +267,12 @@ def _cautious_reply_for_medium_risk(
         return "По скидке уточню у менеджера, чтобы не пообещать лишнего. Могу пока подобрать вариант под ваш бюджет."
     if category == RiskCategory.OUT_OF_AREA_DELIVERY:
         return "По такой доставке лучше уточню у менеджера: зависит от адреса и времени. Напишите, пожалуйста, куда и на когда нужно."
-    if category == RiskCategory.STOCK_UNCERTAINTY and not stock_context:
-        return f"По наличию лучше уточню у менеджера, чтобы не пообещать лишнего. {profile.alternative_offer_text}."
+    if category == RiskCategory.STOCK_UNCERTAINTY:
+        unavailable_item = _unavailable_stock_item(stock_context)
+        if unavailable_item:
+            return f"{unavailable_item.capitalize()} сейчас нет. {profile.alternative_offer_text}. Подскажите бюджет, чтобы сориентировать вас."
+        if not stock_context:
+            return f"По наличию лучше уточню у менеджера, чтобы не пообещать лишнего. {profile.alternative_offer_text}."
     if category == RiskCategory.GUARANTEE_REQUEST:
         return "Уточню у менеджера по наличию и возможности собрать именно такой вариант, чтобы не пообещать лишнего."
     if category == RiskCategory.SENSITIVE_OCCASION:
@@ -299,5 +306,28 @@ def _format_order_card_context(card: OrderCard) -> str:
     return "\n".join(lines) if lines else "- пока пусто"
 
 
-def _finalize_messages(reply: str) -> list[str]:
-    return [vary_reply_emoji(message, seed=len(message)) for message in split_into_telegram_messages(reply)]
+def _is_sensitive_occasion_sticky(card: OrderCard | None) -> bool:
+    return bool(card and card.custom_fields.get("occasion_sensitive") is True)
+
+
+def _sensitive_occasion_patch(category: RiskCategory) -> dict[str, object]:
+    if category == RiskCategory.SENSITIVE_OCCASION:
+        return {"custom_fields": {"occasion_sensitive": True}}
+    return {}
+
+
+def _unavailable_stock_item(stock_context: str | None) -> str | None:
+    if not stock_context:
+        return None
+    for line in stock_context.splitlines():
+        match = re.match(r"\s*-\s*(?P<name>.+?)\s+[—-]\s*(?:нет|0|недоступно)\s*$", line.strip(), re.IGNORECASE)
+        if match:
+            return match.group("name").strip()
+    return None
+
+
+def _finalize_messages(reply: str, *, sensitive_occasion: bool = False) -> list[str]:
+    messages = split_into_telegram_messages(reply)
+    if sensitive_occasion:
+        return [suppress_emojis(message) for message in messages]
+    return [vary_reply_emoji(message, seed=len(message)) for message in messages]

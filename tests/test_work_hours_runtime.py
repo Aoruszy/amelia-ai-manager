@@ -2,7 +2,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from amelia_manager.config import Settings
-from amelia_manager.telegram_runtime import build_off_hours_reply, is_within_work_hours
+from amelia_manager.db.repository import SQLiteRepository
+from amelia_manager.telegram_runtime import build_off_hours_reply, should_send_off_hours_reply, is_within_work_hours
 
 
 def _settings() -> Settings:
@@ -34,3 +35,20 @@ def test_off_hours_reply_points_to_opening_time_without_order_promises():
     assert "менеджер" in reply.lower()
     assert "заказ подтверж" not in reply.lower()
     assert "оплату" not in reply.lower()
+
+
+def test_off_hours_reply_is_sent_once_until_next_work_period(tmp_path):
+    repo = SQLiteRepository(tmp_path / "test.sqlite3")
+    repo.initialize()
+    client = repo.upsert_client(telegram_id=123, username=None)
+    settings = _settings()
+    tz = ZoneInfo("Europe/Kaliningrad")
+    now = datetime(2026, 8, 10, 3, 0, tzinfo=tz)
+
+    assert should_send_off_hours_reply(repo, client_id=client.id, now=now, settings=settings) is True
+
+    repo.add_message(client_id=client.id, direction="in", text="Первое ночное")
+    repo.add_message(client_id=client.id, direction="out", text=build_off_hours_reply(settings=settings))
+
+    assert should_send_off_hours_reply(repo, client_id=client.id, now=now, settings=settings) is False
+    assert [m.direction for m in repo.list_messages(client_id=client.id, limit=10)].count("in") == 1

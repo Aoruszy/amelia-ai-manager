@@ -1,6 +1,7 @@
 import pytest
 
 from amelia_manager.conversation_engine import ConversationAction, ConversationEngine
+from amelia_manager.order_card import OrderCard
 from amelia_manager.risk import RiskLevel
 
 
@@ -58,6 +59,40 @@ async def test_sensitive_occasion_uses_calm_reply_without_emoji():
     assert action.kind == "send"
     assert action.risk_level == RiskLevel.MEDIUM
     assert "подскажите" in text
+    assert "🌸" not in text
+    assert "ярк" not in text
+    assert "нежн" not in text
+    assert action.order_patch == {"custom_fields": {"occasion_sensitive": True}}
+
+
+@pytest.mark.asyncio
+async def test_sensitive_occasion_stays_sticky_across_later_turns():
+    class SensitiveAwareLLM:
+        async def generate(self, prompt: str, **kwargs) -> str:
+            assert "occasion_sensitive" in prompt
+            assert "без эмодзи" in prompt
+            assert "яркий" in prompt
+            self.last_prompt = prompt
+            return '{"intent":"order","emotion":"grief","reply":"Поняла. Сделаю сдержанно и по делу 🌸 На какое время подготовить?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
+
+    card = OrderCard(
+        occasion="похороны",
+        budget=5000,
+        colors=["белый"],
+        fulfillment_type="pickup",
+        delivery_date="завтра",
+        custom_fields={"occasion_sensitive": True},
+    )
+
+    action = await ConversationEngine(SensitiveAwareLLM()).handle_messages(
+        client_summary="Клиент заказал венок на похороны",
+        recent_messages=["Клиент: Хорошо, давайте белый"],
+        stage="pickup",
+        order_card=card,
+    )
+
+    text = action.messages[0].lower()
+    assert action.kind == "send"
     assert "🌸" not in text
     assert "ярк" not in text
     assert "нежн" not in text

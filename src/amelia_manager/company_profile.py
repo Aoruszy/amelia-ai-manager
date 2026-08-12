@@ -58,6 +58,8 @@ class CompanyProfile:
     timezone_name: str = "Europe/Kaliningrad"
     stock_terms: tuple[str, ...] = ("в наличии",)
     alternative_offer_text: str = "могу предложить близкий вариант"
+    sensitive_occasion_tone_rule: str = "сдержанно, без эмодзи, по делу и коротко"
+    sensitive_occasion_forbidden_words: tuple[str, ...] = ()
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]
@@ -81,6 +83,8 @@ _DEFAULT_PROFILES = {
         delivery_city_price=400,
         stock_terms=("пионы", "редкие", "в наличии", "точно есть"),
         alternative_offer_text="могу предложить близкий вариант по стилю",
+        sensitive_occasion_tone_rule="сдержанно, без эмодзи, без радостного тона; по делу и коротко",
+        sensitive_occasion_forbidden_words=("яркий", "нежный", "порадовать", "сюрприз"),
         product_categories=_DEFAULT_CATEGORIES,
         services=[
             "букеты",

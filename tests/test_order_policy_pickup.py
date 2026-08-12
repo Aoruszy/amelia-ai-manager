@@ -32,3 +32,17 @@ def test_pickup_without_time_asks_pickup_time_not_delivery_time():
 
     assert step.code == "ask_pickup_time"
     assert "забрать" in step.instruction.lower()
+
+
+def test_pickup_time_instruction_includes_profile_pickup_address():
+    state = OrderState(
+        budget=5000,
+        colors=["нежный"],
+        fulfillment_type="pickup",
+        delivery_date="today",
+    )
+
+    step = get_next_step(state)
+
+    assert step.code == "ask_pickup_time"
+    assert "Сергеева" in step.instruction

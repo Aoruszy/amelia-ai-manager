@@ -6,7 +6,7 @@ import re
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient, events
@@ -547,6 +547,31 @@ def build_off_hours_reply(*, settings: Settings) -> str:
     return f"Сейчас менеджер не на связи. Ответим с {opening}, как только начнётся рабочий день."
 
 
+def should_send_off_hours_reply(repo: SQLiteRepository, *, client_id: int, now: datetime, settings: Settings) -> bool:
+    """Return false after this client already received the current off-hours notice."""
+    reply = build_off_hours_reply(settings=settings)
+    boundary = _last_work_hours_boundary(now, settings=settings)
+    for message in reversed(repo.list_messages(client_id=client_id, limit=50)):
+        if message.direction != "out" or message.text != reply:
+            continue
+        try:
+            sent_at = datetime.fromisoformat(message.created_at).replace(tzinfo=None)
+        except ValueError:
+            return False
+        return sent_at < boundary.replace(tzinfo=None)
+    return True
+
+
+def _last_work_hours_boundary(now: datetime, *, settings: Settings) -> datetime:
+    start = _parse_hhmm(settings.work_hours_start)
+    end = _parse_hhmm(settings.work_hours_end)
+    current = now.timetz().replace(tzinfo=None)
+    boundary_date = now.date()
+    if current < start:
+        boundary_date = boundary_date - timedelta(days=1)
+    return datetime.combine(boundary_date, end, tzinfo=now.tzinfo)
+
+
 def _parse_hhmm(value: str) -> time:
     hour_text, minute_text = value.split(":", 1)
     return time(hour=int(hour_text), minute=int(minute_text))
@@ -581,7 +606,11 @@ async def run_listener(settings: Settings) -> None:
         for text in texts:
             repo.add_message(client_id=db_client.id, direction="in", text=text)
         now = datetime.now(ZoneInfo(company_profile.timezone_name))
-        if settings.auto_reply_enabled and not is_within_work_hours(now, settings=settings):
+        if (
+            settings.auto_reply_enabled
+            and not is_within_work_hours(now, settings=settings)
+            and should_send_off_hours_reply(repo, client_id=db_client.id, now=now, settings=settings)
+        ):
             reply = build_off_hours_reply(settings=settings)
             await send_typing_and_messages(
                 client,
