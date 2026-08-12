@@ -65,6 +65,7 @@ class CompanyProfile:
     delivery_hours: str | None = None
     free_delivery_from: int | None = None
     delivery_city_price: int | None = None
+    max_bouquet_estimate: int | None = None
     nearest_delivery_time: str | None = None
     telegram_primary: str | None = None
     telegram_secondary: str | None = None
@@ -97,6 +98,7 @@ _DEFAULT_PROFILES = {
         nearest_delivery_time="от 1 часа после оформления",
         free_delivery_from=5000,
         delivery_city_price=400,
+        max_bouquet_estimate=10000,
         stock_terms=("пионы", "редкие", "в наличии", "точно есть"),
         alternative_offer_text="могу предложить близкий вариант по стилю",
         sensitive_occasion_tone_rule="сдержанно, без эмодзи, без радостного тона; по делу и коротко",

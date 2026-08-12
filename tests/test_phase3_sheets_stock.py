@@ -193,6 +193,15 @@ def test_safety_allows_approximate_single_bouquet_estimate_without_catalog_exact
     assert result.is_safe
 
 
+def test_safety_blocks_approximate_bouquet_estimate_above_profile_limit():
+    profile = CompanyProfile(**{**sheets_profile().__dict__, "max_bouquet_estimate": 10000})
+
+    result = check_reply_safety("Ориентировочно букет выйдет 12000 ₽.", company_profile=profile)
+
+    assert not result.is_safe
+    assert "unsupported_price_quote" in result.reasons
+
+
 def test_safety_blocks_exact_bouquet_price_without_approximation_or_catalog():
     result = check_reply_safety("Такой букет обойдётся в 4500 ₽.")
 
