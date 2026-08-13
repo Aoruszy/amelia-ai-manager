@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.date_formatting import format_admin_date
-from amelia_manager.order_card import OrderCard
+from amelia_manager.order_card import OrderCard, format_budget_display
 
 
 def format_admin_order_request(
@@ -23,13 +23,14 @@ def format_admin_order_request(
             case_type=case_type,
         )
     fulfillment = "самовывоз" if card.fulfillment_type == "pickup" else "доставка"
+    budget_display = format_budget_display(card)
     lines = [
         f"🌸 Новая заявка {profile.company_name}",
         f"ID: {order_id}",
         f"Клиент Telegram: {client_label}",
         f"Тип: {fulfillment}",
         f"Дата/время: {format_admin_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip(),
-        f"Бюджет: {card.budget} ₽" if card.budget else "Бюджет: не указан",
+        f"Бюджет: {budget_display}" if budget_display else "Бюджет: не указан",
         f"Пожелания: {', '.join(card.colors) if card.colors else 'не указаны'}",
     ]
     if card.forbidden_flowers:
@@ -77,8 +78,9 @@ def _format_generic_admin_request(
         lines.append(f"Клиент: {card.sender_name or 'не указан'}, {card.sender_phone or 'телефон не указан'}")
     if card.address:
         lines.append(f"Адрес: {card.address}")
-    if card.budget:
-        lines.append(f"Бюджет: {card.budget} ₽")
+    budget_display = format_budget_display(card)
+    if budget_display:
+        lines.append(f"Бюджет: {budget_display}")
     for key, value in card.custom_fields.items():
         if value not in (None, "", [], {}):
             lines.append(f"{key}: {value}")

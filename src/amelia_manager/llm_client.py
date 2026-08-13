@@ -24,11 +24,13 @@ class GeminiClient:
         *,
         api_key: str,
         model: str,
+        max_output_tokens: int = 1000,
         timeout: float = 30.0,
         transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
+        self.max_output_tokens = max_output_tokens
         self.timeout = timeout
         self.transport = transport
 
@@ -48,7 +50,7 @@ class GeminiClient:
             "generationConfig": {
                 "temperature": 0.7,
                 "topP": 0.9,
-                "maxOutputTokens": 350,
+                "maxOutputTokens": self.max_output_tokens,
             },
         }
         if response_mime_type:
@@ -83,12 +85,14 @@ class OpenAIResponsesClient:
         api_key: str,
         model: str,
         base_url: str | None = None,
+        max_output_tokens: int = 1000,
         timeout: float = 30.0,
         transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = (base_url or "https://api.openai.com/v1").rstrip("/")
+        self.max_output_tokens = max_output_tokens
         self.timeout = timeout
         self.transport = transport
 
@@ -102,7 +106,7 @@ class OpenAIResponsesClient:
         payload: dict[str, Any] = {
             "model": self.model,
             "input": prompt,
-            "max_output_tokens": 350,
+            "max_output_tokens": self.max_output_tokens,
         }
         if response_mime_type == "application/json":
             if response_schema:
@@ -138,12 +142,12 @@ class OpenAIResponsesClient:
         return cleaned
 
 
-def build_llm_client(*, provider: str, api_key: str, model: str, base_url: str | None = None) -> LLMClient:
+def build_llm_client(*, provider: str, api_key: str, model: str, base_url: str | None = None, max_output_tokens: int = 1000) -> LLMClient:
     normalized = provider.lower().strip()
     if normalized == "gemini":
-        return GeminiClient(api_key=api_key, model=model)
+        return GeminiClient(api_key=api_key, model=model, max_output_tokens=max_output_tokens)
     if normalized in {"openai", "openai_responses"}:
-        return OpenAIResponsesClient(api_key=api_key, model=model, base_url=base_url)
+        return OpenAIResponsesClient(api_key=api_key, model=model, base_url=base_url, max_output_tokens=max_output_tokens)
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 

@@ -22,7 +22,7 @@ from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteReposi
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
 from amelia_manager.llm_client import build_llm_client
-from amelia_manager.order_card import OrderCard, merge_order_patch, merge_order_state
+from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch, merge_order_state
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
 from amelia_manager.order_sheet import SheetsOrderAppender, append_order_to_sheet_if_needed, send_pending_sheet_rows
@@ -347,8 +347,9 @@ def derive_client_state(card: OrderCard, *, last_client_text: str) -> tuple[str,
     else:
         stage = "new_lead"
     parts: list[str] = []
-    if card.budget:
-        parts.append(f"бюджет {card.budget}")
+    budget_display = format_budget_display(card)
+    if budget_display:
+        parts.append(f"бюджет {budget_display}")
     if card.fulfillment_type:
         parts.append("самовывоз" if card.fulfillment_type == "pickup" else "доставка")
     if card.delivery_date:
@@ -716,6 +717,7 @@ async def run_listener(settings: Settings) -> None:
         api_key=settings.llm_api_key,
         model=settings.llm_model,
         base_url=settings.llm_base_url,
+        max_output_tokens=settings.llm_max_output_tokens,
     )
     company_profile = load_company_profile(settings.company_profile_name)
     engine = ConversationEngine(llm, company_profile=company_profile)
@@ -929,6 +931,13 @@ async def run_listener(settings: Settings) -> None:
                 )
             if any(reason.startswith("llm_error") for reason in action.safety_reasons):
                 event_recorder.record(EventName.LLM_FAILED, client_id=db_client.id, order_id=active_order.id if active_order else None, payload={"stage": "reply"})
+            if "parse_failed" in action.safety_reasons:
+                event_recorder.record(
+                    EventName.PARSE_FAILED,
+                    client_id=db_client.id,
+                    order_id=active_order.id if active_order else None,
+                    payload={"retry_succeeded": action.parse_retry_succeeded is True},
+                )
             if action.safety_triggered_reasons:
                 event_recorder.record(
                     EventName.SAFETY_TRIGGERED,

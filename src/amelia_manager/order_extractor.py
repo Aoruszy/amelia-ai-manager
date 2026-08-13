@@ -88,7 +88,7 @@ def looks_like_address(value: str | None) -> bool:
 
 def _build_extraction_prompt(recent_messages: list[str], *, company_profile: CompanyProfile | None = None) -> str:
     if company_profile is None or company_profile.business_type == "florist":
-        field_block = "Поля: occasion, budget, colors, forbidden_flowers, fulfillment_type(delivery/pickup), delivery_date(ISO YYYY-MM-DD), delivery_time(HH:MM), address, sender_name, sender_phone, recipient_name, recipient_phone, payment_method(transfer/cash/crypto), postcard_text, anonymous, photo_report_requested, custom_fields."
+        field_block = "Поля: occasion, budget, colors, forbidden_flowers, fulfillment_type(delivery/pickup), delivery_date(ISO YYYY-MM-DD), delivery_time(HH:MM), address, sender_name, sender_phone, recipient_name, recipient_phone, payment_method(transfer/cash/crypto), postcard_text, anonymous, photo_report_requested, custom_fields. Если клиент назвал диапазон бюджета, budget ставь по верхней границе, а исходную вилку сохрани в custom_fields.budget_range."
     else:
         custom_fields: list[str] = []
         for fields in company_profile.required_fields.values():

@@ -20,6 +20,7 @@ def calculate_metrics(repo, *, date_from: date, date_to: date) -> dict[str, Any]
     escalated = _clients_for(by_event[EventName.ESCALATED.value])
     safety_clients = _clients_for(by_event[EventName.SAFETY_TRIGGERED.value])
     llm_failed_clients = _clients_for(by_event[EventName.LLM_FAILED.value])
+    parse_failed_clients = _clients_for(by_event[EventName.PARSE_FAILED.value])
     off_hours_clients = _clients_for(by_event[EventName.OFF_HOURS_REPLY.value])
     followup_sent_clients = _clients_for(by_event[EventName.FOLLOWUP_SENT.value])
     followup_replied_clients = _clients_for(by_event[EventName.FOLLOWUP_REPLIED.value])
@@ -48,6 +49,8 @@ def calculate_metrics(repo, *, date_from: date, date_to: date) -> dict[str, Any]
             "safety_trigger_rate": _rate(len(safety_clients & dialogs), dialog_count),
             "retry_success_rate": _rate(_count_retry_success(by_event[EventName.SAFETY_TRIGGERED.value]), len(by_event[EventName.SAFETY_TRIGGERED.value])),
             "llm_failed_rate": _rate(len(llm_failed_clients & dialogs), dialog_count),
+            "parse_failed_rate": _rate(len(parse_failed_clients & dialogs), dialog_count),
+            "parse_retry_success_rate": _rate(_count_retry_success(by_event[EventName.PARSE_FAILED.value]), len(by_event[EventName.PARSE_FAILED.value])),
             "confidence_distribution": _confidence_distribution(confidence_values),
         },
         "ops": {

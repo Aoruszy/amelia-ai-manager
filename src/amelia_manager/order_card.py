@@ -138,6 +138,19 @@ def _is_pickup_time_within_shop_hours(value: str | None) -> bool:
     return (hour, minute) >= (9, 0) and (hour, minute) <= (20, 0)
 
 
+def format_budget_display(card: OrderCard) -> str | None:
+    range_value = card.custom_fields.get("budget_range")
+    if isinstance(range_value, str) and range_value.strip():
+        normalized = range_value.strip().replace("—", "–").replace("-", "–")
+        normalized = re.sub(r"\s*–\s*", "–", normalized)
+        if not re.search(r"(?:₽|руб|р\b)", normalized.lower()):
+            normalized = f"{normalized} ₽"
+        return normalized
+    if card.budget:
+        return f"{card.budget} ₽"
+    return None
+
+
 def is_ready_for_profile_case(card: OrderCard, profile: CompanyProfile, case_type: str) -> bool:
     required_codes = profile.required_field_codes(case_type)
     if not required_codes:

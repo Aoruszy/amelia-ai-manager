@@ -86,6 +86,7 @@ def test_metrics_calculate_conversion_funnel_quality_and_ops(tmp_path):
     repo.record_event(client_id=c2.id, order_id=2, event=EventName.ESCALATED, payload={"risk_category": "guarantee_request", "risk_level": "medium"}, created_at=start)
     repo.record_event(client_id=c2.id, order_id=2, event=EventName.SAFETY_TRIGGERED, payload={"reasons": ["x"], "retry_succeeded": True}, created_at=start)
     repo.record_event(client_id=c2.id, order_id=2, event=EventName.LLM_FAILED, payload={"stage": "eval"}, created_at=start)
+    repo.record_event(client_id=c2.id, order_id=2, event=EventName.PARSE_FAILED, payload={"retry_succeeded": False}, created_at=start)
     repo.record_event(client_id=c2.id, order_id=2, event=EventName.OFF_HOURS_REPLY, payload={}, created_at=start)
     repo.record_event(client_id=c1.id, order_id=1, event=EventName.FOLLOWUP_SENT, payload={"kind": "followup_1"}, created_at=start)
     repo.record_event(client_id=c1.id, order_id=1, event=EventName.FOLLOWUP_REPLIED, payload={"kind": "followup_1"}, created_at=start)
@@ -103,6 +104,8 @@ def test_metrics_calculate_conversion_funnel_quality_and_ops(tmp_path):
     assert metrics["quality"]["safety_trigger_rate"] == 0.5
     assert metrics["quality"]["retry_success_rate"] == 1.0
     assert metrics["quality"]["llm_failed_rate"] == 0.5
+    assert metrics["quality"]["parse_failed_rate"] == 0.5
+    assert metrics["quality"]["parse_retry_success_rate"] == 0.0
     assert metrics["quality"]["confidence_distribution"]["0.7-1.0"] == 1
     assert metrics["ops"]["reply_latency_seconds"]["median"] == 10
     assert metrics["ops"]["off_hours_rate"] == 0.5

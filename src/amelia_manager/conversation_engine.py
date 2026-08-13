@@ -12,7 +12,7 @@ from amelia_manager.humanizer import split_into_telegram_messages, suppress_emoj
 from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
-from amelia_manager.order_card import OrderCard, merge_order_patch
+from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.prompts import build_manager_prompt
@@ -38,6 +38,12 @@ class ConversationAction:
     risk_category: RiskCategory | None = None
     safety_triggered_reasons: list[str] = field(default_factory=list)
     safety_retry_succeeded: bool | None = None
+
+    @property
+    def parse_retry_succeeded(self) -> bool | None:
+        if "parse_failed" not in self.safety_reasons:
+            return None
+        return self.safety_retry_succeeded
 
 
 class ConversationEngine:
@@ -170,9 +176,36 @@ class ConversationEngine:
                 risk_level=risk_level,
                 safety_reasons=["llm_error"],
             )
-        safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
         decision = parse_model_decision(reply)
         action_metadata: dict[str, object] = {}
+        if decision is None and _looks_like_model_decision_payload(reply):
+            retry_result = await self._retry_or_fallback_after_parse_failure(
+                prompt=prompt,
+                next_step=next_step,
+                order_card=order_card,
+                recent_messages=recent_messages,
+                stock_context=stock_context,
+                risk_level=risk_level,
+            )
+            if retry_result is not None:
+                return retry_result
+            reply = deterministic_order_reply(
+                next_step,
+                order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context,
+                company_profile=self.company_profile,
+            ) or "Передам менеджеру, чтобы вам ответили корректно."
+            return ConversationAction(
+                kind="send",
+                messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                risk_level=risk_level,
+                safety_reasons=["parse_failed"],
+                safety_retry_succeeded=False,
+            )
+
+        if decision is None:
+            safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
         if decision is not None:
             reply = decision.reply
             action_metadata = {
@@ -225,7 +258,35 @@ class ConversationEngine:
                     response_schema=ModelDecision.model_json_schema(),
                 )
                 retry_decision = parse_model_decision(retry_reply)
-                if retry_decision is not None:
+                if retry_decision is None and _looks_like_model_decision_payload(retry_reply):
+                    fallback = deterministic_order_reply(
+                        next_step,
+                        order_card if isinstance(order_card, OrderCard) else None,
+                        recent_messages=recent_messages,
+                        stock_context=stock_context,
+                        company_profile=self.company_profile,
+                    )
+                    if fallback:
+                        return ConversationAction(
+                            kind="send",
+                            messages=_finalize_messages(fallback, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                            risk_level=risk_level,
+                            safety_reasons=["parse_failed"],
+                            safety_triggered_reasons=safety.reasons,
+                            safety_retry_succeeded=False,
+                        )
+                    return ConversationAction(
+                        kind="human_review",
+                        messages=["Передам менеджеру, чтобы точно проверить и ответить вам корректно."],
+                        risk_level=risk_level,
+                        safety_reasons=["parse_failed"],
+                        risk_category=risk.category,
+                        safety_triggered_reasons=safety.reasons,
+                        safety_retry_succeeded=False,
+                    )
+                if retry_decision is None:
+                    pass
+                else:
                     retry_reply = retry_decision.reply
                     if retry_decision.needs_human:
                         return ConversationAction(
@@ -275,6 +336,74 @@ class ConversationEngine:
             risk_level=risk_level,
             **action_metadata,
         )
+
+    async def _retry_or_fallback_after_parse_failure(
+        self,
+        *,
+        prompt: str,
+        next_step,
+        order_card: OrderCard | None,
+        recent_messages: list[str],
+        stock_context: str | None,
+        risk_level: RiskLevel,
+    ) -> ConversationAction | None:
+        retry_prompt = (
+            prompt
+            + "\n\nПредыдущий ответ не удалось разобрать как JSON. "
+            + "Верни только корректный JSON формата ModelDecision, без markdown и без текста вне JSON."
+        )
+        try:
+            retry_reply = await generate_with_optional_schema(
+                self.llm,
+                retry_prompt,
+                response_schema=ModelDecision.model_json_schema(),
+            )
+        except LLMError:
+            return None
+        retry_decision = parse_model_decision(retry_reply)
+        if retry_decision is None:
+            return None
+        reply = retry_decision.reply
+        safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
+        if not safety.is_safe:
+            return ConversationAction(
+                kind="human_review",
+                messages=["Передам менеджеру, чтобы точно проверить и ответить вам корректно."],
+                risk_level=risk_level,
+                safety_reasons=["parse_failed"],
+                safety_triggered_reasons=safety.reasons,
+                safety_retry_succeeded=False,
+            )
+        if retry_decision.needs_human:
+            return ConversationAction(
+                kind="human_review",
+                messages=_finalize_messages(reply, sensitive_occasion=False, company_profile=self.company_profile),
+                risk_level=risk_level,
+                safety_reasons=["parse_failed", "model_decision_needs_human"],
+                order_patch=dict(retry_decision.case_patch),
+                intent=retry_decision.intent,
+                next_step=retry_decision.next_step,
+                confidence=retry_decision.confidence,
+                safety_retry_succeeded=True,
+            )
+        return ConversationAction(
+            kind="send",
+            messages=_finalize_messages(reply, sensitive_occasion=False, company_profile=self.company_profile),
+            risk_level=risk_level,
+            safety_reasons=["parse_failed"],
+            order_patch=dict(retry_decision.case_patch),
+            intent=retry_decision.intent,
+            next_step=retry_decision.next_step,
+            confidence=retry_decision.confidence,
+            safety_retry_succeeded=True,
+        )
+
+
+def _looks_like_model_decision_payload(text: str) -> bool:
+    normalized = text.strip().lower()
+    if normalized.startswith("{") or normalized.startswith("["):
+        return True
+    return any(marker in normalized for marker in ('"reply":', '"case_patch":', '"confidence":', '"intent":'))
 
 
 def _last_client_text(recent_messages: list[str]) -> str:
@@ -364,8 +493,9 @@ def _format_order_card_context(card: OrderCard) -> str:
         lines.append(f"- Дата: {card.delivery_date}")
     if card.delivery_time:
         lines.append(f"- Время: {card.delivery_time}")
-    if card.budget:
-        lines.append(f"- Бюджет: {card.budget} ₽")
+    budget_display = format_budget_display(card)
+    if budget_display:
+        lines.append(f"- Бюджет: {budget_display}")
     if card.colors:
         lines.append(f"- Пожелания: {', '.join(card.colors)}")
     if card.address:

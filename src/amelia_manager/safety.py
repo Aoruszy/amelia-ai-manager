@@ -68,6 +68,8 @@ def check_reply_safety(
     normalized = reply.lower().replace("ё", "е")
     reasons: list[str] = []
 
+    if _looks_like_raw_model_output(normalized):
+        reasons.append("raw_model_output")
     if any(pattern in normalized for pattern in _IDENTITY_PATTERNS):
         reasons.append("identity_disclosure")
     stock_promise = _has_stock_promise(normalized)
@@ -140,7 +142,11 @@ def _has_unsupported_price_quote(
     price_quotes = []
     for match in re.finditer(r"\b(\d[\d ]{2,})\s*(?:₽|руб|р\b)", reply):
         window = reply[max(0, match.start() - 48): match.end() + 48]
-        if re.search(r"\b(?:сто\w*|цен\w*|за\s+штук\w*|за\s+букет|обойд\w*|выйд\w*)\b", window):
+        has_price_context = bool(
+            re.search(r"\b(?:сто\w*|цен\w*|ценой|за\s+штук\w*|за\s+букет|обойд\w*|выйд\w*)\b", window)
+            or re.search(r"\b(?:за|по)\s+\d[\d ]{2,}\s*(?:₽|руб|р\b)", window)
+        )
+        if has_price_context:
             if _is_approximate_bouquet_estimate(reply, window, amount=int(match.group(1).replace(" ", "")), company_profile=company_profile):
                 continue
             price_quotes.append(match.group(1).replace(" ", ""))
@@ -164,6 +170,13 @@ def _has_unsupported_price_quote(
     return any(price not in allowed_prices for price in price_quotes)
 
 
+def _looks_like_raw_model_output(normalized: str) -> bool:
+    stripped = normalized.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        return True
+    return any(marker in normalized for marker in ('"reply":', '"case_patch":', '"confidence":', '"intent":'))
+
+
 def _is_approximate_bouquet_estimate(
     reply: str,
     window: str,
@@ -173,7 +186,11 @@ def _is_approximate_bouquet_estimate(
 ) -> bool:
     if "букет" not in reply:
         return False
-    if not re.search(r"\b(?:обойд\w*|выйд\w*|сто\w*)\b", window):
+    has_estimate_context = bool(
+        re.search(r"\b(?:обойд\w*|выйд\w*|сто\w*|ценой)\b", window)
+        or re.search(r"\b(?:за|по)\s+\d[\d ]{2,}\s*(?:₽|руб|р\b)", window)
+    )
+    if not has_estimate_context:
         return False
     has_approx_marker = re.search(r"\b(?:примерно|около|ориентировочно|порядка|в\s+районе)\b", window)
     has_range_marker = re.search(r"\b\d[\d ]{2,}\s*[–—-]\s*\d[\d ]{2,}\s*(?:₽|руб|р\b)", window)

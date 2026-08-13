@@ -240,6 +240,8 @@ def _evaluate_checks(
             checks.append(_check_no_invented_numbers(output, scenario=scenario, company_profile=profile))
         elif structural_check == "next_step_advanced":
             checks.append(_check_next_step(scenario, company_profile=profile))
+        elif structural_check == "no_repeated_phrase":
+            checks.append(_check_no_repeated_phrase(scenario, output))
     for token in scenario.must_contain:
         checks.append(_check(f"contains:{token}", token.lower().replace("ё", "е") in normalized, {}))
     for token in scenario.must_not_contain:
@@ -301,6 +303,7 @@ def _check_no_invented_numbers(output: str, *, scenario: DialogueScenario, compa
         for part in (
             scenario.order_card.to_dict() if scenario.order_card else {},
             "\n".join(scenario.recent_messages),
+            _scenario_order_state(scenario).__dict__,
             scenario.stock_context or "",
             company_profile.free_delivery_from or "",
             company_profile.delivery_city_price or "",
@@ -312,6 +315,29 @@ def _check_no_invented_numbers(output: str, *, scenario: DialogueScenario, compa
     )
     invented = sorted(number for number in numbers if number not in allowed_text)
     return _check("no_invented_numbers", not invented, {"invented_numbers": invented})
+
+
+def _check_no_repeated_phrase(scenario: DialogueScenario, output: str) -> dict[str, Any]:
+    previous_bot = _last_bot_message(scenario.recent_messages)
+    if not previous_bot:
+        return _check("no_repeated_phrase", True, {})
+    previous_start = _normalized_prefix(previous_bot, length=40)
+    output_text = _normalized_prefix(output, length=80)
+    repeated = bool(previous_start and previous_start in output_text)
+    return _check("no_repeated_phrase", not repeated, {"previous_prefix": previous_start})
+
+
+def _last_bot_message(messages: list[str]) -> str | None:
+    for message in reversed(messages):
+        lowered = message.lower().strip()
+        if lowered.startswith("менеджер:") or lowered.startswith("алина:"):
+            return re.sub(r"^(?:менеджер|алина):\s*", "", message, flags=re.IGNORECASE).strip()
+    return None
+
+
+def _normalized_prefix(text: str, *, length: int) -> str:
+    normalized = re.sub(r"[^0-9a-zа-я]+", " ", text.lower().replace("ё", "е"))
+    return re.sub(r"\s+", " ", normalized).strip()[:length].strip()
 
 
 def _check_next_step(scenario: DialogueScenario, *, company_profile: CompanyProfile) -> dict[str, Any]:
@@ -332,6 +358,7 @@ def _scenario_order_state(scenario: DialogueScenario) -> OrderState:
     data = scenario.order_card.to_dict()
     data.pop("admin_request_sent", None)
     data.pop("client_summary_sent", None)
+    data.pop("sheet_row_written", None)
     return OrderState(**data)
 
 
@@ -422,6 +449,7 @@ def main(argv: list[str] | None = None) -> None:
             api_key=settings.llm_api_key,
             model=settings.llm_model,
             base_url=getattr(settings, "llm_base_url", None),
+            max_output_tokens=getattr(settings, "llm_max_output_tokens", 1000),
         )
         cache_path = args.cache
         model_name = settings.llm_model
