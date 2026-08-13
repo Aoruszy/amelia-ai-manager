@@ -12,7 +12,7 @@ from typing import Any
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
-from amelia_manager.llm_client import GeminiClient, LLMError
+from amelia_manager.llm_client import GeminiClient, LLMError, build_llm_client
 from amelia_manager.order_card import OrderCard
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import OrderState, extract_order_state
@@ -417,7 +417,12 @@ def main(argv: list[str] | None = None) -> None:
         settings = Settings()
         if not settings.llm_api_key:
             raise SystemExit("LLM_API_KEY is required for --live")
-        llm = GeminiClient(api_key=settings.llm_api_key, model=settings.llm_model)
+        llm = build_llm_client(
+            provider=getattr(settings, "llm_provider", "gemini"),
+            api_key=settings.llm_api_key,
+            model=settings.llm_model,
+            base_url=getattr(settings, "llm_base_url", None),
+        )
         cache_path = args.cache
         model_name = settings.llm_model
         scenarios = build_default_scenarios() + build_live_scenarios()

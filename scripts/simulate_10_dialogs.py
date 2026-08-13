@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import SQLiteRepository
-from amelia_manager.llm_client import GeminiClient
+from amelia_manager.llm_client import build_llm_client
 from amelia_manager.stock import build_stock_context, parse_stock_text
 from amelia_manager.telegram_runtime import build_admin_order_request_if_needed, update_active_order_from_messages
 
@@ -57,7 +57,12 @@ def bad_flags(text: str) -> list[str]:
 
 async def main() -> None:
     settings = Settings()
-    llm = GeminiClient(api_key=settings.llm_api_key, model=settings.llm_model)
+    llm = build_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+    )
     engine = ConversationEngine(llm)
     outputs = []
     all_flags = Counter()

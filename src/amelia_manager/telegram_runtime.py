@@ -21,7 +21,7 @@ from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
-from amelia_manager.llm_client import GeminiClient
+from amelia_manager.llm_client import build_llm_client
 from amelia_manager.order_card import OrderCard, merge_order_patch, merge_order_state
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
@@ -711,7 +711,12 @@ async def run_listener(settings: Settings) -> None:
 
     session_path = get_session_path(settings)
     client = TelegramClient(str(session_path), settings.telegram_api_id, settings.telegram_api_hash)
-    llm = GeminiClient(api_key=settings.llm_api_key, model=settings.llm_model)
+    llm = build_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+    )
     company_profile = load_company_profile(settings.company_profile_name)
     engine = ConversationEngine(llm, company_profile=company_profile)
     repo = SQLiteRepository(path_from_sqlite_url(settings.database_url))

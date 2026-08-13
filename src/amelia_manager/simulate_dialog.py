@@ -6,7 +6,7 @@ import sys
 
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
-from amelia_manager.llm_client import GeminiClient
+from amelia_manager.llm_client import build_llm_client
 
 
 def format_simulation_result(*, kind: str, messages: list[str]) -> str:
@@ -19,7 +19,12 @@ async def simulate(message: str) -> str:
     settings = Settings()
     if not settings.llm_api_key:
         raise RuntimeError("LLM_API_KEY is required for simulation")
-    llm = GeminiClient(api_key=settings.llm_api_key, model=settings.llm_model)
+    llm = build_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+    )
     engine = ConversationEngine(llm)
     action = await engine.handle_messages(
         client_summary="Новый клиент, данных пока нет.",

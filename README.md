@@ -9,7 +9,7 @@ AI Telegram manager core with a first company profile for Amelia Flowers.
 - Company profile: `COMPANY_PROFILE_NAME=amelia_flowers`.
 - Admin notifications in Telegram via `ADMIN_CHAT_ID`.
 - Auto-reply can be enabled for everyone who writes to the account.
-- Current LLM target: Gemini; OpenAI/GPT can be added as a provider later.
+- Current LLM target: Gemini or OpenAI through `LLM_PROVIDER`.
 
 ## Setup
 
@@ -17,9 +17,62 @@ AI Telegram manager core with a first company profile for Amelia Flowers.
 uv sync --extra dev
 cp .env.example .env
 # fill TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE, ADMIN_CHAT_ID, LLM_API_KEY
+# fill ADMIN_USERNAME and ADMIN_PASSWORD before starting admin UI
 uv run pytest -q
 uv run python -m amelia_manager.telegram_runtime
 ```
+
+## Admin UI
+
+The admin UI is a separate FastAPI app. It is protected with Basic Auth, rate-limits failed logins in memory, and refuses to start with empty/default admin credentials.
+
+Required `.env` values:
+
+```env
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=use-a-strong-password-here
+```
+
+Run locally:
+
+```bash
+uv run uvicorn amelia_manager.admin:app --host 127.0.0.1 --port 8000
+```
+
+### Safe external access
+
+#### Quick access: Cloudflare Tunnel
+
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+
+Cloudflare gives an HTTPS URL and you do not need to open router/firewall ports.
+
+#### Permanent access: VPS + Caddy
+
+Run the admin app on localhost only:
+
+```bash
+uv run uvicorn amelia_manager.admin:app --host 127.0.0.1 --port 8000
+```
+
+Caddy reverse proxy example:
+
+```caddy
+admin.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Caddy obtains and renews Let's Encrypt certificates automatically.
+
+#### Do not do this
+
+- Do not expose the admin UI over plain HTTP without TLS.
+- Do not forward a home-router port directly to the admin UI.
+- Do not bind the admin UI to `0.0.0.0` unless it is behind a trusted TLS reverse proxy.
+- Do not run with default or empty admin credentials.
 
 ## Safety notes
 

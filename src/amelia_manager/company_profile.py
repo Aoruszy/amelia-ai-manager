@@ -102,6 +102,33 @@ _DEFAULT_PROFILES = {
         delivery_city_price=400,
         max_bouquet_estimate=10000,
         stock_terms=("пионы", "редкие", "в наличии", "точно есть"),
+        stock_source=StockSourceConfig(
+            type="sheets",
+            sheets=SheetsStockConfig(
+                spreadsheet_id="1FSE1txoe4IIMo5CNZ8u1l6yMDz-ldAaNgLSCeCgz-UQ",
+                assortment_sheet_name="Ассортимент",
+                orders_sheet_name="Заказы",
+                assortment_columns={
+                    "name": "название",
+                    "quantity": "количество",
+                    "price": "цена",
+                    "status": "статус",
+                    "unit": "единица",
+                },
+                order_columns={
+                    "product_preferences": "Пожелания",
+                    "budget": "Бюджет",
+                    "date": "Дата",
+                    "time": "Время",
+                    "delivery_address": "Адрес доставки",
+                    "recipient_name": "Имя получателя",
+                    "recipient_phone": "Телефон получателя",
+                    "customer_name": "Имя клиента/отправителя",
+                    "customer_phone": "Телефон клиента/отправителя",
+                    "payment_method": "Оплата",
+                },
+            ),
+        ),
         alternative_offer_text="могу предложить близкий вариант по стилю",
         followup_fallbacks={
             "budget": "Если удобно, напишите примерный бюджет — подскажу варианты. Можно не отвечать, если уже неактуально.",

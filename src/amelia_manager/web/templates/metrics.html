@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>{% endblock %}
+{% block body %}
+<section class="page-title">
+  <div>
+    <h1>Метрики за {{ period_label }}</h1>
+    <p>Показатели продаж, качества ответов и операций.</p>
+  </div>
+  <a role="button" href="/metrics.csv?days={{ days }}&date_from={{ date_from }}&date_to={{ date_to }}">Экспорт CSV</a>
+</section>
+
+<form method="get" class="filters">
+  <div class="button-row">
+    <button name="days" value="7" class="{{ 'contrast' if days == 7 else 'secondary outline' }}">7 дней</button>
+    <button name="days" value="30" class="{{ 'contrast' if days == 30 else 'secondary outline' }}">30 дней</button>
+    <button name="days" value="90" class="{{ 'contrast' if days == 90 else 'secondary outline' }}">90 дней</button>
+  </div>
+  <div class="date-range">
+    <label>С <input type="date" name="date_from" value="{{ date_from }}"></label>
+    <label>По <input type="date" name="date_to" value="{{ date_to }}"></label>
+    <button>Показать</button>
+  </div>
+</form>
+
+<section class="metric-grid">
+  <article>
+    <small>Конверсия в заявку</small>
+    <strong>{{ metric_percent(metrics.conversion.rate) }}</strong>
+    <span>{{ metrics.conversion.admin_requests }} из {{ metrics.conversion.dialogs }}</span>
+  </article>
+  <article>
+    <small>Число заявок</small>
+    <strong>{{ metrics.conversion.admin_requests }}</strong>
+    <span>за период</span>
+  </article>
+  <article>
+    <small>Доля эскалаций</small>
+    <strong>{{ metric_percent(metrics.escalations.rate) }}</strong>
+    <span>{{ metrics.escalations.dialogs }} диалогов</span>
+  </article>
+  <article>
+    <small>Медианное время ответа</small>
+    <strong>{{ metric_seconds(metrics.ops.reply_latency_seconds.median) }}</strong>
+    <span>p95: {{ metric_seconds(metrics.ops.reply_latency_seconds.p95) }}</span>
+  </article>
+</section>
+
+<section>
+  <h2>Воронка</h2>
+  <div class="funnel">
+    {% for label, count, percent in funnel_items(metrics) %}
+    <div class="funnel-row">
+      <span>{{ label }}</span>
+      <div class="bar"><i style="width: {{ percent }}%"></i></div>
+      <strong>{{ count }} · {{ percent }}%</strong>
+    </div>
+    {% else %}
+    <p>Пока нет данных по шагам.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="sections-grid">
+  <article>
+    <h3>Эскалации</h3>
+    {% for key, value in metrics.escalations.by_risk_category.items() %}<p>{{ risk_label(key) }}: <strong>{{ value }}</strong></p>{% else %}<p>Эскалаций нет.</p>{% endfor %}
+  </article>
+  <article>
+    <h3>Качество</h3>
+    <p>Сработала защита: <strong>{{ metric_percent(metrics.quality.safety_trigger_rate) }}</strong></p>
+    <p>Повтор после защиты успешен: <strong>{{ metric_percent(metrics.quality.retry_success_rate) }}</strong></p>
+    <p>Ошибки модели: <strong>{{ metric_percent(metrics.quality.llm_failed_rate) }}</strong></p>
+    {% for key, value in metrics.quality.confidence_distribution.items() %}<p>{{ confidence_label(key) }} уверенность: <strong>{{ value }}</strong></p>{% endfor %}
+  </article>
+  <article>
+    <h3>Операции</h3>
+    <p>Латентность p95: <strong>{{ metric_seconds(metrics.ops.reply_latency_seconds.p95) }}</strong></p>
+    <p>Обращения вне рабочих часов: <strong>{{ metric_percent(metrics.ops.off_hours_rate) }}</strong></p>
+    <p>Средний бюджет: <strong>{{ metric_number(metrics.ops.average_budget) }} ₽</strong></p>
+  </article>
+  <article>
+    <h3>Исходящие</h3>
+    <p>Догревов отправлено: <strong>{{ metrics.outbound.followups_sent }}</strong></p>
+    <p>Ответов на догревы: <strong>{{ metrics.outbound.followup_replies }}</strong></p>
+    <p>Доля ответов: <strong>{{ metric_percent(metrics.outbound.followup_reply_rate) }}</strong></p>
+    <p>Отписки: <strong>{{ metric_percent(metrics.outbound.opt_out_rate) }}</strong></p>
+  </article>
+</section>
+{% endblock %}

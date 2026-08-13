@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block body %}
+<section class="sticky-actions">
+  <div>
+    <h1>Диалог {{ client.username or ('client #' ~ client.id) }}</h1>
+    {% if client.bot_paused_at %}<strong class="badge danger">Бот на паузе</strong>{% else %}<strong class="badge neutral">Бот активен</strong>{% endif %}
+  </div>
+  <div>
+    {% if client.bot_paused_at %}
+    <form method="post" action="/clients/{{ client.id }}/resume"><button>Вернуть боту</button></form>
+    {% else %}
+    <form method="post" action="/clients/{{ client.id }}/pause"><button class="secondary">Перехватить</button></form>
+    {% endif %}
+  </div>
+</section>
+
+<div class="dialogue-layout">
+  <section class="chat-panel">
+    <h2>Переписка</h2>
+    <div class="chat-feed" id="chat-feed">
+      {% set ns = namespace(day='') %}
+      {% for m in messages %}
+        {% set day = format_date_group(m.created_at) %}
+        {% if day != ns.day %}
+          <div class="day-separator"><span>{{ day }}</span></div>
+          {% set ns.day = day %}
+        {% endif %}
+        <article class="message-bubble {{ 'incoming' if m.direction == 'in' else ('outgoing' if m.direction == 'out' else 'admin-note') }}">
+          <small>{{ format_time(m.created_at) }} · {{ 'клиент' if m.direction == 'in' else ('бот' if m.direction == 'out' else 'админ') }}</small>
+          <div>{{ m.text }}</div>
+        </article>
+      {% else %}
+        <p>Сообщений пока нет.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <aside class="order-panel">
+    <h2>Карточка заказа</h2>
+    {% if order %}
+      <dl class="order-fields">
+        {% for code, label, value in card_fields(order.card) %}
+          <dt>{{ label }}</dt><dd>{{ value if value not in (None, '') else '—' }}</dd>
+        {% endfor %}
+      </dl>
+      <form method="post" action="/clients/{{ client.id }}/card" class="card-edit-form">
+        <label>Бюджет <input name="budget" value="{{ order.card.budget or '' }}"></label>
+        <label>Формат <input name="fulfillment_type" value="{{ order.card.fulfillment_type or '' }}"></label>
+        <label>Пожелания / цвета <input name="colors" value="{{ ', '.join(order.card.colors) }}"></label>
+        <label>Дата <input name="delivery_date" value="{{ order.card.delivery_date or '' }}"></label>
+        <label>Время <input name="delivery_time" value="{{ order.card.delivery_time or '' }}"></label>
+        <label>Адрес <input name="address" value="{{ order.card.address or '' }}"></label>
+        <label>Имя клиента/отправителя <input name="sender_name" value="{{ order.card.sender_name or '' }}"></label>
+        <label>Телефон клиента/отправителя <input name="sender_phone" value="{{ order.card.sender_phone or '' }}"></label>
+        <label>Имя получателя <input name="recipient_name" value="{{ order.card.recipient_name or '' }}"></label>
+        <label>Телефон получателя <input name="recipient_phone" value="{{ order.card.recipient_phone or '' }}"></label>
+        <label>Текст открытки <input name="postcard_text" value="{{ order.card.postcard_text or '' }}"></label>
+        <label>Оплата <input name="payment_method" value="{{ order.card.payment_method or '' }}"></label>
+        <button>Сохранить карточку</button>
+      </form>
+    {% else %}
+      <p>Активной карточки нет.</p>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

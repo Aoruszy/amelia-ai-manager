@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block head %}<meta http-equiv="refresh" content="30">{% endblock %}
+{% block body %}
+<section class="page-title">
+  <div>
+    <h1>Диалоги</h1>
+    <p>Клиенты, статусы, последние сообщения и карточки заказов.</p>
+  </div>
+</section>
+
+<form method="get" class="filters" role="search">
+  <input type="search" name="q" placeholder="Поиск по username или Telegram ID" value="{{ q }}">
+  <div class="button-row">
+    <button name="filter" value="" class="{{ 'contrast' if current_filter == 'all' else 'secondary outline' }}">Все</button>
+    <button name="filter" value="paused" class="{{ 'contrast' if current_filter == 'paused' else 'secondary outline' }}">На паузе</button>
+    <button name="filter" value="ready" class="{{ 'contrast' if current_filter == 'ready' else 'secondary outline' }}">Заявки отправлены</button>
+    <button name="active_days" value="7" class="{{ 'contrast' if active_days == 7 else 'secondary outline' }}">Активные 7 дней</button>
+  </div>
+</form>
+
+<div id="dialogues-table" class="dialogue-table">
+  <table>
+    <thead>
+      <tr>
+        <th>Клиент</th>
+        <th>Стадия</th>
+        <th>Статус</th>
+        <th>Последнее сообщение</th>
+        <th>Карточка</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in dialogues %}
+      {% set label, kind = status_info(d) %}
+      <tr>
+        <td><a href="/clients/{{ d.client.id }}">{{ d.client.username or ('client #' ~ d.client.id) }}</a></td>
+        <td>{{ d.client.stage }}</td>
+        <td><span class="badge {{ kind }}">{{ label }}</span></td>
+        <td><small>{{ format_time(d.last_message_at) }}</small><br><span class="muted-text">{{ d.last_message_text or '' }}</span></td>
+        <td><pre class="card-preview">{{ card_summary(d.active_order.card) if d.active_order else 'Карточки нет' }}</pre></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">Диалогов по фильтру нет.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

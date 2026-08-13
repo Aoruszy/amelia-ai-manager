@@ -1,65 +1,133 @@
 from __future__ import annotations
 
+import csv
+import io
 import secrets
-from datetime import date, timedelta
-from typing import Annotated
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Annotated, Any
 from urllib.parse import parse_qs
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from jinja2 import DictLoader, Environment, select_autoescape
+from fastapi.staticfiles import StaticFiles
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from amelia_manager.company_profile import load_company_profile
 from amelia_manager.config import Settings
-from amelia_manager.date_formatting import _today_in_timezone
+from amelia_manager.date_formatting import _today_in_timezone, format_human_date
 from amelia_manager.db.repository import SQLiteRepository, path_from_sqlite_url
 from amelia_manager.events import EventName
 from amelia_manager.metrics import calculate_metrics
-from amelia_manager.order_card import OrderCard, merge_order_patch
+from amelia_manager.order_card import OrderCard
 
 security = HTTPBasic()
+WEB_DIR = Path(__file__).parent / "web"
+TEMPLATES_DIR = WEB_DIR / "templates"
+STATIC_DIR = WEB_DIR / "static"
 
-TEMPLATES = {
-    "base.html": """
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>{{ title }}</title>
-<style>body{font-family:sans-serif;max-width:1100px;margin:24px auto;padding:0 16px}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:8px;text-align:left}.in{background:#eef}.out{background:#efe}.admin{background:#fee}.card{white-space:pre-wrap}.actions form{display:inline}</style>
-</head><body><nav><a href="/">Диалоги</a> · <a href="/metrics">Метрики</a></nav><hr>{% block body %}{% endblock %}</body></html>
-""",
-    "index.html": """{% extends 'base.html' %}{% block body %}<h1>Диалоги</h1>
-<p><a href="/?filter=paused">Только на паузе</a> · <a href="/?filter=ready">Готовые заявки</a> · <a href="/?active_days=7">Активные 7 дней</a></p>
-<table><tr><th>Клиент</th><th>Стадия</th><th>Статус</th><th>Последнее сообщение</th><th>Карточка</th></tr>
-{% for d in dialogues %}<tr><td><a href="/clients/{{ d.client.id }}">{{ d.client.username or ('client #' ~ d.client.id) }}</a></td><td>{{ d.client.stage }}</td><td>{{ status_label(d) }}</td><td>{{ d.last_message_at or '' }}</td><td>{{ card_summary(d.active_order.card) if d.active_order else '' }}</td></tr>{% endfor %}</table>{% endblock %}""",
-    "client.html": """{% extends 'base.html' %}{% block body %}<h1>Диалог {{ client.username or ('client #' ~ client.id) }}</h1>
-<div class="actions">{% if client.bot_paused_at %}<form method="post" action="/clients/{{ client.id }}/resume"><button>Вернуть боту</button></form>{% else %}<form method="post" action="/clients/{{ client.id }}/pause"><button>Перехватить</button></form>{% endif %}</div>
-<h2>Переписка</h2>{% for m in messages %}<div class="{{ m.direction }}"><b>{{ m.direction }}</b> {{ m.created_at }}<br>{{ m.text }}</div>{% endfor %}
-<h2>Карточка заказа</h2>{% if order %}<div class="card">{{ card_summary(order.card) }}</div><form method="post" action="/clients/{{ client.id }}/card">
-<p>Бюджет <input name="budget" value="{{ order.card.budget or '' }}"></p><p>Формат <input name="fulfillment_type" value="{{ order.card.fulfillment_type or '' }}"></p><p>Цвета <input name="colors" value="{{ ', '.join(order.card.colors) }}"></p><p>Дата <input name="delivery_date" value="{{ order.card.delivery_date or '' }}"></p><p>Время <input name="delivery_time" value="{{ order.card.delivery_time or '' }}"></p><p>Адрес <input name="address" value="{{ order.card.address or '' }}"></p><button>Сохранить карточку</button></form>{% else %}<p>Активной карточки нет.</p>{% endif %}{% endblock %}""",
-    "metrics.html": """{% extends 'base.html' %}{% block body %}<h1>Метрики за {{ days }} дней</h1><h2>Воронка</h2><table><tr><th>Шаг</th><th>Количество</th></tr>{% for k,v in metrics.funnel.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</table><h2>Конверсия</h2><p>{{ metrics.conversion.rate|round(2) }} — {{ metrics.conversion.admin_requests }} из {{ metrics.conversion.dialogs }}</p><h2>Confidence</h2><p>{{ metrics.quality.confidence_distribution }}</p><h2>Операции</h2><p>off-hours: {{ metrics.ops.off_hours_rate|round(2) }}</p>{% endblock %}""",
-}
+
+@dataclass
+class LoginAttempt:
+    failures: deque[datetime]
+    blocked_until: datetime | None = None
+
+
+class LoginRateLimiter:
+    def __init__(self, *, max_failures: int = 10, window: timedelta = timedelta(minutes=5), block_for: timedelta = timedelta(minutes=1)) -> None:
+        self.max_failures = max_failures
+        self.window = window
+        self.block_for = block_for
+        self._attempts: dict[str, LoginAttempt] = defaultdict(lambda: LoginAttempt(deque()))
+
+    def is_blocked(self, ip: str, *, now: datetime | None = None) -> bool:
+        now = now or datetime.now(UTC)
+        attempt = self._attempts[ip]
+        if attempt.blocked_until and attempt.blocked_until > now:
+            return True
+        if attempt.blocked_until and attempt.blocked_until <= now:
+            attempt.blocked_until = None
+        self._prune(attempt, now=now)
+        return False
+
+    def record_failure(self, ip: str, *, now: datetime | None = None) -> None:
+        now = now or datetime.now(UTC)
+        attempt = self._attempts[ip]
+        self._prune(attempt, now=now)
+        attempt.failures.append(now)
+        if len(attempt.failures) >= self.max_failures:
+            attempt.blocked_until = now + self.block_for
+
+    def record_success(self, ip: str) -> None:
+        self._attempts.pop(ip, None)
+
+    def _prune(self, attempt: LoginAttempt, *, now: datetime) -> None:
+        boundary = now - self.window
+        while attempt.failures and attempt.failures[0] < boundary:
+            attempt.failures.popleft()
 
 
 def create_app(*, settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    _validate_admin_credentials(settings)
     repo = SQLiteRepository(path_from_sqlite_url(settings.database_url))
     repo.initialize()
-    env = Environment(loader=DictLoader(TEMPLATES), autoescape=select_autoescape(["html", "xml"]))
-    env.globals["card_summary"] = _card_summary
-    env.globals["status_label"] = _status_label
+    env = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=select_autoescape(["html", "xml"]))
+    env.globals.update(
+        card_summary=_card_summary,
+        card_fields=_card_fields,
+        status_info=_status_info,
+        status_label=lambda d: _status_info(d)[0],
+        format_time=_format_relative_time,
+        format_date_group=_format_date_group,
+        metric_percent=_metric_percent,
+        metric_number=_metric_number,
+        metric_seconds=_metric_seconds,
+        funnel_items=_funnel_items,
+        risk_label=_risk_label,
+        confidence_label=_confidence_label,
+    )
     app = FastAPI(title="Amelia Admin")
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    limiter = LoginRateLimiter()
 
-    def require_auth(credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> None:
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+    def require_auth(request: Request, credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> None:
+        ip = request.client.host if request.client else "unknown"
+        if limiter.is_blocked(ip):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many failed login attempts")
         ok_user = secrets.compare_digest(credentials.username, settings.admin_username)
         ok_password = secrets.compare_digest(credentials.password, settings.admin_password)
         if not (ok_user and ok_password):
+            limiter.record_failure(ip)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Basic"})
+        limiter.record_success(ip)
 
     def render(template: str, **context) -> HTMLResponse:
         return HTMLResponse(env.get_template(template).render(**context))
 
     @app.get("/", response_class=HTMLResponse)
-    def index(_auth=Depends(require_auth), filter: str | None = None, active_days: int | None = None):
-        return render("index.html", title="Диалоги", dialogues=repo.list_dialogues(filter_name=filter, active_days=active_days, limit=200))
+    def index(_auth=Depends(require_auth), filter: str | None = None, active_days: int | None = None, q: str = ""):
+        dialogues = repo.list_dialogues(filter_name=filter, active_days=active_days, limit=200)
+        dialogues = _filter_dialogues(dialogues, q=q)
+        return render(
+            "dialogues.html",
+            title="Диалоги",
+            dialogues=dialogues,
+            current_filter=filter or "all",
+            active_days=active_days,
+            q=q,
+        )
 
     @app.get("/clients/{client_id}", response_class=HTMLResponse)
     def client_detail(client_id: int, _auth=Depends(require_auth)):
@@ -67,7 +135,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         if client is None:
             raise HTTPException(status_code=404)
         return render(
-            "client.html",
+            "dialogue.html",
             title="Диалог",
             client=client,
             messages=repo.list_messages(client_id=client.id, limit=1000),
@@ -98,7 +166,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404)
         form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
         patch = _card_patch({key: values[-1] for key, values in form.items()})
-        updated = merge_order_patch(order.card, patch)
+        updated = _apply_card_patch(order.card, patch)
         repo.update_order_card(order_id=order.id, card=updated)
         changed = [key for key in patch if getattr(order.card, key) != getattr(updated, key)]
         if changed:
@@ -106,52 +174,236 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return RedirectResponse(f"/clients/{client.id}", status_code=303)
 
     @app.get("/metrics", response_class=HTMLResponse)
-    def metrics(days: int = 7, _auth=Depends(require_auth)):
-        days = days if days in {7, 30, 90} else 7
-        today = _today_in_timezone(load_company_profile(settings.company_profile_name).timezone_name)
-        start = today - timedelta(days=days - 1)
-        report = calculate_metrics(repo, date_from=start, date_to=today)
-        return render("metrics.html", title="Метрики", days=days, metrics=report)
+    def metrics(days: int = 7, date_from: str | None = None, date_to: str | None = None, _auth=Depends(require_auth)):
+        start, end, label = _metric_period(settings, days=days, date_from=date_from, date_to=date_to)
+        report = calculate_metrics(repo, date_from=start, date_to=end)
+        previous = calculate_metrics(repo, date_from=start - (end - start) - timedelta(days=1), date_to=start - timedelta(days=1))
+        return render("metrics.html", title="Метрики", days=days, period_label=label, date_from=start, date_to=end, metrics=report, previous=previous)
+
+    @app.get("/metrics.csv")
+    def metrics_csv(days: int = 7, date_from: str | None = None, date_to: str | None = None, _auth=Depends(require_auth)):
+        start, end, _label = _metric_period(settings, days=days, date_from=date_from, date_to=date_to)
+        report = calculate_metrics(repo, date_from=start, date_to=end)
+        return StreamingResponse(
+            io.StringIO(_metrics_csv(report)),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=amelia-metrics.csv"},
+        )
 
     return app
 
 
-def _card_patch(form: dict[str, str]) -> dict:
-    patch: dict[str, object] = {}
-    for field in ["fulfillment_type", "delivery_date", "delivery_time", "address"]:
-        value = form.get(field, "").strip()
-        if value:
-            patch[field] = value
-    budget = form.get("budget", "").strip()
-    if budget:
-        patch["budget"] = int(budget)
-    colors = [item.strip() for item in form.get("colors", "").split(",") if item.strip()]
-    if colors:
-        patch["colors"] = colors
+def _validate_admin_credentials(settings: Settings) -> None:
+    if not settings.admin_username.strip() or not settings.admin_password.strip() or (settings.admin_username == "admin" and settings.admin_password == "admin"):
+        raise RuntimeError("Set ADMIN_USERNAME and ADMIN_PASSWORD in .env before starting admin UI; default or empty credentials are forbidden")
+
+
+def _filter_dialogues(dialogues, *, q: str):
+    query = q.strip().lower()
+    if not query:
+        return dialogues
+    result = []
+    for dialogue in dialogues:
+        values = [dialogue.client.username or "", str(dialogue.client.telegram_id), str(dialogue.client.id)]
+        if any(query in value.lower() for value in values):
+            result.append(dialogue)
+    return result
+
+
+def _card_patch(form: dict[str, str]) -> dict[str, Any]:
+    patch: dict[str, Any] = {}
+    text_fields = [
+        "fulfillment_type",
+        "delivery_date",
+        "delivery_time",
+        "address",
+        "sender_name",
+        "sender_phone",
+        "recipient_name",
+        "recipient_phone",
+        "postcard_text",
+        "payment_method",
+    ]
+    for field in text_fields:
+        if field in form:
+            value = form[field].strip()
+            patch[field] = value or None
+    if "budget" in form:
+        budget = form["budget"].strip()
+        patch["budget"] = int(budget) if budget else None
+    if "colors" in form:
+        patch["colors"] = [item.strip() for item in form.get("colors", "").split(",") if item.strip()]
     return patch
+
+
+def _apply_card_patch(card: OrderCard, patch: dict[str, Any]) -> OrderCard:
+    allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
+    cleaned = {key: value for key, value in patch.items() if key in allowed}
+    return OrderCard.from_dict({**card.to_dict(), **cleaned})
+
+
+def _card_fields(card: OrderCard) -> list[tuple[str, str, object]]:
+    return [
+        ("occasion", "Повод", card.occasion),
+        ("budget", "Бюджет", card.budget),
+        ("colors", "Пожелания / цвета", ", ".join(card.colors)),
+        ("forbidden_flowers", "Исключить", ", ".join(card.forbidden_flowers)),
+        ("fulfillment_type", "Формат", card.fulfillment_type),
+        ("delivery_date", "Дата", card.delivery_date),
+        ("delivery_time", "Время", card.delivery_time),
+        ("address", "Адрес", card.address),
+        ("sender_name", "Имя клиента/отправителя", card.sender_name),
+        ("sender_phone", "Телефон клиента/отправителя", card.sender_phone),
+        ("recipient_name", "Имя получателя", card.recipient_name),
+        ("recipient_phone", "Телефон получателя", card.recipient_phone),
+        ("payment_method", "Оплата", card.payment_method),
+        ("postcard_text", "Текст открытки", card.postcard_text),
+        ("anonymous", "Анонимно", _bool_label(card.anonymous)),
+        ("photo_report_requested", "Фотоотчёт", _bool_label(card.photo_report_requested)),
+        ("admin_request_sent", "Заявка отправлена", _bool_label(card.admin_request_sent)),
+    ]
 
 
 def _card_summary(card: OrderCard) -> str:
     parts = []
-    for label, value in [
-        ("Бюджет", card.budget),
-        ("Формат", card.fulfillment_type),
-        ("Цвета", ", ".join(card.colors)),
-        ("Дата", card.delivery_date),
-        ("Время", card.delivery_time),
-        ("Адрес", card.address),
-    ]:
-        if value:
+    for _code, label, value in _card_fields(card):
+        if value not in (None, "", [], {}):
             parts.append(f"{label}: {value}")
     return "\n".join(parts) if parts else "Карточка пустая"
 
 
-def _status_label(dialogue) -> str:
+def _status_info(dialogue) -> tuple[str, str]:
+    if dialogue.client.opted_out_at:
+        return "отписался", "muted"
     if dialogue.client.bot_paused_at:
-        return "на паузе"
+        return "на паузе", "danger"
     if dialogue.active_order and dialogue.active_order.card.admin_request_sent:
-        return "заявка отправлена"
-    return "активен"
+        return "заявка отправлена", "success"
+    return "в работе", "neutral"
+
+
+def _format_relative_time(value: str | None) -> str:
+    if not value:
+        return "—"
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    now = datetime.now(parsed.tzinfo) if parsed.tzinfo is not None else datetime.now(UTC).replace(tzinfo=None)
+    delta = now - parsed
+    if timedelta(0) <= delta < timedelta(minutes=1):
+        return "только что"
+    if timedelta(minutes=1) <= delta < timedelta(hours=1):
+        return f"{int(delta.total_seconds() // 60)} минут назад"
+    if timedelta(hours=1) <= delta < timedelta(days=1):
+        return f"{int(delta.total_seconds() // 3600)} часов назад"
+    if delta.days == 1:
+        return "вчера " + parsed.strftime("%H:%M")
+    return parsed.strftime("%d.%m.%Y %H:%M")
+
+
+def _format_date_group(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value[:10]
+    return format_human_date(parsed.date().isoformat())
+
+
+def _metric_period(settings: Settings, *, days: int, date_from: str | None, date_to: str | None) -> tuple[date, date, str]:
+    today = _today_in_timezone(load_company_profile(settings.company_profile_name).timezone_name)
+    if date_from and date_to:
+        start = date.fromisoformat(date_from)
+        end = date.fromisoformat(date_to)
+        return start, end, f"{start.isoformat()} — {end.isoformat()}"
+    days = days if days in {7, 30, 90} else 7
+    start = today - timedelta(days=days - 1)
+    return start, today, f"{days} дней"
+
+
+def _funnel_items(metrics: dict[str, Any]) -> list[tuple[str, int, float]]:
+    funnel = metrics.get("funnel", {})
+    total = metrics.get("conversion", {}).get("dialogs", 0) or max(funnel.values(), default=0)
+    order = ["product_preferences", "budget", "date", "time", "fulfillment_type", "delivery_address", "recipient_name", "recipient_phone", "customer_name", "customer_phone", "payment_method"]
+    labels = {
+        "product_preferences": "Пожелания",
+        "budget": "Бюджет",
+        "date": "Дата",
+        "time": "Время",
+        "fulfillment_type": "Формат",
+        "delivery_address": "Адрес доставки",
+        "recipient_name": "Имя получателя",
+        "recipient_phone": "Телефон получателя",
+        "customer_name": "Имя клиента",
+        "customer_phone": "Телефон клиента",
+        "payment_method": "Оплата",
+    }
+    keys = [key for key in order if key in funnel] + sorted(key for key in funnel if key not in order)
+    return [(labels.get(key, key), int(funnel[key]), _rate_percent(int(funnel[key]), int(total))) for key in keys]
+
+
+def _metric_percent(value: float | None) -> str:
+    return f"{(value or 0) * 100:.1f}%"
+
+
+def _metric_number(value: float | int | None) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, float) and not value.is_integer():
+        return f"{value:.1f}"
+    return str(int(value))
+
+
+def _metric_seconds(value: float | int | None) -> str:
+    if value is None:
+        return "—"
+    if value < 60:
+        return f"{value:.0f} сек"
+    return f"{value / 60:.1f} мин"
+
+
+def _risk_label(value: str) -> str:
+    labels = {
+        "guarantee_request": "Просьба гарантии",
+        "complaint": "Жалоба",
+        "price": "Цена",
+        "unknown": "Другое",
+    }
+    return labels.get(value, value)
+
+
+def _confidence_label(value: str) -> str:
+    return {"0-0.5": "Низкая", "0.5-0.7": "Средняя", "0.7-1.0": "Высокая"}.get(value, value)
+
+
+def _metrics_csv(report: dict[str, Any]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["section", "metric", "value"])
+    for section, value in report.items():
+        _write_metric_rows(writer, section, value)
+    return output.getvalue()
+
+
+def _write_metric_rows(writer: csv.writer, prefix: str, value: Any) -> None:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            _write_metric_rows(writer, f"{prefix},{key}", nested)
+    else:
+        section, _, metric = prefix.partition(",")
+        writer.writerow([section, metric or section, value])
+
+
+def _rate_percent(value: int, total: int) -> float:
+    return round(value / total * 100, 1) if total else 0.0
+
+
+def _bool_label(value: bool | None) -> str:
+    if value is True:
+        return "да"
+    if value is False:
+        return "нет"
+    return ""
 
 
 app = create_app()
