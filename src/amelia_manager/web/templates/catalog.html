@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block body %}
+<section>
+  <h1>Ассортимент</h1>
+  <p>Главный источник наличия и цен для бота. Закончившиеся и заканчивающиеся позиции показаны первыми.</p>
+  <form method="get" action="/catalog" role="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию">
+    <button type="submit">Найти</button>
+  </form>
+</section>
+
+<section class="catalog-grid">
+  {% for item in items %}
+  <article class="catalog-card status-{{ item.status.value }}" data-catalog-card data-item-id="{{ item.id }}">
+    <header>
+      <strong>{{ item.name }}</strong>
+      <span class="badge status-{{ item.status.value }}">{% if item.status.value == 'unavailable' %}закончилось{% elif item.status.value == 'low' %}мало{% else %}есть{% endif %}</span>
+    </header>
+    <div class="catalog-meta">
+      <span data-quantity>{{ item.quantity_text }}</span>
+      <span>{% if item.price %}{{ item.price }} ₽/{{ item.unit or 'шт' }}{% else %}цена не указана{% endif %}</span>
+    </div>
+    <div class="catalog-controls">
+      <button class="touch-target" type="button" data-catalog-action="dec">−</button>
+      <input class="touch-target" data-catalog-quantity inputmode="numeric" pattern="[0-9]*" type="number" min="0" value="{{ item.quantity_number if item.quantity_number is not none else '' }}">
+      <button class="touch-target" type="button" data-catalog-action="inc">+</button>
+      <button class="touch-target secondary" type="button" data-catalog-action="sold_out">Закончилось</button>
+    </div>
+    <small>Обновлено: {{ format_time(item.updated_at) }}</small>
+    <footer><a href="/catalog/items/{{ item.id }}">Редактировать</a></footer>
+  </article>
+  {% else %}
+  <p>Позиции пока не добавлены.</p>
+  {% endfor %}
+</section>
+
+<section>
+  <h2>Добавить позицию</h2>
+  <form method="post" action="/catalog/items" class="catalog-add-form">
+    <input name="name" placeholder="Название" required>
+    <input name="quantity_number" placeholder="Количество" inputmode="numeric" pattern="[0-9]*" type="number" min="0">
+    <input name="price" placeholder="Цена" inputmode="numeric" pattern="[0-9]*" type="number" min="0">
+    <input name="unit" placeholder="Единица" value="шт">
+    <button type="submit">Добавить</button>
+  </form>
+</section>
+{% endblock %}

@@ -26,6 +26,14 @@ uv run python -m amelia_manager.telegram_runtime
 
 The admin UI is a separate FastAPI app. It is protected with Basic Auth, rate-limits failed logins in memory, and refuses to start with empty/default admin credentials.
 
+All logged-in users have the same access level: dialogs, catalog, and metrics. Give the password only to people trusted with customer messages and contacts, and rotate it when staff changes.
+
+### Catalog source of truth
+
+Assortment and prices live in the local SQLite `catalog_items` table and are edited in `/catalog`. Google Sheets is not used for stock availability anymore; order rows are still written to Sheets through `order_sheet.py`.
+
+The `/stock` Telegram command still works as a fast mobile update path and writes into the same catalog, so the bot reads the change immediately. Items are never physically deleted from the admin UI: hiding sets `is_active = 0` and keeps history. Each catalog change records `catalog_updated` with item name, changed field, and editor only — no prices or quantities in the event payload.
+
 Required `.env` values:
 
 ```env

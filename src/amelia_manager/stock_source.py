@@ -33,6 +33,25 @@ class ManualStockSource:
         return StockSnapshot(items=items, fetched_at=fetched_at, source_name="manual")
 
 
+class DbCatalogStockSource:
+    def __init__(self, repo: SQLiteRepository) -> None:
+        self.repo = repo
+
+    def fetch(self) -> StockSnapshot:
+        items = [
+            StockItem(
+                name=item.name,
+                status=item.status,
+                quantity_text=item.quantity_text,
+                quantity_number=item.quantity_number,
+                price=item.price,
+                unit=item.unit,
+            )
+            for item in self.repo.list_catalog_items()
+        ]
+        return StockSnapshot(items=items, fetched_at=datetime.now(timezone.utc), source_name="db_catalog")
+
+
 class SheetsStockSource:
     def __init__(
         self,

@@ -11,7 +11,7 @@ from typing import Annotated, Any
 from urllib.parse import parse_qs
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -19,7 +19,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from amelia_manager.company_profile import load_company_profile
 from amelia_manager.config import Settings
 from amelia_manager.date_formatting import _today_in_timezone, format_human_date
-from amelia_manager.db.repository import SQLiteRepository, path_from_sqlite_url
+from amelia_manager.db.repository import CatalogItemRecord, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.events import EventName
 from amelia_manager.metrics import calculate_metrics
 from amelia_manager.order_card import OrderCard
@@ -129,6 +129,86 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             q=q,
         )
 
+    @app.get("/catalog", response_class=HTMLResponse)
+    def catalog(_auth=Depends(require_auth), q: str = ""):
+        return render("catalog.html", title="Ассортимент", items=repo.list_catalog_items(q=q), q=q)
+
+    @app.post("/catalog/items")
+    async def add_catalog_item(request: Request, _auth=Depends(require_auth)):
+        form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+        data = {key: values[-1] for key, values in form.items()}
+        item = repo.upsert_catalog_item(
+            name=data.get("name", ""),
+            quantity_number=_parse_optional_int(data.get("quantity_number", "")),
+            price=_parse_optional_int(data.get("price", "")),
+            unit=(data.get("unit", "") or "шт").strip(),
+            updated_by=0,
+        )
+        _record_catalog_update(repo, item_name=item.name, field="created", updated_by="admin")
+        return RedirectResponse("/catalog", status_code=303)
+
+    @app.post("/catalog/items/{item_id}/quick")
+    async def quick_catalog_update(item_id: int, request: Request, _auth=Depends(require_auth)):
+        item = repo.get_catalog_item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404)
+        payload = await request.json()
+        action = str(payload.get("action", ""))
+        field = "quantity_number"
+        if action == "sold_out":
+            updated = repo.update_catalog_item(item_id, quantity_number=0, quantity_text="нет", updated_by=0)
+        elif action in {"inc", "dec"}:
+            current = item.quantity_number or 0
+            delta = 1 if action == "inc" else -1
+            value = max(0, current + delta)
+            updated = repo.update_catalog_item(item_id, quantity_number=value, updated_by=0)
+        elif "quantity_number" in payload:
+            updated = repo.update_catalog_item(item_id, quantity_number=_parse_optional_int(str(payload.get("quantity_number", ""))), updated_by=0)
+        else:
+            raise HTTPException(status_code=400, detail="Unknown catalog action")
+        _record_catalog_update(repo, item_name=updated.name, field=field, updated_by="admin")
+        return JSONResponse({"item": _catalog_item_payload(updated)})
+
+    @app.get("/catalog/items/{item_id}", response_class=HTMLResponse)
+    def catalog_item(item_id: int, _auth=Depends(require_auth)):
+        item = repo.get_catalog_item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404)
+        return render("catalog_item.html", title=item.name, item=item)
+
+    @app.post("/catalog/items/{item_id}")
+    async def edit_catalog_item(item_id: int, request: Request, _auth=Depends(require_auth)):
+        item = repo.get_catalog_item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404)
+        form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+        data = {key: values[-1] for key, values in form.items()}
+        changed = []
+        changes = {
+            "name": data.get("name", item.name),
+            "quantity_number": _parse_optional_int(data.get("quantity_number", "")),
+            "price": _parse_optional_int(data.get("price", "")),
+            "unit": (data.get("unit", item.unit or "шт") or "шт").strip(),
+            "is_active": data.get("is_active", "1") == "1",
+            "updated_by": 0,
+        }
+        for field, value in changes.items():
+            if field != "updated_by" and getattr(item, field) != value:
+                changed.append(field)
+        updated = repo.update_catalog_item(item_id, **changes)
+        for field in changed:
+            _record_catalog_update(repo, item_name=updated.name, field=field, updated_by="admin")
+        return RedirectResponse(f"/catalog/items/{updated.id}", status_code=303)
+
+    @app.post("/catalog/items/{item_id}/hide")
+    def hide_catalog_item(item_id: int, _auth=Depends(require_auth)):
+        item = repo.get_catalog_item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404)
+        updated = repo.update_catalog_item(item_id, is_active=False, updated_by=0)
+        _record_catalog_update(repo, item_name=updated.name, field="is_active", updated_by="admin")
+        return RedirectResponse("/catalog", status_code=303)
+
     @app.get("/clients/{client_id}", response_class=HTMLResponse)
     def client_detail(client_id: int, _auth=Depends(require_auth)):
         client = repo.get_client_by_id(client_id)
@@ -196,6 +276,35 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
 def _validate_admin_credentials(settings: Settings) -> None:
     if not settings.admin_username.strip() or not settings.admin_password.strip() or (settings.admin_username == "admin" and settings.admin_password == "admin"):
         raise RuntimeError("Set ADMIN_USERNAME and ADMIN_PASSWORD in .env before starting admin UI; default or empty credentials are forbidden")
+
+
+def _parse_optional_int(value: str | None) -> int | None:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    return int(digits) if digits else None
+
+
+def _catalog_item_payload(item: CatalogItemRecord) -> dict[str, object]:
+    return {
+        "id": item.id,
+        "name": item.name,
+        "status": item.status.value,
+        "quantity_text": item.quantity_text,
+        "quantity_number": item.quantity_number,
+        "price": item.price,
+        "unit": item.unit,
+        "is_active": item.is_active,
+        "updated_at": item.updated_at,
+    }
+
+
+def _record_catalog_update(repo: SQLiteRepository, *, item_name: str, field: str, updated_by: str) -> None:
+    system = repo.upsert_client(telegram_id=0, username="admin")
+    repo.record_event(
+        client_id=system.id,
+        order_id=None,
+        event=EventName.CATALOG_UPDATED,
+        payload={"item_name": item_name, "field": field, "updated_by": updated_by},
+    )
 
 
 def _filter_dialogues(dialogues, *, q: str):

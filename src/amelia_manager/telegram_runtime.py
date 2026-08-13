@@ -35,7 +35,7 @@ from amelia_manager.outbound import (
     schedule_followups_after_reply,
 )
 from amelia_manager.stock import build_stock_context, format_stock_ack, parse_stock_text
-from amelia_manager.stock_source import ManualStockSource, SheetsStockSource, StockSnapshot, StockSource
+from amelia_manager.stock_source import DbCatalogStockSource, ManualStockSource, SheetsStockSource, StockSnapshot, StockSource
 from amelia_manager.observability import EventRecorder, configure_logging
 from amelia_manager.stats_report import format_stats_report, parse_stats_days
 from amelia_manager.telegram_login import get_session_path
@@ -61,12 +61,24 @@ def handle_stock_command(
     stock_date = today or _today_in_timezone(timezone_name)
     items = parse_stock_text(text)
     if items:
+        for item in items:
+            repo.upsert_catalog_item(
+                name=item.name,
+                quantity_number=item.quantity_number,
+                quantity_text=item.quantity_text,
+                price=item.price,
+                unit=item.unit,
+                status=item.status,
+                updated_by=sender_id,
+            )
         repo.replace_daily_stock(stock_date=stock_date, items=items, updated_by=sender_id)
     source_type = (company_profile.stock_source.type if company_profile is not None else "manual")
     return format_stock_ack(items, source_type=source_type)
 
 
 def build_stock_source(repo: SQLiteRepository, company_profile: CompanyProfile) -> StockSource:
+    if company_profile.stock_source.type == "db":
+        return DbCatalogStockSource(repo)
     if company_profile.stock_source.type == "sheets" and company_profile.stock_source.sheets is not None:
         return SheetsStockSource(repo, config=company_profile.stock_source.sheets, timezone_name=company_profile.timezone_name)
     return ManualStockSource(repo)

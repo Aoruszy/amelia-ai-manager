@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ item.name }}</h1>
+<form method="post" action="/catalog/items/{{ item.id }}">
+  <label>Название<input name="name" value="{{ item.name }}" required></label>
+  <label>Количество<input name="quantity_number" type="number" min="0" inputmode="numeric" value="{{ item.quantity_number if item.quantity_number is not none else '' }}"></label>
+  <label>Цена<input name="price" type="number" min="0" inputmode="numeric" value="{{ item.price if item.price is not none else '' }}"></label>
+  <label>Единица<input name="unit" value="{{ item.unit or 'шт' }}"></label>
+  <label>Показывать в каталоге
+    <select name="is_active">
+      <option value="1" {% if item.is_active %}selected{% endif %}>Да</option>
+      <option value="0" {% if not item.is_active %}selected{% endif %}>Нет</option>
+    </select>
+  </label>
+  <button type="submit">Сохранить</button>
+</form>
+<form method="post" action="/catalog/items/{{ item.id }}/hide">
+  <button type="submit" class="secondary">Скрыть из каталога</button>
+</form>
+<p><a href="/catalog">← Назад к ассортименту</a></p>
+{% endblock %}

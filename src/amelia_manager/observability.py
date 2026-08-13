@@ -26,6 +26,9 @@ SAFE_PAYLOAD_KEYS = {
     "kind",
     "step_code",
     "fields",
+    "item_name",
+    "field",
+    "updated_by",
 }
 
 

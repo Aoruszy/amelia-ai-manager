@@ -14,6 +14,7 @@ class EventName(StrEnum):
     SAFETY_TRIGGERED = "safety_triggered"
     LLM_FAILED = "llm_failed"
     PARSE_FAILED = "parse_failed"
+    CATALOG_UPDATED = "catalog_updated"
     STOCK_SOURCE_DEGRADED = "stock_source_degraded"
     OFF_HOURS_REPLY = "off_hours_reply"
     FOLLOWUP_SCHEDULED = "followup_scheduled"

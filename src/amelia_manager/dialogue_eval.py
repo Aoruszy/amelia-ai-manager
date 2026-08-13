@@ -311,6 +311,7 @@ def _check_no_invented_numbers(output: str, *, scenario: DialogueScenario, compa
             company_profile.delivery_hours or "",
             company_profile.public_phone or "",
             company_profile.pickup_address or "",
+            _spoken_number_equivalents("\n".join(scenario.recent_messages)),
         )
     )
     invented = sorted(number for number in numbers if number not in allowed_text)
@@ -350,6 +351,33 @@ def _check_next_step(scenario: DialogueScenario, *, company_profile: CompanyProf
         actual == scenario.expected_next_step,
         {"expected": scenario.expected_next_step, "actual": actual},
     )
+
+
+_SPOKEN_BUDGETS = {
+    "одну": 1000,
+    "один": 1000,
+    "две": 2000,
+    "два": 2000,
+    "три": 3000,
+    "четыре": 4000,
+    "пять": 5000,
+    "пяти": 5000,
+    "шесть": 6000,
+    "шести": 6000,
+    "семь": 7000,
+    "семи": 7000,
+    "восемь": 8000,
+    "девять": 9000,
+    "десять": 10000,
+}
+
+
+def _spoken_number_equivalents(text: str) -> str:
+    normalized = text.lower().replace("ё", "е")
+    if not any(marker in normalized for marker in ("тысяч", "тыс", "к")):
+        return ""
+    values = [str(value) for word, value in _SPOKEN_BUDGETS.items() if re.search(rf"\b{re.escape(word)}\b", normalized)]
+    return " ".join(values)
 
 
 def _scenario_order_state(scenario: DialogueScenario) -> OrderState:

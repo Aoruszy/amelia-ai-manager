@@ -15,6 +15,22 @@ from amelia_manager.order_card import OrderCard
 
 
 @dataclass(frozen=True)
+class CatalogItemRecord:
+    id: int
+    name: str
+    status: StockStatus
+    quantity_text: str
+    quantity_number: int | None
+    price: int | None
+    unit: str | None
+    is_active: bool
+    sort_order: int
+    updated_by: int | None
+    updated_at: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class ClientRecord:
     id: int
     telegram_id: int
@@ -135,6 +151,22 @@ class SQLiteRepository:
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
 
+                CREATE TABLE IF NOT EXISTS catalog_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    name_key TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL,
+                    quantity_number INTEGER,
+                    quantity_text TEXT NOT NULL,
+                    price INTEGER,
+                    unit TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    updated_by INTEGER,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE TABLE IF NOT EXISTS orders (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     client_id INTEGER NOT NULL,
@@ -176,6 +208,7 @@ class SQLiteRepository:
                 CREATE INDEX IF NOT EXISTS idx_events_client_id ON events(client_id);
                 CREATE INDEX IF NOT EXISTS idx_outbound_scheduled_sent ON outbound(scheduled_at, sent_at);
                 CREATE INDEX IF NOT EXISTS idx_outbound_client_kind ON outbound(client_id, kind);
+                CREATE INDEX IF NOT EXISTS idx_catalog_items_active_sort ON catalog_items(is_active, status, sort_order, name COLLATE NOCASE);
                 """
             )
             _ensure_column(conn, "clients", "opted_out_at", "TEXT")
@@ -183,6 +216,7 @@ class SQLiteRepository:
             _ensure_column(conn, "clients", "paused_by", "TEXT")
             _ensure_column(conn, "daily_stock", "price", "INTEGER")
             _ensure_column(conn, "daily_stock", "unit", "TEXT")
+            self._migrate_latest_daily_stock_to_catalog(conn)
 
     def upsert_client(self, *, telegram_id: int, username: str | None) -> ClientRecord:
         with self._connect() as conn:
@@ -378,6 +412,127 @@ class SQLiteRepository:
             return None, []
         stock_date = date.fromisoformat(row["stock_date"])
         return stock_date, self.list_daily_stock(stock_date=stock_date)
+
+    def upsert_catalog_item(
+        self,
+        *,
+        name: str,
+        quantity_number: int | None = None,
+        quantity_text: str | None = None,
+        price: int | None = None,
+        unit: str | None = None,
+        status: StockStatus | str | None = None,
+        is_active: bool = True,
+        sort_order: int = 0,
+        updated_by: int | None = None,
+    ) -> CatalogItemRecord:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("catalog item name is required")
+        quantity_text = (quantity_text or ("нет" if quantity_number == 0 else str(quantity_number) if quantity_number is not None else "есть")).strip()
+        computed_status = StockStatus(status) if status is not None else _catalog_status_from_quantity(quantity_text, quantity_number)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO catalog_items (name, name_key, status, quantity_number, quantity_text, price, unit, is_active, sort_order, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name_key) DO UPDATE SET
+                    name = excluded.name,
+                    status = excluded.status,
+                    quantity_number = excluded.quantity_number,
+                    quantity_text = excluded.quantity_text,
+                    price = excluded.price,
+                    unit = excluded.unit,
+                    is_active = excluded.is_active,
+                    sort_order = excluded.sort_order,
+                    updated_by = excluded.updated_by,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (clean_name, _catalog_name_key(clean_name), computed_status.value, quantity_number, quantity_text, price, unit or "шт", int(is_active), sort_order, updated_by),
+            )
+        item = self.get_catalog_item_by_name(clean_name)
+        if item is None:
+            raise RuntimeError("catalog item upsert failed")
+        self._append_catalog_daily_stock(item, updated_by=updated_by or 0)
+        return item
+
+    def update_catalog_item(self, item_id: int, **changes) -> CatalogItemRecord:
+        existing = self.get_catalog_item(item_id)
+        if existing is None:
+            raise KeyError(f"catalog item {item_id} not found")
+        updated_by = changes.pop("updated_by", existing.updated_by)
+        name = str(changes.get("name", existing.name)).strip()
+        if not name:
+            raise ValueError("catalog item name is required")
+        quantity_number = changes.get("quantity_number", existing.quantity_number)
+        quantity_text = changes.get("quantity_text")
+        if quantity_text is None:
+            quantity_text = "нет" if quantity_number == 0 else str(quantity_number) if quantity_number is not None else existing.quantity_text
+        price = changes.get("price", existing.price)
+        unit = changes.get("unit", existing.unit) or "шт"
+        status = StockStatus(changes["status"]) if "status" in changes and changes["status"] is not None else _catalog_status_from_quantity(str(quantity_text), quantity_number)
+        is_active = bool(changes.get("is_active", existing.is_active))
+        sort_order = int(changes.get("sort_order", existing.sort_order))
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE catalog_items
+                SET name = ?, name_key = ?, status = ?, quantity_number = ?, quantity_text = ?, price = ?, unit = ?, is_active = ?, sort_order = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (name, _catalog_name_key(name), status.value, quantity_number, str(quantity_text), price, unit, int(is_active), sort_order, updated_by, item_id),
+            )
+        updated = self.get_catalog_item(item_id)
+        if updated is None:
+            raise RuntimeError("catalog item update failed")
+        self._append_catalog_daily_stock(updated, updated_by=updated_by or 0)
+        return updated
+
+    def get_catalog_item(self, item_id: int) -> CatalogItemRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, sort_order, updated_by, updated_at, created_at FROM catalog_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+        return self._catalog_item_from_row(row) if row else None
+
+    def get_catalog_item_by_name(self, name: str) -> CatalogItemRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, sort_order, updated_by, updated_at, created_at FROM catalog_items WHERE name_key = ?",
+                (_catalog_name_key(name),),
+            ).fetchone()
+        return self._catalog_item_from_row(row) if row else None
+
+    def list_catalog_items(self, *, include_inactive: bool = False, q: str = "") -> list[CatalogItemRecord]:
+        clauses = [] if include_inactive else ["is_active = 1"]
+        params: list[object] = []
+        if q.strip():
+            clauses.append("name LIKE ? COLLATE NOCASE")
+            params.append(f"%{q.strip()}%")
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, sort_order, updated_by, updated_at, created_at
+                FROM catalog_items
+                {where}
+                ORDER BY CASE status WHEN 'unavailable' THEN 0 WHEN 'low' THEN 1 ELSE 2 END, sort_order ASC, name COLLATE NOCASE ASC
+                """,
+                params,
+            ).fetchall()
+        return [self._catalog_item_from_row(row) for row in rows]
+
+    def _append_catalog_daily_stock(self, item: CatalogItemRecord, *, updated_by: int) -> None:
+        today = datetime.now(timezone.utc).date().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO daily_stock (stock_date, item_name, status, quantity_text, quantity_number, price, unit, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (today, item.name, item.status.value, item.quantity_text, item.quantity_number, item.price, item.unit, updated_by),
+            )
 
     def list_active_orders_with_clients(self) -> list[tuple[OrderRecord, ClientRecord]]:
         with self._connect() as conn:
@@ -713,6 +868,42 @@ class SQLiteRepository:
             conn.execute("DELETE FROM clients WHERE id = ?", (client.id,))
         return True
 
+    def _migrate_latest_daily_stock_to_catalog(self, conn: sqlite3.Connection) -> None:
+        existing = conn.execute("SELECT 1 FROM catalog_items LIMIT 1").fetchone()
+        if existing is not None:
+            return
+        row = conn.execute("SELECT MAX(stock_date) AS stock_date FROM daily_stock").fetchone()
+        if row is None or row["stock_date"] is None:
+            return
+        rows = conn.execute(
+            """
+            SELECT item_name, status, quantity_text, quantity_number, price, unit, updated_by
+            FROM daily_stock
+            WHERE stock_date = ?
+            ORDER BY id ASC
+            """,
+            (row["stock_date"],),
+        ).fetchall()
+        for sort_order, stock_row in enumerate(rows):
+            name = stock_row["item_name"]
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO catalog_items (name, name_key, status, quantity_number, quantity_text, price, unit, is_active, sort_order, updated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                """,
+                (
+                    name,
+                    _catalog_name_key(name),
+                    stock_row["status"],
+                    stock_row["quantity_number"],
+                    stock_row["quantity_text"],
+                    stock_row["price"],
+                    stock_row["unit"],
+                    sort_order,
+                    stock_row["updated_by"],
+                ),
+            )
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -736,6 +927,23 @@ class SQLiteRepository:
             opted_out_at=row["opted_out_at"] if "opted_out_at" in row.keys() else None,
             bot_paused_at=row["bot_paused_at"] if "bot_paused_at" in row.keys() else None,
             paused_by=row["paused_by"] if "paused_by" in row.keys() else None,
+        )
+
+    @staticmethod
+    def _catalog_item_from_row(row: sqlite3.Row) -> CatalogItemRecord:
+        return CatalogItemRecord(
+            id=int(row["id"]),
+            name=row["name"],
+            status=StockStatus(row["status"]),
+            quantity_text=row["quantity_text"],
+            quantity_number=row["quantity_number"],
+            price=row["price"],
+            unit=row["unit"],
+            is_active=bool(row["is_active"]),
+            sort_order=int(row["sort_order"]),
+            updated_by=row["updated_by"],
+            updated_at=row["updated_at"],
+            created_at=row["created_at"],
         )
 
     @staticmethod
@@ -821,6 +1029,19 @@ def _anonymize_order_card(card: OrderCard) -> OrderCard:
         client_summary_sent=card.client_summary_sent,
         sheet_row_written=card.sheet_row_written,
     )
+
+
+def _catalog_name_key(name: str) -> str:
+    return " ".join(name.strip().lower().replace("ё", "е").split())
+
+
+def _catalog_status_from_quantity(quantity_text: str, quantity_number: int | None) -> StockStatus:
+    text = quantity_text.lower().replace("ё", "е")
+    if quantity_number == 0 or any(word in text for word in ("нет", "законч", "отсутств")):
+        return StockStatus.UNAVAILABLE
+    if any(word in text for word in ("мало", "чуть", "немного")):
+        return StockStatus.LOW
+    return StockStatus.AVAILABLE
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
