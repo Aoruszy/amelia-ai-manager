@@ -17,6 +17,7 @@ FLORIST_NEXT_STEP_CODES = (
     "ask_delivery_time",
     "ask_pickup_time_within_shop_hours",
     "ask_delivery_address",
+    "ask_upsell",
     "ask_sender_contacts",
     "ask_recipient_contacts",
     "confirm_pickup_order",
@@ -59,7 +60,7 @@ def get_next_step(
     if not state.colors:
         return NextStep(
             "ask_bouquet_preferences",
-            "Уточни пожелания к букету: оттенки, стиль или любимые цветы. Не спрашивай доставку или самовывоз на этом шаге.",
+            "Уточни пожелания к букету одним вопросом: оттенки, стиль или любимые цветы. Не задавай второй вопрос и не спрашивай доставку или самовывоз на этом шаге.",
         )
     if not state.fulfillment_type:
         return NextStep("ask_fulfillment_type", "Уточни, клиенту нужна доставка или самовывоз.")
@@ -83,6 +84,13 @@ def get_next_step(
         )
     if state.fulfillment_type == "delivery" and not state.address:
         return NextStep("ask_delivery_address", "Попроси адрес доставки и не передавай диалог человеку.")
+    if _should_offer_upsell(state, company_profile):
+        profile = company_profile or load_company_profile("amelia_flowers")
+        offers = _format_upsell_offers(profile)
+        return NextStep(
+            "ask_upsell",
+            f"Один раз до сбора контактов мягко предложи допродажу: {offers}. Задай один вопрос, нужно ли что-то добавить. Если клиент откажется или повод чувствительный — больше не предлагай.",
+        )
     if not state.sender_name or not state.sender_phone:
         return NextStep("ask_sender_contacts", "Попроси имя и телефон отправителя для связи по заказу.")
     if state.fulfillment_type == "delivery" and (not state.recipient_name or not state.recipient_phone):
@@ -101,6 +109,29 @@ def get_next_step(
         "ask_anonymous_or_payment",
         "Данные по заказу собраны. Уточни, доставка будет анонимной или можно сказать от кого букет, и какой способ оплаты удобен.",
     )
+
+
+def _should_offer_upsell(state: OrderState, company_profile: CompanyProfile | None) -> bool:
+    profile = company_profile or load_company_profile("amelia_flowers")
+    if not profile.upsell_offers:
+        return False
+    if state.custom_fields.get("occasion_sensitive") is True:
+        return False
+    if state.custom_fields.get("upsell_offered") is True or state.custom_fields.get("upsell_declined") is True:
+        return False
+    if state.sender_name or state.sender_phone:
+        return False
+    return bool(state.budget and state.colors and state.fulfillment_type and state.delivery_date and state.delivery_time)
+
+
+def _format_upsell_offers(profile: CompanyProfile) -> str:
+    parts: list[str] = []
+    for offer in profile.upsell_offers:
+        if offer.price is None:
+            parts.append(offer.name)
+        else:
+            parts.append(f"{offer.name} {offer.price} ₽")
+    return ", ".join(parts)
 
 
 def _profile_next_step(state: OrderState, profile: CompanyProfile, *, case_type: str | None) -> NextStep | None:

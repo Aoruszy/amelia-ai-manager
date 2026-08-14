@@ -311,6 +311,7 @@ def _check_no_invented_numbers(output: str, *, scenario: DialogueScenario, compa
             company_profile.delivery_hours or "",
             company_profile.public_phone or "",
             company_profile.pickup_address or "",
+            " ".join(str(offer.price) for offer in company_profile.upsell_offers if offer.price is not None),
             _spoken_number_equivalents("\n".join(scenario.recent_messages)),
         )
     )
@@ -418,6 +419,14 @@ def build_default_scenarios() -> list[DialogueScenario]:
         payment_method="transfer",
     )
     summarized = OrderCard.from_dict({**ready_pickup.to_dict(), "client_summary_sent": True})
+    delivery_without_contacts = OrderCard(
+        budget=5000,
+        colors=["нежный"],
+        fulfillment_type="delivery",
+        delivery_date="tomorrow",
+        delivery_time="15:00",
+        address="ул. Гайдара 173",
+    )
 
     return [
         DialogueScenario("greeting-basic", "greeting", ["Клиент: Здравствуйте"], must_not_contain=("доставка", "бюджет")),
@@ -434,7 +443,7 @@ def build_default_scenarios() -> list[DialogueScenario]:
         DialogueScenario("thanks-after-summary", "pickup", ["Клиент: Спасибо"], order_card=summarized, expect_admin_ready=True),
         DialogueScenario("ask-delivery-time", "delivery", ["Клиент: 5000 нежный доставка завтра"], must_not_contain=("самовывоз",), expected_next_step="ask_delivery_time"),
         DialogueScenario("ask-delivery-address", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00"], expected_next_step="ask_delivery_address"),
-        DialogueScenario("ask-sender-before-recipient", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00", "Клиент: Доставка на ул. Гайдара 173"], expected_next_step="ask_sender_contacts"),
+        DialogueScenario("ask-sender-before-recipient", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00", "Клиент: Доставка на ул. Гайдара 173"], order_card=delivery_without_contacts, expected_next_step="ask_upsell"),
         DialogueScenario("ask-recipient-after-sender", "delivery", ["Клиент: 5000 нежный доставка завтра 15:00", "Клиент: Доставка на ул. Гайдара 173, Даниил 89990000002"], expected_next_step="ask_recipient_contacts"),
         DialogueScenario("delivery-ready-summary", "delivery", ["Клиент: всё указал"], order_card=ready_delivery, must_contain=("итог заказа", "доставка", "7000"), expect_admin_ready=True),
         DialogueScenario("complaint-refund-handoff", "risk_handoff", ["Клиент: Мне привезли не то, хочу возврат"], expected_kind="human_takeover", expected_risk=RiskLevel.HIGH, must_contain=("передам", "менеджеру")),

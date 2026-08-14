@@ -102,6 +102,7 @@ class ConversationEngine:
         cautious_reply = _cautious_reply_for_medium_risk(
             risk.category,
             stock_context=stock_context,
+            latest_text=last_client_text,
             company_profile=self.company_profile,
         )
         if cautious_reply:
@@ -132,6 +133,22 @@ class ConversationEngine:
 
         order_state = order_card or extract_order_state(recent_messages)
         next_step = get_next_step(order_state, company_profile=self.company_profile)
+        if next_step.code == "ask_upsell" and isinstance(order_card, OrderCard):
+            reply = deterministic_order_reply(
+                next_step,
+                order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context,
+                company_profile=self.company_profile,
+            )
+            if reply:
+                return ConversationAction(
+                    kind="send",
+                    messages=[reply],
+                    risk_level=risk_level,
+                    next_step=next_step.code,
+                    order_patch=_action_patch_for_next_step(next_step.code),
+                )
 
         sensitive_occasion = _has_sensitive_occasion_context(
             recent_messages,
@@ -170,6 +187,8 @@ class ConversationEngine:
                     messages=[fallback],
                     risk_level=risk_level,
                     safety_reasons=["llm_error_fallback"],
+                    next_step=next_step.code,
+                    order_patch=_action_patch_for_next_step(next_step.code),
                 )
             return ConversationAction(
                 kind="human_review",
@@ -216,6 +235,11 @@ class ConversationEngine:
                 "confidence": decision.confidence,
                 "order_scope": decision.order_scope,
             }
+            if decision.next_step == "ask_upsell":
+                action_metadata["order_patch"] = _merge_action_patch(
+                    action_metadata["order_patch"],
+                    _action_patch_for_next_step(decision.next_step),
+                )
             reply = _ensure_pickup_address_for_pickup_time(
                 reply,
                 decision.next_step,
@@ -401,6 +425,23 @@ class ConversationEngine:
         )
 
 
+def _action_patch_for_next_step(next_step: str | None) -> dict[str, object]:
+    if next_step == "ask_upsell":
+        return {"custom_fields": {"upsell_offered": True}}
+    return {}
+
+
+def _merge_action_patch(left: object, right: dict[str, object]) -> dict[str, object]:
+    base = dict(left) if isinstance(left, dict) else {}
+    result = {**base, **right}
+    if isinstance(base.get("custom_fields"), dict) or isinstance(right.get("custom_fields"), dict):
+        result["custom_fields"] = {
+            **(base.get("custom_fields") if isinstance(base.get("custom_fields"), dict) else {}),
+            **(right.get("custom_fields") if isinstance(right.get("custom_fields"), dict) else {}),
+        }
+    return result
+
+
 def _looks_like_model_decision_payload(text: str) -> bool:
     normalized = text.strip().lower()
     if normalized.startswith("{") or normalized.startswith("["):
@@ -435,11 +476,15 @@ def _cautious_reply_for_medium_risk(
     category: RiskCategory,
     *,
     stock_context: str | None,
+    latest_text: str = "",
     company_profile: CompanyProfile | None = None,
 ) -> str | None:
     profile = company_profile or load_company_profile("amelia_flowers")
+    normalized = latest_text.lower().replace("ё", "е")
     if category == RiskCategory.DISCOUNT:
-        return "По скидке уточню у менеджера, чтобы не пообещать лишнего. Могу пока подобрать вариант под ваш бюджет."
+        if "скид" in normalized:
+            return "По скидке уточню у менеджера, чтобы не пообещать лишнего. Могу пока подобрать вариант под ваш бюджет."
+        return "Могу подобрать вариант дешевле в том же стиле или упростить состав под ваш бюджет. Какой предел по сумме комфортен?"
     if category == RiskCategory.OUT_OF_AREA_DELIVERY:
         return "По такой доставке лучше уточню у менеджера: зависит от адреса и времени. Напишите, пожалуйста, куда и на когда нужно."
     if category == RiskCategory.STOCK_UNCERTAINTY:

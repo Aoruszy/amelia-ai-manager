@@ -50,6 +50,12 @@ _DEFAULT_CATEGORIES = (
 
 
 @dataclass(frozen=True)
+class UpsellOffer:
+    name: str
+    price: int | None = None
+
+
+@dataclass(frozen=True)
 class CompanyProfile:
     company_name: str
     manager_name: str
@@ -88,6 +94,9 @@ class CompanyProfile:
         "отдельно нужен",
         "а можно также",
     )
+    objection_examples: tuple[str, ...] = ("дорого", "дороговато", "долго ждать", "можно дешевле такой же", "подумаю")
+    objection_response_rule: str = "При возражении предложи вариант дешевле в том же стиле или спокойно объясни, из чего складывается цена. Никогда не давай скидку; скидка — только через менеджера."
+    upsell_offers: tuple[UpsellOffer, ...] = ()
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]
@@ -139,6 +148,11 @@ _DEFAULT_PROFILES = {
             ),
         ),
         alternative_offer_text="могу предложить близкий вариант по стилю",
+        upsell_offers=(
+            UpsellOffer("открытка", 250),
+            UpsellOffer("ваза", 1200),
+            UpsellOffer("шары", 350),
+        ),
         followup_fallbacks={
             "budget": "Если удобно, напишите примерный бюджет — подскажу варианты. Можно не отвечать, если уже неактуально.",
             "format": "Можем оформить самовывоз или доставку — как вам удобнее? Можно не отвечать, если уже неактуально.",

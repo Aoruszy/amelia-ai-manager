@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.knowledge_base import get_store_facts
-from amelia_manager.order_policy import next_step_codes_for_profile
+from amelia_manager.order_policy import next_step_codes_for_profile, _format_upsell_offers
 from amelia_manager.risk import RiskLevel
 
 
@@ -44,6 +44,7 @@ def build_manager_prompt(
     minimum_fields = _required_fields_block(profile)
     knowledge_block = _knowledge_block(profile)
     domain_rules = _domain_rules_block(profile)
+    sales_rules = _sales_rules_block(profile)
     example = _example_block(profile)
     response_format = _response_format_block(profile)
 
@@ -77,6 +78,7 @@ def build_manager_prompt(
 Исключения:
 Если stock_context явно говорит, что позиции нет, кратко ответь и предложи близкий вариант. Новый дополнительный заказ клиента — обычный заказ.
 {domain_rules}
+{sales_rules}
 
 Порядок приоритетов при конфликте правил:
 1. Безопасность: не обещать наличие, цены, сроки и оплату, которых не подтверждал менеджер.
@@ -164,6 +166,18 @@ def _domain_rules_block(profile: CompanyProfile) -> str:
 - редкие цветы/предзаказ цветов на будущую дату — эскалация человеку;
 - Для доставки цветов обязательно нужны имя и телефон отправителя, имя и телефон получателя, адрес, дата/время, бюджет, пожелания и оплата.
 """.rstrip()
+
+
+def _sales_rules_block(profile: CompanyProfile) -> str:
+    lines: list[str] = []
+    examples = ", ".join(profile.objection_examples)
+    if profile.objection_response_rule:
+        lines.append(f"- Возражения клиента ({examples}): {profile.objection_response_rule}")
+    if profile.upsell_offers:
+        lines.append(
+            f"- Допродажа: один раз после согласования букета и до сбора контактов предложи: {_format_upsell_offers(profile)}. Если клиент отказался или повод чувствительный — не предлагай."
+        )
+    return "\n".join(lines)
 
 
 def _example_block(profile: CompanyProfile) -> str:
