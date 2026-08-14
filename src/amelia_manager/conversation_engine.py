@@ -13,7 +13,7 @@ from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
 from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch
-from amelia_manager.order_policy import get_next_step
+from amelia_manager.order_policy import NextStep, get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
@@ -129,6 +129,17 @@ class ConversationEngine:
                 kind="send",
                 messages=[format_client_order_summary(order_card, company_profile=self.company_profile)],
                 risk_level=risk_level,
+            )
+
+        if order_card and order_card.custom_fields.get("upsell_offered") is True and _is_upsell_decline(last_client_text):
+            next_step = NextStep("ask_sender_contacts", "Попроси имя и телефон отправителя для связи по заказу.")
+            reply = deterministic_order_reply(next_step, order_card, recent_messages=recent_messages, stock_context=stock_context, company_profile=self.company_profile)
+            return ConversationAction(
+                kind="send",
+                messages=[reply or "Подскажите ваше имя и номер телефона для связи по заказу."],
+                risk_level=risk_level,
+                next_step=next_step.code,
+                order_patch={"custom_fields": {"upsell_declined": True}},
             )
 
         order_state = order_card or extract_order_state(recent_messages)
@@ -423,6 +434,11 @@ class ConversationEngine:
             confidence=retry_decision.confidence,
             safety_retry_succeeded=True,
         )
+
+
+def _is_upsell_decline(text: str) -> bool:
+    normalized = text.lower().replace("ё", "е")
+    return bool(re.search(r"\b(?:нет|не\s+нужно|не\s+надо|без\s+этого|ничего\s+не\s+добавляйте|только\s+букет)\b", normalized))
 
 
 def _action_patch_for_next_step(next_step: str | None) -> dict[str, object]:

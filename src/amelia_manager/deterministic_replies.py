@@ -5,7 +5,7 @@ import re
 from amelia_manager.client_order_summary import format_client_order_summary
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.order_card import OrderCard
-from amelia_manager.order_policy import NextStep, _format_upsell_offers
+from amelia_manager.order_policy import NextStep, format_upsell_offers
 
 
 def deterministic_order_reply(
@@ -34,7 +34,7 @@ def deterministic_order_reply(
         "ask_pickup_time_within_shop_hours": "Самовывоз возможен в часы работы магазина 09:00–20:00. Выберите, пожалуйста, другое время в этом интервале.",
         "ask_delivery_time": "К какому времени или в какой интервал доставить букет?",
         "ask_delivery_address": "Подскажите адрес доставки, пожалуйста.",
-        "ask_upsell": f"Можно добавить к заказу: {_format_upsell_offers(profile)}. Нужно что-то из этого?",
+        "ask_upsell": f"Можно добавить к заказу: {format_upsell_offers(profile)}. Нужно что-то из этого?",
         "ask_sender_contacts": "Подскажите ваше имя и номер телефона для связи по заказу.",
         "ask_recipient_contacts": "Подскажите имя и номер телефона получателя.",
         "ask_payment_or_confirm_pickup": "Данные по самовывозу записала. Как удобнее оплатить: переводом/картой или на месте?",

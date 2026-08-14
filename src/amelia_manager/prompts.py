@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.knowledge_base import get_store_facts
-from amelia_manager.order_policy import next_step_codes_for_profile, _format_upsell_offers
+from amelia_manager.order_policy import format_upsell_offers, next_step_codes_for_profile
 from amelia_manager.risk import RiskLevel
 
 
@@ -175,7 +175,7 @@ def _sales_rules_block(profile: CompanyProfile) -> str:
         lines.append(f"- Возражения клиента ({examples}): {profile.objection_response_rule}")
     if profile.upsell_offers:
         lines.append(
-            f"- Допродажа: один раз после согласования букета и до сбора контактов предложи: {_format_upsell_offers(profile)}. Если клиент отказался или повод чувствительный — не предлагай."
+            f"- Допродажа: один раз после согласования букета и до сбора контактов предложи: {format_upsell_offers(profile)}. Если клиент отказался или повод чувствительный — не предлагай."
         )
     return "\n".join(lines)
 

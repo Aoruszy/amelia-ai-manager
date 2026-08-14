@@ -79,6 +79,10 @@
     <p>Средний бюджет: <strong>{{ metric_number(metrics.ops.average_budget) }} ₽</strong></p>
   </article>
   <article>
+    <h3>Статусы заказов</h3>
+    {% for key, value in metrics.orders.current_by_status.items() %}<p>{{ order_status_label(key) }}: <strong>{{ value }}</strong></p>{% else %}<p>Заказов пока нет.</p>{% endfor %}
+  </article>
+  <article>
     <h3>Исходящие</h3>
     <p>Догревов отправлено: <strong>{{ metrics.outbound.followups_sent }}</strong></p>
     <p>Ответов на догревы: <strong>{{ metrics.outbound.followup_replies }}</strong></p>

@@ -479,6 +479,7 @@ def build_admin_order_request_if_needed(
                 }
             ),
         )
+        repo.update_order_status(order_id=order.id, status="submitted", changed_by="bot")
     return text
 
 
@@ -499,6 +500,7 @@ async def send_admin_order_request_if_ready(
     client_label: str,
     company_profile: CompanyProfile | None = None,
     order_sheet_appender: SheetsOrderAppender | None = None,
+    mark_status: bool = True,
 ) -> bool:
     admin_order_text = build_admin_order_request_if_needed(
         repo,
@@ -520,6 +522,8 @@ async def send_admin_order_request_if_ready(
             }
         ),
     )
+    if mark_status:
+        repo.update_order_status(order_id=order.id, status="submitted", changed_by="bot")
     if company_profile is not None:
         refreshed = repo.get_active_order(client_id=order.client_id) or order
         append_order_to_sheet_if_needed(
@@ -555,6 +559,7 @@ async def send_pending_admin_requests(
             admin_chat_id=admin_chat_id,
             client_label=client_label,
             company_profile=company_profile,
+            mark_status=False,
         ):
             sent += 1
     return sent

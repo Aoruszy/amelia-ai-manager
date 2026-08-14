@@ -3,7 +3,7 @@ import pytest
 from amelia_manager.company_profile import load_company_profile
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.order_card import OrderCard
-from amelia_manager.order_policy import get_next_step
+from amelia_manager.order_policy import format_upsell_offers, get_next_step
 from amelia_manager.order_state import OrderState
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
@@ -106,6 +106,31 @@ async def test_upsell_step_uses_deterministic_profile_offer_without_llm():
     assert action.next_step == "ask_upsell"
     assert action.order_patch == {"custom_fields": {"upsell_offered": True}}
     assert "открыт" in action.messages[0].lower()
+
+
+def test_upsell_offer_formatter_is_public_profile_helper():
+    assert "открытка 250 ₽" in format_upsell_offers(load_company_profile())
+
+
+def test_expensive_delivery_question_is_not_discount_objection():
+    risk = assess_risk("Дорогая доставка?", company_profile=load_company_profile())
+
+    assert risk.category != RiskCategory.DISCOUNT
+
+
+@pytest.mark.asyncio
+async def test_upsell_decline_is_recorded_and_moves_to_contacts():
+    action = await ConversationEngine(ShouldNotCallLLM()).handle_messages(
+        client_summary="новый клиент",
+        recent_messages=["Менеджер: Можно добавить открытку, вазу или шарики?", "Клиент: Нет, не нужно"],
+        stage="collecting",
+        order_card=_ready_without_contacts(upsell_offered=True),
+    )
+
+    assert action.kind == "send"
+    assert action.next_step == "ask_sender_contacts"
+    assert action.order_patch == {"custom_fields": {"upsell_declined": True}}
+    assert "имя" in action.messages[0].lower()
 
 
 @pytest.mark.asyncio

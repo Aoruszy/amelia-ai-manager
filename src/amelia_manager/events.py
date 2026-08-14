@@ -27,6 +27,7 @@ class EventName(StrEnum):
     REMINDER_SENT = "reminder_sent"
     OPT_OUT = "opt_out"
     STATUS_ANSWERED = "status_answered"
+    ORDER_STATUS_CHANGED = "order_status_changed"
     BOT_PAUSED = "bot_paused"
     BOT_RESUMED = "bot_resumed"
     CARD_EDITED_MANUALLY = "card_edited_manually"

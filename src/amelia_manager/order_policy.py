@@ -86,7 +86,7 @@ def get_next_step(
         return NextStep("ask_delivery_address", "Попроси адрес доставки и не передавай диалог человеку.")
     if _should_offer_upsell(state, company_profile):
         profile = company_profile or load_company_profile("amelia_flowers")
-        offers = _format_upsell_offers(profile)
+        offers = format_upsell_offers(profile)
         return NextStep(
             "ask_upsell",
             f"Один раз до сбора контактов мягко предложи допродажу: {offers}. Задай один вопрос, нужно ли что-то добавить. Если клиент откажется или повод чувствительный — больше не предлагай.",
@@ -124,7 +124,7 @@ def _should_offer_upsell(state: OrderState, company_profile: CompanyProfile | No
     return bool(state.budget and state.colors and state.fulfillment_type and state.delivery_date and state.delivery_time)
 
 
-def _format_upsell_offers(profile: CompanyProfile) -> str:
+def format_upsell_offers(profile: CompanyProfile) -> str:
     parts: list[str] = []
     for offer in profile.upsell_offers:
         if offer.price is None:

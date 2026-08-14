@@ -19,7 +19,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from amelia_manager.company_profile import load_company_profile
 from amelia_manager.config import Settings
 from amelia_manager.date_formatting import _today_in_timezone, format_human_date
-from amelia_manager.db.repository import CatalogItemRecord, SQLiteRepository, path_from_sqlite_url
+from amelia_manager.db.repository import CatalogItemRecord, ORDER_STATUSES, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.events import EventName
 from amelia_manager.metrics import calculate_metrics
 from amelia_manager.order_card import OrderCard
@@ -81,6 +81,8 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         card_fields=_card_fields,
         status_info=_status_info,
         status_label=lambda d: _status_info(d)[0],
+        order_status_label=_order_status_label,
+        order_status_options=lambda: [(status, _order_status_label(status)) for status in ORDER_STATUSES],
         format_time=_format_relative_time,
         format_date_group=_format_date_group,
         metric_percent=_metric_percent,
@@ -253,6 +255,20 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             repo.record_event(client_id=client.id, order_id=order.id, event=EventName.CARD_EDITED_MANUALLY, payload={"fields": changed})
         return RedirectResponse(f"/clients/{client.id}", status_code=303)
 
+    @app.post("/clients/{client_id}/orders/{order_id}/status")
+    async def change_order_status(client_id: int, order_id: int, request: Request, _auth=Depends(require_auth)):
+        client = repo.get_client_by_id(client_id)
+        order = repo.get_order_by_id(order_id)
+        if client is None or order is None or order.client_id != client.id:
+            raise HTTPException(status_code=404)
+        form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+        status_value = (form.get("status") or [""])[-1]
+        try:
+            repo.update_order_status(order_id=order.id, status=status_value, changed_by="admin")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return RedirectResponse(f"/clients/{client.id}", status_code=303)
+
     @app.get("/metrics", response_class=HTMLResponse)
     def metrics(days: int = 7, date_from: str | None = None, date_to: str | None = None, _auth=Depends(require_auth)):
         start, end, label = _metric_period(settings, days=days, date_from=date_from, date_to=date_to)
@@ -381,11 +397,29 @@ def _card_summary(card: OrderCard) -> str:
     return "\n".join(parts) if parts else "Карточка пустая"
 
 
+def _order_status_label(status: str) -> str:
+    return {
+        "active": "В работе",
+        "draft": "Черновик",
+        "submitted": "Заявка отправлена",
+        "confirmed": "Подтверждён",
+        "in_production": "В работе у флориста",
+        "ready": "Готов",
+        "fulfilled": "Выполнен",
+        "cancelled": "Отменён",
+    }.get(status, status)
+
+
 def _status_info(dialogue) -> tuple[str, str]:
     if dialogue.client.opted_out_at:
         return "отписался", "muted"
     if dialogue.client.bot_paused_at:
         return "на паузе", "danger"
+    if dialogue.active_order:
+        if dialogue.active_order.status in {"fulfilled", "cancelled"}:
+            return _order_status_label(dialogue.active_order.status), "muted"
+        if dialogue.active_order.status in {"submitted", "confirmed", "in_production", "ready"}:
+            return _order_status_label(dialogue.active_order.status), "success"
     if dialogue.active_order and dialogue.active_order.card.admin_request_sent:
         return "заявка отправлена", "success"
     return "в работе", "neutral"

@@ -32,6 +32,9 @@ SAFE_PAYLOAD_KEYS = {
     "scope",
     "overridden",
     "previous_order_id",
+    "old_status",
+    "new_status",
+    "changed_by",
 }
 
 

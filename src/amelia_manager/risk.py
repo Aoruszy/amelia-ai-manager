@@ -154,8 +154,17 @@ def assess_risk(text: str, *, company_profile: CompanyProfile | None = None) -> 
         for pattern in patterns:
             match = pattern.search(normalized)
             if match:
+                if category == RiskCategory.DISCOUNT and _is_delivery_price_question(normalized):
+                    continue
                 return RiskAssessment(level=level, category=category, matched=match.group(0))
     return RiskAssessment(level=RiskLevel.LOW)
+
+
+def _is_delivery_price_question(normalized: str) -> bool:
+    return bool(
+        re.search(r"\bдоставк\w*\b", normalized)
+        and re.search(r"\b(?:дорог\w*|цен\w*|сто\w*|сколько|почем|платн\w*)\b", normalized)
+    )
 
 
 def classify_risk(text: str) -> RiskLevel:

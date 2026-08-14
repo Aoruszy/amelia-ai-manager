@@ -25,6 +25,7 @@ def calculate_metrics(repo, *, date_from: date, date_to: date) -> dict[str, Any]
     followup_sent_clients = _clients_for(by_event[EventName.FOLLOWUP_SENT.value])
     followup_replied_clients = _clients_for(by_event[EventName.FOLLOWUP_REPLIED.value])
     opt_out_clients = _clients_for(by_event[EventName.OPT_OUT.value])
+    status_transitions = _count_payload_value(by_event[EventName.ORDER_STATUS_CHANGED.value], "new_status")
     dialog_count = len(dialogs)
 
     confidence_values = []
@@ -58,6 +59,10 @@ def calculate_metrics(repo, *, date_from: date, date_to: date) -> dict[str, Any]
             "reply_latency_seconds": _reply_latency(by_event[EventName.MESSAGE_RECEIVED.value], by_event[EventName.REPLY_SENT.value]),
             "off_hours_rate": _rate(len(off_hours_clients & dialogs), dialog_count),
             "average_budget": _average_budget(by_event[EventName.ORDER_READY.value]),
+        },
+        "orders": {
+            "current_by_status": repo.count_orders_by_status(),
+            "transitions": status_transitions,
         },
         "outbound": {
             "followups_sent": len(by_event[EventName.FOLLOWUP_SENT.value]),

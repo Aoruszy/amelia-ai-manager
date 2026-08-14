@@ -20,6 +20,8 @@ class OutboundKind(StrEnum):
     FOLLOWUP_1 = "followup_1"
     FOLLOWUP_2 = "followup_2"
     ORDER_REMINDER = "order_reminder"
+    ORDER_CONFIRMED = "order_confirmed"
+    ORDER_READY = "order_ready"
 
 
 _OPT_OUT_RE = re.compile(r"\b(не\s+пишите|отстаньте|не\s+беспоко(?:ить|йте)|хватит\s+писать|отпишите)\b", re.IGNORECASE)
@@ -53,9 +55,22 @@ def build_order_status_reply(repo: SQLiteRepository, *, client_id: int, company_
         parts.append(f"время: {card.delivery_time}")
     if card.fulfillment_type:
         parts.append(f"формат: {_format_fulfillment(card.fulfillment_type)}")
-    status = "заявка передана менеджеру" if card.admin_request_sent else "заказ ещё оформляется"
+    status = _order_status_label(order.status)
     details = ", ".join(parts) if parts else "детали ещё уточняются"
     return f"По заказу вижу: {details}. Текущий статус: {status}. Фактическое выполнение подтвердит менеджер."
+
+
+def _order_status_label(status: str) -> str:
+    return {
+        "active": "заказ ещё оформляется",
+        "draft": "заказ ещё оформляется",
+        "submitted": "заявка передана менеджеру",
+        "confirmed": "заказ подтверждён",
+        "in_production": "заказ в работе",
+        "ready": "заказ готов",
+        "fulfilled": "заказ выполнен",
+        "cancelled": "заказ отменён",
+    }.get(status, status)
 
 
 def schedule_followups_after_reply(
@@ -145,6 +160,10 @@ async def build_outbound_text(kind: str, card: OrderCard, profile: CompanyProfil
     if kind == OutboundKind.ORDER_REMINDER.value:
         details = ", ".join(part for part in [card.delivery_date, card.delivery_time, _format_fulfillment(card.fulfillment_type)] if part)
         return f"{profile.order_reminder_fallback} Детали: {details}."
+    if kind == OutboundKind.ORDER_CONFIRMED.value:
+        return "Ваш заказ подтвердили. Если что-то изменится — напишите, пожалуйста."
+    if kind == OutboundKind.ORDER_READY.value:
+        return "Ваш заказ готов. Можно забирать или ожидать доставку по согласованным деталям."
     step = _next_step_code(card)
     fallback = profile.followup_fallbacks.get(step) or profile.followup_fallbacks.get("default") or "Если заказ ещё актуален, напишите — продолжим. Можно не отвечать, если уже неактуально."
     if llm_client is None:

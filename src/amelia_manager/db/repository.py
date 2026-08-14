@@ -13,6 +13,10 @@ from amelia_manager.observability import sanitize_payload
 from amelia_manager.stock import StockItem, StockStatus
 from amelia_manager.order_card import OrderCard
 
+ORDER_STATUSES = ("draft", "submitted", "confirmed", "in_production", "ready", "fulfilled", "cancelled")
+ACTIVE_ORDER_STATUSES = ("draft", "submitted", "confirmed", "in_production", "ready", "active")
+TERMINAL_ORDER_STATUSES = ("fulfilled", "cancelled", "superseded", "completed")
+
 
 @dataclass(frozen=True)
 class CatalogItemRecord:
@@ -306,7 +310,7 @@ class SQLiteRepository:
                     o.id AS order_id, o.status AS order_status, o.card_json, o.created_at AS order_created_at, o.updated_at AS order_updated_at,
                     lm.last_message_at, lm.last_message_text
                 FROM clients c
-                LEFT JOIN orders o ON o.client_id = c.id AND o.status = 'active'
+                LEFT JOIN orders o ON o.client_id = c.id AND o.status IN ('draft', 'submitted', 'confirmed', 'in_production', 'ready', 'active')
                 LEFT JOIN (
                     SELECT m1.client_id, m1.created_at AS last_message_at, m1.text AS last_message_text
                     FROM messages m1
@@ -556,7 +560,7 @@ class SQLiteRepository:
                     c.paused_by AS client_paused_by
                 FROM orders o
                 JOIN clients c ON c.id = o.client_id
-                WHERE o.status = 'active'
+                WHERE o.status IN ('draft', 'submitted', 'confirmed', 'in_production', 'ready', 'active')
                 ORDER BY o.id ASC
                 """
             ).fetchall()
@@ -765,7 +769,7 @@ class SQLiteRepository:
                 """
                 SELECT id, client_id, status, card_json, created_at, updated_at
                 FROM orders
-                WHERE client_id = ? AND status = 'active'
+                WHERE client_id = ? AND status IN ('draft', 'submitted', 'confirmed', 'in_production', 'ready', 'active')
                 ORDER BY id DESC
                 LIMIT 1
                 """,
@@ -787,7 +791,7 @@ class SQLiteRepository:
             return existing
         with self._connect() as conn:
             cursor = conn.execute(
-                "INSERT INTO orders (client_id, status, card_json) VALUES (?, 'active', ?)",
+                "INSERT INTO orders (client_id, status, card_json) VALUES (?, 'draft', ?)",
                 (client_id, json.dumps(OrderCard().to_dict(), ensure_ascii=False)),
             )
             order_id = int(cursor.lastrowid)
@@ -804,10 +808,48 @@ class SQLiteRepository:
                 (json.dumps(card.to_dict(), ensure_ascii=False), order_id),
             )
 
+    def update_order_status(
+        self,
+        *,
+        order_id: int,
+        status: str,
+        changed_by: str,
+        changed_at: datetime | None = None,
+    ) -> OrderRecord:
+        if status not in ORDER_STATUSES and status not in {"superseded", "completed"}:
+            raise ValueError(f"invalid order status: {status}")
+        order = self.get_order_by_id(order_id)
+        if order is None:
+            raise KeyError(order_id)
+        if order.status == status:
+            return order
+        changed_at = changed_at or datetime.now(timezone.utc).replace(tzinfo=None)
+        changed_at_text = _format_dt(changed_at)
+        with self._connect() as conn:
+            conn.execute("UPDATE orders SET status = ?, updated_at = ? WHERE id = ?", (status, changed_at_text, order_id))
+        updated = self.get_order_by_id(order_id)
+        self.record_event(
+            client_id=order.client_id,
+            order_id=order.id,
+            event=EventName.ORDER_STATUS_CHANGED,
+            payload={"old_status": order.status, "new_status": status, "changed_by": changed_by},
+            created_at=changed_at,
+        )
+        if status == "confirmed":
+            self.schedule_outbound(client_id=order.client_id, order_id=order.id, kind="order_confirmed", scheduled_at=changed_at)
+        elif status == "ready":
+            self.schedule_outbound(client_id=order.client_id, order_id=order.id, kind="order_ready", scheduled_at=changed_at)
+        return updated
+
+    def count_orders_by_status(self) -> dict[str, int]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT status, COUNT(*) AS count FROM orders GROUP BY status").fetchall()
+        return {row["status"]: int(row["count"]) for row in rows}
+
     def close_active_orders(self, *, client_id: int, status: str = "superseded") -> None:
         with self._connect() as conn:
             conn.execute(
-                "UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE client_id = ? AND status = 'active'",
+                "UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE client_id = ? AND status IN ('draft', 'submitted', 'confirmed', 'in_production', 'ready', 'active')",
                 (status, client_id),
             )
 

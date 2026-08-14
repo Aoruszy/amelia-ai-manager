@@ -38,6 +38,20 @@
   <aside class="order-panel">
     <h2>Карточка заказа</h2>
     {% if order %}
+      <section class="status-card">
+        <h3>Статус заказа</h3>
+        <p><strong>{{ order_status_label(order.status) }}</strong></p>
+        <form method="post" action="/clients/{{ client.id }}/orders/{{ order.id }}/status" class="status-form">
+          <label>Изменить статус
+            <select name="status">
+              {% for code, label in order_status_options() %}
+                <option value="{{ code }}" {{ 'selected' if order.status == code else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <button>Сохранить статус</button>
+        </form>
+      </section>
       <dl class="order-fields">
         {% for code, label, value in card_fields(order.card) %}
           <dt>{{ label }}</dt><dd>{{ value if value not in (None, '') else '—' }}</dd>
