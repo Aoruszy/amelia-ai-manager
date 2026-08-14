@@ -46,6 +46,8 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
     context_text = "\n".join(_strip_role(message) for message in messages).lower().replace("ё", "е")
     original = "\n".join(client_messages)
     contacts = _extract_contacts_by_dialog_context(messages)
+    explicit_budget = _extract_budget(text)
+    contextual_budget = _extract_budget_by_dialog_context(messages)
     recipient_name = contacts.get("recipient_name") or _extract_recipient_name(original)
     recipient_phone = contacts.get("recipient_phone") or _extract_recipient_phone(original)
     sender_name = contacts.get("sender_name") or _extract_sender_name(original, exclude_phone=recipient_phone)
@@ -54,7 +56,7 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
 
     return OrderState(
         occasion=_extract_occasion(text),
-        budget=_extract_budget(text, context_text=context_text),
+        budget=contextual_budget or explicit_budget,
         colors=_extract_colors(text),
         forbidden_flowers=_extract_forbidden_flowers(text),
         fulfillment_type=_extract_fulfillment_type(text),
@@ -96,7 +98,7 @@ def _extract_occasion(text: str) -> str | None:
     return None
 
 
-def _extract_budget(text: str, *, context_text: str | None = None) -> int | None:
+def _extract_budget(text: str) -> int | None:
     candidates: list[tuple[int, int]] = []
 
     for match in re.finditer(r"\b(?:тысяч\w*|тыс\.?)\s+на\s+(\d{1,3})\b", text):
@@ -141,35 +143,9 @@ def _extract_budget(text: str, *, context_text: str | None = None) -> int | None
     for match in re.finditer(r"\b(?:бюджет|до|за|на сумму|в пределах|лучше)\s*([1-9]\d{3,5})\b", text):
         candidates.append((match.start(1), int(match.group(1))))
 
-    if _budget_was_requested(context_text or "") or _bare_budget_context(text):
-        for match in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", text):
-            if not _looks_like_non_budget_number(text, match.start(), match.end()):
-                candidates.append((match.start(1), int(match.group(1))))
-
     if not candidates:
         return None
     return max(candidates, key=lambda item: item[0])[1]
-
-
-def _budget_was_requested(context_text: str) -> bool:
-    normalized = context_text.lower().replace("ё", "е")
-    return bool(re.search(r"\b(?:бюджет|сумм\w*|сколько\s+готов\w*\s+потратить|на\s+какой\s+бюджет|ориентируемся)\b", normalized))
-
-
-def _bare_budget_context(text: str) -> bool:
-    return bool(
-        re.search(
-            r"\b(?:букет\w*|цвет\w*|пион\w*|роз\w*|тюльпан\w*|нежн\w*|ярк\w*|самовывоз\w*|доставк\w*)\b",
-            text,
-        )
-    )
-
-
-def _looks_like_non_budget_number(text: str, start: int, end: int) -> bool:
-    if _looks_like_year_in_date(text, start, end):
-        return True
-    before = text[max(0, start - 24):start]
-    return bool(re.search(r"\b(?:дом|д\.|кв\.?|квартира|номер|заказ)\s*$", before))
 
 
 def _looks_like_year_in_date(text: str, start: int, end: int) -> bool:
@@ -320,6 +296,24 @@ def _normalize_address_candidate(candidate: str) -> str:
 
 def _phones(text: str) -> list[str]:
     return re.findall(r"(?:\+7|8)\d{10}", text)
+
+
+def _extract_budget_by_dialog_context(messages: list[str]) -> int | None:
+    pending_budget = False
+    result: int | None = None
+    for message in messages:
+        stripped = _strip_role(message)
+        lowered = stripped.lower().replace("ё", "е")
+        if message.lower().startswith(("менеджер:", "алина:")):
+            pending_budget = bool(re.search(r"\b(?:бюджет\w*|сумм\w*|сколько\s+готов\w*\s+потратить|на\s+какой\s+бюджет|ориентируемся|сориентировать)\b", lowered))
+            continue
+        if not _is_client_message(message) or not pending_budget:
+            continue
+        match = re.fullmatch(r"\s*(?:до\s+|примерно\s+|около\s+)?([1-9]\d{3,5})\s*(?:₽|руб(?:\.|лей)?|р\.?|тыс(?:яч\w*)?)?\s*", lowered)
+        if match:
+            result = int(match.group(1))
+        pending_budget = False
+    return result
 
 
 def _extract_contacts_by_dialog_context(messages: list[str]) -> dict[str, str]:

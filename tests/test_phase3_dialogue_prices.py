@@ -24,7 +24,7 @@ async def test_catalog_price_question_gets_price_from_stock_context():
 
     assert action.kind == "send"
     assert "4500" in action.messages[0]
-    assert action.risk_level == RiskLevel.MEDIUM
+    assert action.risk_level == RiskLevel.LOW
 
 
 def test_eval_no_invented_numbers_allows_catalog_prices_from_stock_context():

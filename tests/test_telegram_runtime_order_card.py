@@ -10,7 +10,7 @@ def test_update_active_order_from_messages_merges_with_existing_order(tmp_path):
     card = update_active_order_from_messages(
         repo,
         client_id=client.id,
-        recent_messages=["Клиент: 5000", "Клиент: Самовывоз"],
+        recent_messages=["Менеджер: С каким бюджетом сориентировать вас по букету?", "Клиент: 5000", "Клиент: Самовывоз"],
     )
     card = update_active_order_from_messages(
         repo,

@@ -9,6 +9,7 @@ from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.conversation_engine import ConversationEngine, _format_order_card_context, _sensitive_tone_violations
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, merge_order_patch, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm
+from amelia_manager.order_state import extract_order_state
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 
@@ -46,6 +47,7 @@ def test_stock_uncertainty_uses_availability_markers_not_product_names_or_delive
     general_stock = assess_risk("Что у вас в наличии?", company_profile=profile)
     product_only = assess_risk("Хочу пионы на завтра", company_profile=profile)
     delivery_price = assess_risk("Сколько стоит доставка по городу?", company_profile=profile)
+    bouquet_price = assess_risk("Сколько стоит букет?", company_profile=profile)
     delivery_expensive = assess_risk("А доставка дорогая?", company_profile=profile)
 
     assert in_stock.level == RiskLevel.MEDIUM
@@ -55,6 +57,7 @@ def test_stock_uncertainty_uses_availability_markers_not_product_names_or_delive
     assert product_only.category != RiskCategory.STOCK_UNCERTAINTY
     assert delivery_price.category != RiskCategory.STOCK_UNCERTAINTY
     assert delivery_price.level == RiskLevel.LOW
+    assert bouquet_price.level == RiskLevel.LOW
     assert delivery_expensive.level == RiskLevel.LOW
 
 
@@ -129,6 +132,37 @@ async def test_llm_budget_wins_over_greedy_regex_dates_order_numbers_and_house_n
 
     assert state.budget == 5000
     assert state.budget not in {2026, 3456, 12345}
+
+
+@pytest.mark.asyncio
+async def test_silent_llm_preserves_earlier_budget_when_later_address_has_four_digit_house():
+    cases = [
+        [
+            "Клиент: до 5000",
+            "Менеджер: Куда доставить?",
+            "Клиент: доставка на Ленина 1205",
+        ],
+        [
+            "Клиент: до 5000",
+            "Менеджер: Куда доставить?",
+            "Клиент: улица Гагарина 1140, кв 12",
+        ],
+    ]
+
+    for messages in cases:
+        state = await extract_order_state_with_llm(FakeLLM("не json"), messages, today=date(2026, 1, 1))
+        assert state.budget == 5000, messages
+
+
+def test_bare_number_without_immediate_budget_question_is_not_budget():
+    state = extract_order_state([
+        "Менеджер: Подскажите бюджет",
+        "Клиент: до 5000",
+        "Менеджер: Куда доставить?",
+        "Клиент: доставка на Ленина 1205",
+    ])
+
+    assert state.budget == 5000
 
 
 @pytest.mark.asyncio

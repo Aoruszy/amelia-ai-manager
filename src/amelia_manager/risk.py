@@ -115,15 +115,6 @@ _CATEGORY_PATTERNS: tuple[tuple[RiskCategory, RiskLevel, tuple[re.Pattern[str], 
         ),
     ),
     (
-        RiskCategory.STOCK_UNCERTAINTY,
-        RiskLevel.MEDIUM,
-        (
-            re.compile(r"\bв\s+наличии\b"),
-            re.compile(r"\bточно\s+есть\b"),
-            re.compile(r"\bсколько\s+сто(?:ит|ят)\b"),
-        ),
-    ),
-    (
         RiskCategory.GUARANTEE_REQUEST,
         RiskLevel.MEDIUM,
         (

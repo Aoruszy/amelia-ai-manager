@@ -19,7 +19,7 @@ async def test_update_active_order_from_messages_with_llm_merges_llm_fields(tmp_
         repo,
         llm=FakeLLM(),
         client_id=client.id,
-        recent_messages=["Клиент: 5000", "Клиент: Самовывоз", "Клиент: оплачу переводом к шести"],
+        recent_messages=["Менеджер: С каким бюджетом сориентировать вас по букету?", "Клиент: 5000", "Клиент: Самовывоз", "Клиент: оплачу переводом к шести"],
     )
 
     assert card.budget == 5000

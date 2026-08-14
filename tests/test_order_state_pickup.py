@@ -3,7 +3,7 @@ from datetime import date
 from amelia_manager.order_state import extract_order_state
 
 
-def test_extracts_standalone_budget_when_client_replies_with_number():
+def test_extracts_contextual_budget_when_client_replies_with_number():
     state = extract_order_state(
         [
             "Клиент: Хотел бы цветы купить",
@@ -19,6 +19,7 @@ def test_extracts_pickup_flow_fields_from_long_real_dialog():
     state = extract_order_state(
         [
             "Клиент: Хотел бы цветы купить",
+            "Менеджер: С каким бюджетом сориентировать вас по букету?",
             "Клиент: 5000",
             "Клиент: Самовывоз",
             "Клиент: Сегодня в 18:00",
