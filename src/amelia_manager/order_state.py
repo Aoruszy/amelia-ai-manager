@@ -46,8 +46,8 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
     context_text = "\n".join(_strip_role(message) for message in messages).lower().replace("ё", "е")
     original = "\n".join(client_messages)
     contacts = _extract_contacts_by_dialog_context(messages)
-    explicit_budget = _extract_budget(text)
-    contextual_budget = _extract_budget_by_dialog_context(messages)
+    budget_candidates = [*_extract_budget_candidates(text), *_extract_budget_by_dialog_context(messages)]
+    budget = max(budget_candidates, key=lambda item: item[0])[1] if budget_candidates else None
     recipient_name = contacts.get("recipient_name") or _extract_recipient_name(original)
     recipient_phone = contacts.get("recipient_phone") or _extract_recipient_phone(original)
     sender_name = contacts.get("sender_name") or _extract_sender_name(original, exclude_phone=recipient_phone)
@@ -56,7 +56,7 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
 
     return OrderState(
         occasion=_extract_occasion(text),
-        budget=contextual_budget or explicit_budget,
+        budget=budget,
         colors=_extract_colors(text),
         forbidden_flowers=_extract_forbidden_flowers(text),
         fulfillment_type=_extract_fulfillment_type(text),
@@ -99,6 +99,13 @@ def _extract_occasion(text: str) -> str | None:
 
 
 def _extract_budget(text: str) -> int | None:
+    candidates = _extract_budget_candidates(text)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def _extract_budget_candidates(text: str) -> list[tuple[int, int]]:
     candidates: list[tuple[int, int]] = []
 
     for match in re.finditer(r"\b(?:тысяч\w*|тыс\.?)\s+на\s+(\d{1,3})\b", text):
@@ -143,9 +150,43 @@ def _extract_budget(text: str) -> int | None:
     for match in re.finditer(r"\b(?:бюджет|до|за|на сумму|в пределах|лучше)\s*([1-9]\d{3,5})\b", text):
         candidates.append((match.start(1), int(match.group(1))))
 
-    if not candidates:
-        return None
-    return max(candidates, key=lambda item: item[0])[1]
+    for match in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", text):
+        if _looks_like_budget_number(text, match.start(), match.end()):
+            candidates.append((match.start(1), int(match.group(1))))
+
+    return candidates
+
+
+def _looks_like_budget_number(text: str, start: int, end: int) -> bool:
+    if _looks_like_year_in_date(text, start, end):
+        return False
+    if _is_inside_phone_number(text, start, end):
+        return False
+    if _is_address_or_tracking_number(text, start, end):
+        return False
+    if _is_time_fragment(text, start, end):
+        return False
+    return True
+
+
+def _is_inside_phone_number(text: str, start: int, end: int) -> bool:
+    left = text[max(0, start - 6):start]
+    right = text[end:end + 6]
+    return bool(re.search(r"\d$", left) or re.match(r"\d", right))
+
+
+def _is_address_or_tracking_number(text: str, start: int, end: int) -> bool:
+    before = text[max(0, start - 32):start]
+    after = text[end:end + 16]
+    return bool(
+        re.search(r"\b(?:дом|д\.?|кв\.?|квартира|номер|заказ|ул\.?|улиц\w*|проспект|пер\.?|переулок)\s*$", before)
+        or re.search(r"\bдоставк\w*\s+на\s+[а-яa-z.\-]+\s*$", before)
+        or re.match(r"\s*,?\s*(?:кв\.?|квартира|подъезд|корпус|к\b|стр\.?)\b", after)
+    )
+
+
+def _is_time_fragment(text: str, start: int, end: int) -> bool:
+    return (start > 0 and text[start - 1] == ":") or (end < len(text) and text[end:end + 1] == ":")
 
 
 def _looks_like_year_in_date(text: str, start: int, end: int) -> bool:
@@ -298,22 +339,25 @@ def _phones(text: str) -> list[str]:
     return re.findall(r"(?:\+7|8)\d{10}", text)
 
 
-def _extract_budget_by_dialog_context(messages: list[str]) -> int | None:
+def _extract_budget_by_dialog_context(messages: list[str]) -> list[tuple[int, int]]:
     pending_budget = False
-    result: int | None = None
+    candidates: list[tuple[int, int]] = []
+    position = 0
     for message in messages:
         stripped = _strip_role(message)
         lowered = stripped.lower().replace("ё", "е")
         if message.lower().startswith(("менеджер:", "алина:")):
             pending_budget = bool(re.search(r"\b(?:бюджет\w*|сумм\w*|сколько\s+готов\w*\s+потратить|на\s+какой\s+бюджет|ориентируемся|сориентировать)\b", lowered))
             continue
-        if not _is_client_message(message) or not pending_budget:
+        if not _is_client_message(message):
             continue
-        match = re.fullmatch(r"\s*(?:до\s+|примерно\s+|около\s+)?([1-9]\d{3,5})\s*(?:₽|руб(?:\.|лей)?|р\.?|тыс(?:яч\w*)?)?\s*", lowered)
-        if match:
-            result = int(match.group(1))
-        pending_budget = False
-    return result
+        if pending_budget:
+            for match in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", lowered):
+                if _looks_like_budget_number(lowered, match.start(), match.end()):
+                    candidates.append((position + match.start(1), int(match.group(1))))
+            pending_budget = False
+        position += len(lowered) + 1
+    return candidates
 
 
 def _extract_contacts_by_dialog_context(messages: list[str]) -> dict[str, str]:

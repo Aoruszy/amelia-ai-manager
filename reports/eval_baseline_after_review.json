@@ -13,8 +13,8 @@
     },
     "confidence_distribution": {
       "0-0.5": 0,
-      "0.5-0.7": 0,
-      "0.7-1.0": 24
+      "0.5-0.7": 1,
+      "0.7-1.0": 23
     }
   },
   "results": [
@@ -347,7 +347,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 42,
+            "length": 82,
             "max": 400
           }
         },
@@ -389,7 +389,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Подберу 🌷 На какой бюджет ориентироваться?",
+      "output": "Поняла, букет девушке нужен сегодня 🌷 Подскажите, на какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
@@ -476,7 +476,7 @@
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
-      "confidence": 0.99,
+      "confidence": 1.0,
       "notes": ""
     },
     {
@@ -550,11 +550,11 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Подберу нежный кремовый букет до 5000 ₽ 🤍 Вам удобнее доставка или самовывоз?",
+      "output": "Поняла, нежный кремовый букет до 5000 ₽ 🤍 Вам удобнее доставка или самовывоз?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_fulfillment_type",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "notes": ""
     },
     {
@@ -638,11 +638,11 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Записала: до 5000 ₽, нежный стиль, самовывоз. На какое число нужен букет?",
+      "output": "Записала: до 5000 ₽, нежный букет, самовывоз. На какое число нужен букет?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_date",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "notes": ""
     },
     {
@@ -718,7 +718,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Записала: нежный букет за 5000 ₽, самовывоз сегодня с Сергеева, 61. К какому времени удобно забрать?",
+      "output": "Записала: нежный букет до 5000 ₽, самовывоз сегодня с Сергеева, 61. К какому времени удобно забрать?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_pickup_time_within_shop_hours",
@@ -755,14 +755,14 @@
           "name": "single_question",
           "passed": true,
           "details": {
-            "question_count": 1
+            "question_count": 0
           }
         },
         {
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 144,
+            "length": 118,
             "max": 400
           }
         },
@@ -781,9 +781,7 @@
         {
           "name": "no_invented_numbers",
           "passed": true,
-          "details": {
-            "invented_numbers": []
-          }
+          "details": {}
         },
         {
           "name": "contains:09:00",
@@ -798,7 +796,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Записала: до 5000 ₽, нежный букет, самовывоз сегодня. Самовывоз возможен с 09:00 до 20:00 — подскажите, какое время в этом интервале вам удобно?",
+      "output": "Самовывоз сегодня в 22:30 невозможен: магазин работает до 20:00. Выберите, пожалуйста, время сегодня с 09:00 до 20:00.",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_pickup_time_within_shop_hours",
@@ -1254,7 +1252,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 125,
+            "length": 124,
             "max": 400
           }
         },
@@ -1288,7 +1286,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Записала: доставка на ул. Гайдара, 173, получатель Даниил, +7 999 000-00-02. Теперь нужны ваши имя и телефон как отправителя.",
+      "output": "Записала: Даниил, +7 999 000-00-02, доставка на ул. Гайдара, 173. Подскажите, пожалуйста, ваше имя и телефон для оформления.",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_sender_contacts",
@@ -1942,7 +1940,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 118,
+            "length": 144,
             "max": 400
           }
         },
@@ -1979,7 +1977,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Да, анонимная доставка возможна — получатель не узнает отправителя без вашей подписи. На какой бюджет ориентироваться?",
+      "output": "Да, анонимная доставка возможна — получатель не узнает отправителя, если не указать имя или подпись в открытке. На какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "question",
       "next_step": "ask_budget",
@@ -2023,7 +2021,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 42,
+            "length": 44,
             "max": 400
           }
         },
@@ -2072,7 +2070,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Подберу 🌷 На какой бюджет ориентироваться?",
+      "output": "Подскажите, на какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
@@ -2116,7 +2114,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 98,
+            "length": 125,
             "max": 400
           }
         },
@@ -2160,7 +2158,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Поняла: нежный букет до 5000 ₽, самовывоз сегодня с Сергеева, 61. К какому времени удобно забрать?",
+      "output": "Записала: самовывоз, нежный букет до 5000 ₽, сегодня. Во сколько удобно забрать на Сергеева, 61? Мы открыты с 09:00 до 20:00.",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_pickup_time_within_shop_hours",
@@ -2204,7 +2202,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 79,
+            "length": 80,
             "max": 400
           }
         },
@@ -2238,7 +2236,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Записала бюджет до 5000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
+      "output": "Записала бюджет до 5000 ₽ 🌷 Какие оттенки, стиль или любимые цветы вам нравятся?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
@@ -2533,7 +2531,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 78,
+            "length": 82,
             "max": 400
           }
         },
@@ -2567,7 +2565,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Подберу букет до 5000 ₽ 🌿 Какие оттенки, стиль или любимые цветы вам нравятся?",
+      "output": "Да, подберу букет до 5000 ₽ 🌷 Какие оттенки, стиль или любимые цветы вам нравятся?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
@@ -2611,7 +2609,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 76,
+            "length": 81,
             "max": 400
           }
         },
@@ -2643,7 +2641,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Здравствуйте! Да, подберу букет к 8 Марта 🌷 На какой бюджет ориентироваться?",
+      "output": "Здравствуйте! Подскажите, пожалуйста, на какой бюджет ориентироваться для букета?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
@@ -2687,7 +2685,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 107,
+            "length": 105,
             "max": 400
           }
         },
@@ -2726,7 +2724,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Записала: завтра к 15:00, самовывоз, бюджет до 4000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
+      "output": "Записала: букет до 4000 ₽, самовывоз завтра к 15:00. Какие оттенки, стиль или любимые цветы вам нравятся?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
@@ -2808,7 +2806,7 @@
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
-      "confidence": 0.99,
+      "confidence": 1.0,
       "notes": ""
     },
     {
@@ -2848,7 +2846,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 95,
+            "length": 79,
             "max": 400
           }
         },
@@ -2882,11 +2880,11 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Поняла, ориентируемся на бюджет до 5000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
+      "output": "Записала бюджет до 5000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "notes": ""
     },
     {
@@ -2926,7 +2924,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 71,
+            "length": 79,
             "max": 400
           }
         },
@@ -2958,7 +2956,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Хорошо, тогда доставка завтра к 12:00. На какой бюджет ориентироваться?",
+      "output": "Хорошо, тогда оформим доставку завтра к 12:00. На какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
@@ -3002,7 +3000,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 45,
+            "length": 91,
             "max": 400
           }
         },
@@ -3039,7 +3037,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Спасибо, Анна. На какой бюджет ориентируемся?",
+      "output": "Анна, Дмитрия записала. Подскажите, пожалуйста, на какой бюджет ориентироваться для букета?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
@@ -3083,7 +3081,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 37,
+            "length": 88,
             "max": 400
           }
         },
@@ -3102,9 +3100,7 @@
         {
           "name": "no_invented_numbers",
           "passed": true,
-          "details": {
-            "invented_numbers": []
-          }
+          "details": {}
         },
         {
           "name": "not_contains:ваш телефон",
@@ -3119,10 +3115,10 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Ориентируемся на бюджет около 7000 ₽?",
+      "output": "Записала, ориентир — тысяч на семь. Какие цветы, оттенки или стиль букета предпочитаете?",
       "llm_called": true,
       "intent": "order",
-      "next_step": "ask_budget",
+      "next_step": "ask_bouquet_preferences",
       "confidence": 0.98,
       "notes": "LLM должен понять словесный бюджет; deterministic fallback проверяет главное: не переспрашивать уже известный телефон."
     },
@@ -3163,7 +3159,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 121,
+            "length": 117,
             "max": 400
           }
         },
@@ -3207,7 +3203,7 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "output": "Записала: ещё один букет для мамы до 3000 ₽, самовывоз послезавтра. Какие оттенки, стиль или любимые цветы предпочитаете?",
+      "output": "Записала: ещё один букет маме до 3000 ₽, самовывоз послезавтра. Какие оттенки, стиль или любимые цветы предпочитаете?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
@@ -3893,7 +3889,7 @@
       "llm_called": true,
       "intent": "other",
       "next_step": "ask_budget",
-      "confidence": 0.94,
+      "confidence": 0.98,
       "notes": ""
     },
     {
@@ -4054,7 +4050,7 @@
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
-      "confidence": 0.9,
+      "confidence": 0.65,
       "notes": ""
     },
     {

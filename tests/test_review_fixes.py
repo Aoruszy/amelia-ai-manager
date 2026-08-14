@@ -135,6 +135,18 @@ async def test_llm_budget_wins_over_greedy_regex_dates_order_numbers_and_house_n
 
 
 @pytest.mark.asyncio
+async def test_contextual_budget_can_be_raised_by_later_explicit_budget():
+    cases = [
+        (["Менеджер: Подскажите бюджет", "Клиент: 5000", "Клиент: давайте лучше до 7000"], 7000),
+        (["Менеджер: Подскажите бюджет", "Клиент: 5000", "Клиент: бюджет 8000"], 8000),
+    ]
+
+    for messages, expected in cases:
+        state = await extract_order_state_with_llm(FakeLLM("не json"), messages, today=date(2026, 1, 1))
+        assert state.budget == expected, messages
+
+
+@pytest.mark.asyncio
 async def test_silent_llm_preserves_earlier_budget_when_later_address_has_four_digit_house():
     cases = [
         [
@@ -163,6 +175,32 @@ def test_bare_number_without_immediate_budget_question_is_not_budget():
     ])
 
     assert state.budget == 5000
+
+
+@pytest.mark.asyncio
+async def test_silent_llm_extracts_implicit_budget_without_word_marker_but_not_dates_or_contacts():
+    positives = [
+        "Клиент: 5000 нежный",
+        "Клиент: 5000 нежный самовывоз сегодня",
+        "Клиент: Нужен букет, 5000",
+        "Клиент: 5000",
+        "Менеджер: Подскажите бюджет\nКлиент: 5000 нежный",
+    ]
+    negatives = [
+        "Клиент: Нужен букет на 15.03.2026",
+        "Клиент: заказ номер 12345",
+        "Клиент: доставка на Ленина 1205",
+        "Клиент: улица Гагарина 1140, кв 12",
+        "Клиент: мой телефон 89990000002",
+        "Клиент: доставка завтра 15:00",
+    ]
+
+    for message in positives:
+        state = await extract_order_state_with_llm(FakeLLM("не json"), message.split("\n"), today=date(2026, 1, 1))
+        assert state.budget == 5000, message
+    for message in negatives:
+        state = await extract_order_state_with_llm(FakeLLM('{"budget": null}'), [message], today=date(2026, 1, 1))
+        assert state.budget is None, message
 
 
 @pytest.mark.asyncio

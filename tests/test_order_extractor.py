@@ -27,10 +27,7 @@ async def test_extract_order_state_with_llm_parses_json_fields():
 
 @pytest.mark.asyncio
 async def test_extract_order_state_with_llm_falls_back_to_regex_on_bad_json():
-    state = await extract_order_state_with_llm(
-        FakeLLM('не json'),
-        ["Менеджер: С каким бюджетом сориентировать вас по букету?", "Клиент: 5000", "Клиент: Самовывоз"],
-    )
+    state = await extract_order_state_with_llm(FakeLLM('не json'), ["Клиент: 5000", "Клиент: Самовывоз"])
 
     assert state.budget == 5000
     assert state.fulfillment_type == "pickup"
