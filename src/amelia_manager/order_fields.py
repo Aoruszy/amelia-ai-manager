@@ -55,5 +55,8 @@ def normalize_order_patch_keys(patch: dict[str, Any], *, allowed_fields: set[str
         if field is None or field not in allowed_fields:
             unknown.append(key)
             continue
+        if field in normalized:
+            unknown.append(key)
+            continue
         normalized[field] = value
     return normalized, unknown

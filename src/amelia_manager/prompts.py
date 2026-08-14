@@ -252,9 +252,10 @@ def _case_patch_fields_block(profile: CompanyProfile) -> str:
 
 
 def _sensitive_occasion_tone_block(profile: CompanyProfile) -> str:
+    forbidden = ", ".join(profile.sensitive_occasion_forbidden_words) or "доменные слова не заданы"
     return f"""
 Постоянное правило тона для custom_fields.occasion_sensitive=true:
 - {profile.sensitive_occasion_tone_rule}.
 - Без эмодзи.
-- Не используй профильные запрещённые слова для чувствительного повода и не повторяй конфликтующие стилевые слова из карточки.
+- Не используй слова: {forbidden}.
 """.rstrip()

@@ -54,7 +54,7 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
 
     return OrderState(
         occasion=_extract_occasion(text),
-        budget=_extract_budget(text),
+        budget=_extract_budget(text, context_text=context_text),
         colors=_extract_colors(text),
         forbidden_flowers=_extract_forbidden_flowers(text),
         fulfillment_type=_extract_fulfillment_type(text),
@@ -96,7 +96,7 @@ def _extract_occasion(text: str) -> str | None:
     return None
 
 
-def _extract_budget(text: str) -> int | None:
+def _extract_budget(text: str, *, context_text: str | None = None) -> int | None:
     candidates: list[tuple[int, int]] = []
 
     for match in re.finditer(r"\b(?:тысяч\w*|тыс\.?)\s+на\s+(\d{1,3})\b", text):
@@ -138,13 +138,38 @@ def _extract_budget(text: str) -> int | None:
     for match in re.finditer(r"\b(?:бюджет|до|за|на сумму|в пределах)\s*(\d{1,3})[ .](\d{3})\b", text):
         candidates.append((match.start(1), int(match.group(1) + match.group(2))))
 
-    for match in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", text):
-        if not _looks_like_year_in_date(text, match.start(), match.end()):
-            candidates.append((match.start(1), int(match.group(1))))
+    for match in re.finditer(r"\b(?:бюджет|до|за|на сумму|в пределах|лучше)\s*([1-9]\d{3,5})\b", text):
+        candidates.append((match.start(1), int(match.group(1))))
+
+    if _budget_was_requested(context_text or "") or _bare_budget_context(text):
+        for match in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", text):
+            if not _looks_like_non_budget_number(text, match.start(), match.end()):
+                candidates.append((match.start(1), int(match.group(1))))
 
     if not candidates:
         return None
     return max(candidates, key=lambda item: item[0])[1]
+
+
+def _budget_was_requested(context_text: str) -> bool:
+    normalized = context_text.lower().replace("ё", "е")
+    return bool(re.search(r"\b(?:бюджет|сумм\w*|сколько\s+готов\w*\s+потратить|на\s+какой\s+бюджет|ориентируемся)\b", normalized))
+
+
+def _bare_budget_context(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:букет\w*|цвет\w*|пион\w*|роз\w*|тюльпан\w*|нежн\w*|ярк\w*|самовывоз\w*|доставк\w*)\b",
+            text,
+        )
+    )
+
+
+def _looks_like_non_budget_number(text: str, start: int, end: int) -> bool:
+    if _looks_like_year_in_date(text, start, end):
+        return True
+    before = text[max(0, start - 24):start]
+    return bool(re.search(r"\b(?:дом|д\.|кв\.?|квартира|номер|заказ)\s*$", before))
 
 
 def _looks_like_year_in_date(text: str, start: int, end: int) -> bool:
@@ -152,7 +177,9 @@ def _looks_like_year_in_date(text: str, start: int, end: int) -> bool:
     if year < 1900 or year > 2100:
         return False
     before = text[max(0, start - 20):start]
-    return bool(re.search(r"(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+$", before))
+    if re.search(r"(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+$", before):
+        return True
+    return bool(re.search(r"\b(?:[1-9]|[12]\d|3[01])[.]\s*(?:0?[1-9]|1[0-2])[.]\s*$", before))
 
 
 def _extract_colors(text: str) -> list[str]:

@@ -75,8 +75,8 @@ async def test_sensitive_occasion_stays_sticky_across_later_turns():
             self.prompts.append(prompt)
             assert "occasion_sensitive" in prompt
             assert "без эмодзи" in prompt
-            assert "запрещённые слова" in prompt
-            assert "яркий" not in prompt.lower()
+            assert "не используй слова" in prompt.lower()
+            assert "яркий" in prompt.lower()
             if len(self.prompts) == 1:
                 return '{"intent":"order","emotion":"grief","reply":"Соберу очень нежный и яркий букет 🌸 На какое время подготовить?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
             assert "запрещённые слова для чувствительного повода" in prompt

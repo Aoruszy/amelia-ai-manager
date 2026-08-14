@@ -120,6 +120,7 @@ _CATEGORY_PATTERNS: tuple[tuple[RiskCategory, RiskLevel, tuple[re.Pattern[str], 
         (
             re.compile(r"\bв\s+наличии\b"),
             re.compile(r"\bточно\s+есть\b"),
+            re.compile(r"\bсколько\s+сто(?:ит|ят)\b"),
         ),
     ),
     (
@@ -164,7 +165,7 @@ def assess_risk(text: str, *, company_profile: CompanyProfile | None = None) -> 
         for pattern in patterns:
             match = pattern.search(normalized)
             if match:
-                if category == RiskCategory.DISCOUNT and _is_delivery_price_question(normalized):
+                if category in {RiskCategory.DISCOUNT, RiskCategory.STOCK_UNCERTAINTY} and _is_delivery_price_question(normalized):
                     continue
                 return RiskAssessment(level=level, category=category, matched=match.group(0))
     return RiskAssessment(level=RiskLevel.LOW)

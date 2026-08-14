@@ -123,7 +123,6 @@ def merge_order_patch(existing: OrderCard, patch: dict[str, Any]) -> OrderCard:
 
 def applied_order_patch_field_codes(before: OrderCard, after: OrderCard, patch: dict[str, Any]) -> list[str]:
     allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
-    normalized, _unknown = normalize_order_patch_keys(patch, allowed_fields=allowed)
     changed: list[str] = []
     for original_code, value in patch.items():
         field = normalize_order_patch_keys({original_code: value}, allowed_fields=allowed)[0]

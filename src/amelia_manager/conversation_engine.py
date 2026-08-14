@@ -357,7 +357,7 @@ class ConversationEngine:
                     )
                 safety = retry_safety
             except LLMError:
-                safety = safety
+                pass
             return ConversationAction(
                 kind="human_review",
                 messages=["Передам менеджеру, чтобы точно проверить и ответить вам корректно."],
@@ -639,7 +639,7 @@ def _sensitive_tone_violations(reply: str, profile: CompanyProfile) -> list[str]
     for word in profile.sensitive_occasion_forbidden_words:
         normalized_word = word.lower().replace("ё", "е")
         if re.search(rf"\b{re.escape(normalized_word)}\w*\b", normalized_reply):
-            violations.append("запрещённые слова для чувствительного повода")
+            violations.append(f"запрещённые слова для чувствительного повода: {word}")
     return violations
 
 

@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
-from amelia_manager.conversation_engine import ConversationEngine, _format_order_card_context
+from amelia_manager.conversation_engine import ConversationEngine, _format_order_card_context, _sensitive_tone_violations
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, merge_order_patch, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.prompts import build_manager_prompt
@@ -38,15 +38,24 @@ def test_high_risk_wins_over_profile_stock_marker_and_product_mentions():
         assert risk.category == category
 
 
-def test_stock_uncertainty_uses_availability_markers_not_product_names():
+def test_stock_uncertainty_uses_availability_markers_not_product_names_or_delivery_price_questions():
     profile = load_company_profile()
 
     in_stock = assess_risk("Пионы точно есть в наличии?", company_profile=profile)
+    direct_stock = assess_risk("Есть пионы?", company_profile=profile)
+    general_stock = assess_risk("Что у вас в наличии?", company_profile=profile)
     product_only = assess_risk("Хочу пионы на завтра", company_profile=profile)
+    delivery_price = assess_risk("Сколько стоит доставка по городу?", company_profile=profile)
+    delivery_expensive = assess_risk("А доставка дорогая?", company_profile=profile)
 
     assert in_stock.level == RiskLevel.MEDIUM
     assert in_stock.category == RiskCategory.STOCK_UNCERTAINTY
+    assert direct_stock.category == RiskCategory.STOCK_UNCERTAINTY
+    assert general_stock.category == RiskCategory.STOCK_UNCERTAINTY
     assert product_only.category != RiskCategory.STOCK_UNCERTAINTY
+    assert delivery_price.category != RiskCategory.STOCK_UNCERTAINTY
+    assert delivery_price.level == RiskLevel.LOW
+    assert delivery_expensive.level == RiskLevel.LOW
 
 
 def test_profile_stock_marker_field_has_single_semantics_for_non_florist_profiles():
@@ -102,6 +111,14 @@ def test_applied_order_patch_field_codes_report_only_actual_changes():
     assert applied_order_patch_field_codes(before, after_valid, {"date": "2026-08-20", "customer_name": "Иван"}) == ["date", "customer_name"]
 
 
+def test_duplicate_profile_and_native_patch_keys_keep_first_and_report_conflict():
+    patch = {"date": "2026-08-20", "delivery_date": "2026-08-21"}
+    merged = merge_order_patch(OrderCard(), patch)
+
+    assert merged.delivery_date == "2026-08-20"
+    assert unapplied_order_patch_field_codes(patch) == ["delivery_date"]
+
+
 @pytest.mark.asyncio
 async def test_llm_budget_wins_over_greedy_regex_dates_order_numbers_and_house_numbers():
     state = await extract_order_state_with_llm(
@@ -115,10 +132,35 @@ async def test_llm_budget_wins_over_greedy_regex_dates_order_numbers_and_house_n
 
 
 @pytest.mark.asyncio
-async def test_budget_regex_still_extracts_explicit_budget_when_llm_unavailable():
-    state = await extract_order_state_with_llm(FakeLLM("не json"), ["Клиент: бюджет до 5 тысяч"], today=date(2026, 1, 1))
+async def test_silent_llm_does_not_turn_dates_addresses_or_order_numbers_into_budget():
+    cases = [
+        "Клиент: Нужен букет на 15.03.2026",
+        "Клиент: Давайте на 20.12.2026, самовывоз",
+        "Клиент: Доставка на ул. Ленина, дом 3456, квартира 12345",
+        "Клиент: мой заказ номер 12345",
+    ]
 
-    assert state.budget == 5000
+    for message in cases:
+        state = await extract_order_state_with_llm(FakeLLM('{"budget": null}'), [message], today=date(2026, 1, 1))
+        assert state.budget is None, message
+
+
+@pytest.mark.asyncio
+async def test_budget_regex_still_extracts_explicit_budget_when_llm_unavailable_or_silent():
+    for response in ("не json", '{"budget": null}'):
+        state = await extract_order_state_with_llm(FakeLLM(response), ["Клиент: бюджет до 5 тысяч"], today=date(2026, 1, 1))
+        assert state.budget == 5000
+
+    shorthand = await extract_order_state_with_llm(FakeLLM('{"budget": null}'), ["Клиент: 5к"], today=date(2026, 1, 1))
+    numeric = await extract_order_state_with_llm(FakeLLM('{"budget": null}'), ["Клиент: бюджет 5000"], today=date(2026, 1, 1))
+    requested = await extract_order_state_with_llm(
+        FakeLLM('{"budget": null}'),
+        ["Менеджер: Подскажите бюджет", "Клиент: 5000"],
+        today=date(2026, 1, 1),
+    )
+    assert shorthand.budget == 5000
+    assert numeric.budget == 5000
+    assert requested.budget == 5000
 
 
 @pytest.mark.asyncio
@@ -175,32 +217,30 @@ async def test_sensitive_parse_retry_handoffs_for_forbidden_word_in_retry_reply(
     assert "нежн" not in action.messages[0].lower()
 
 
-def test_sensitive_prompt_hides_forbidden_preference_words_from_order_context():
+def test_sensitive_prompt_keeps_forbidden_word_instruction_but_hides_conflicting_card_context():
     profile = load_company_profile()
     card = OrderCard(colors=["нежный стиль", "яркий стиль"], custom_fields={"occasion_sensitive": True})
 
+    context = _format_order_card_context(card, sensitive_occasion=True, company_profile=profile)
     prompt = build_manager_prompt(
         client_summary="скорбный повод",
         recent_messages=["Клиент: хорошо"],
         stage="new",
         risk_level=RiskLevel.MEDIUM,
-        order_card_context="",
-        sensitive_occasion=True,
-        company_profile=profile,
-    )
-    prompt_with_context = build_manager_prompt(
-        client_summary="скорбный повод",
-        recent_messages=["Клиент: хорошо"],
-        stage="new",
-        risk_level=RiskLevel.MEDIUM,
-        order_card_context=_format_order_card_context(card, sensitive_occasion=True, company_profile=profile),
+        order_card_context=context,
         sensitive_occasion=True,
         company_profile=profile,
     )
 
     for forbidden in profile.sensitive_occasion_forbidden_words:
-        assert forbidden not in prompt.lower()
-        assert forbidden not in prompt_with_context.lower()
+        assert forbidden in prompt.lower()
+        assert forbidden not in context.lower()
+
+
+def test_sensitive_tone_violation_reason_names_specific_forbidden_word():
+    reasons = _sensitive_tone_violations("Сделаем нежный вариант", load_company_profile())
+
+    assert any("нежный" in reason for reason in reasons)
 
 
 def test_regular_prompt_keeps_regular_style_words_in_order_context():
