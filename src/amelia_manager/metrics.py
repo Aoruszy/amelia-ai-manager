@@ -51,6 +51,7 @@ def calculate_metrics(repo, *, date_from: date, date_to: date) -> dict[str, Any]
             "llm_failed_rate": _rate(len(llm_failed_clients & dialogs), dialog_count),
             "parse_failed_rate": _rate(len(parse_failed_clients & dialogs), dialog_count),
             "parse_retry_success_rate": _rate(_count_retry_success(by_event[EventName.PARSE_FAILED.value]), len(by_event[EventName.PARSE_FAILED.value])),
+            "order_scope_override_rate": _rate(_count_overridden(by_event[EventName.ORDER_SCOPE_DECIDED.value]), len(by_event[EventName.ORDER_SCOPE_DECIDED.value])),
             "confidence_distribution": _confidence_distribution(confidence_values),
         },
         "ops": {
@@ -105,6 +106,10 @@ def _count_payload_value(rows, key: str) -> dict[str, int]:
 
 def _count_retry_success(rows) -> int:
     return sum(1 for row in rows if _payload(row).get("retry_succeeded") is True)
+
+
+def _count_overridden(rows) -> int:
+    return sum(1 for row in rows if _payload(row).get("overridden") is True)
 
 
 def _confidence_distribution(values: list[float]) -> dict[str, int]:

@@ -16,11 +16,11 @@ def _old_pickup_card() -> OrderCard:
     )
 
 
-def test_greeting_plus_delivery_address_starts_new_order_not_old_continuation():
-    assert should_start_new_order("Здравствуйте нужна доставка на гайдара 173", _old_pickup_card()) is True
+def test_greeting_plus_delivery_address_does_not_reset_unfinished_order():
+    assert should_start_new_order("Здравствуйте нужна доставка на гайдара 173", _old_pickup_card()) is False
 
 
-def test_runtime_greeting_delivery_address_resets_stale_order(tmp_path):
+def test_runtime_greeting_delivery_address_keeps_unfinished_order(tmp_path):
     repo = SQLiteRepository(tmp_path / "test.sqlite3")
     repo.initialize()
     client = repo.upsert_client(telegram_id=123, username="client")
@@ -34,18 +34,18 @@ def test_runtime_greeting_delivery_address_resets_stale_order(tmp_path):
     )
     active = repo.get_active_order(client_id=client.id)
 
-    assert active.id != old_order.id
+    assert active.id == old_order.id
     assert card.fulfillment_type == "delivery"
     assert card.address == "гайдара 173"
-    assert card.budget is None
-    assert card.colors == []
+    assert card.budget == 15000
+    assert card.colors == ["красный"]
     assert card.delivery_time is None
-    assert card.sender_name is None
-    assert card.payment_method is None
+    assert card.sender_name == "Даниил"
+    assert card.payment_method == "cash"
     assert card.is_ready_for_admin_request() is False
 
 
-def test_runtime_greeting_then_delivery_address_resets_stale_order(tmp_path):
+def test_runtime_greeting_then_delivery_address_keeps_unfinished_order(tmp_path):
     repo = SQLiteRepository(tmp_path / "test.sqlite3")
     repo.initialize()
     client = repo.upsert_client(telegram_id=123, username="client")
@@ -63,10 +63,10 @@ def test_runtime_greeting_then_delivery_address_resets_stale_order(tmp_path):
     )
     active = repo.get_active_order(client_id=client.id)
 
-    assert active.id != old_order.id
+    assert active.id == old_order.id
     assert card.fulfillment_type == "delivery"
     assert card.address == "Гайдара 173"
-    assert card.budget is None
-    assert card.colors == []
+    assert card.budget == 15000
+    assert card.colors == ["красный"]
     assert card.delivery_time is None
-    assert card.payment_method is None
+    assert card.payment_method == "cash"

@@ -53,7 +53,7 @@ def test_admin_catalog_requires_auth_and_allows_mobile_quick_sold_out(tmp_path):
     assert body["item"]["status"] == "unavailable"
     assert body["item"]["quantity_number"] == 0
     assert DbCatalogStockSource(repo).fetch().items[0].status == StockStatus.UNAVAILABLE
-    events = repo.list_events(date_from=date(2026, 8, 13), date_to=date(2026, 8, 13))
+    events = repo.list_events(date_from=date.today(), date_to=date.today())
     catalog_events = [event for event in events if event.event == EventName.CATALOG_UPDATED.value]
     assert catalog_events
     assert "4500" not in catalog_events[-1].payload_json

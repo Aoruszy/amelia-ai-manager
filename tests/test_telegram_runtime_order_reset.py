@@ -3,7 +3,7 @@ from amelia_manager.order_card import OrderCard
 from amelia_manager.telegram_runtime import should_start_new_order, update_active_order_from_messages
 
 
-def test_should_start_new_order_for_generic_new_flower_request_after_old_order():
+def test_should_not_start_new_order_for_generic_clarification_on_unfinished_order():
     old_card = OrderCard(
         budget=7000,
         colors=["синий"],
@@ -13,10 +13,10 @@ def test_should_start_new_order_for_generic_new_flower_request_after_old_order()
         address="Гайдара 173",
     )
 
-    assert should_start_new_order("Нужны цветы", old_card) is True
+    assert should_start_new_order("Нужны цветы", old_card) is False
 
 
-def test_update_active_order_starts_new_order_for_fresh_request(tmp_path):
+def test_update_active_order_keeps_unfinished_order_for_fresh_request(tmp_path):
     repo = SQLiteRepository(tmp_path / "test.sqlite3")
     repo.initialize()
     client = repo.upsert_client(telegram_id=123, username=None)
@@ -30,6 +30,6 @@ def test_update_active_order_starts_new_order_for_fresh_request(tmp_path):
     )
 
     active = repo.get_active_order(client_id=client.id)
-    assert active.id != old_order.id
-    assert card.budget is None
-    assert card.fulfillment_type is None
+    assert active.id == old_order.id
+    assert card.budget == 7000
+    assert card.fulfillment_type == "delivery"

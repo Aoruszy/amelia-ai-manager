@@ -79,6 +79,15 @@ class CompanyProfile:
     sensitive_occasion_tone_rule: str = "сдержанно, без эмодзи, по делу и коротко"
     sensitive_occasion_forbidden_words: tuple[str, ...] = ()
     stock_source: StockSourceConfig = field(default_factory=StockSourceConfig)
+    additional_order_markers: tuple[str, ...] = (
+        "ещё один",
+        "еще один",
+        "ещё букет",
+        "еще букет",
+        "второй букет",
+        "отдельно нужен",
+        "а можно также",
+    )
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]

@@ -35,6 +35,7 @@ class ConversationAction:
     intent: str | None = None
     next_step: str | None = None
     confidence: float | None = None
+    order_scope: str = "continue"
     risk_category: RiskCategory | None = None
     safety_triggered_reasons: list[str] = field(default_factory=list)
     safety_retry_succeeded: bool | None = None
@@ -213,6 +214,7 @@ class ConversationEngine:
                 "intent": decision.intent,
                 "next_step": decision.next_step,
                 "confidence": decision.confidence,
+                "order_scope": decision.order_scope,
             }
             reply = _ensure_pickup_address_for_pickup_time(
                 reply,

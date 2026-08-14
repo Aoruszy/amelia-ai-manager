@@ -70,6 +70,7 @@ def handle_stock_command(
                 unit=item.unit,
                 status=item.status,
                 updated_by=sender_id,
+                journal_date=stock_date,
             )
         repo.replace_daily_stock(stock_date=stock_date, items=items, updated_by=sender_id)
     source_type = (company_profile.stock_source.type if company_profile is not None else "manual")
@@ -129,8 +130,7 @@ def update_active_order_from_messages(
     active = repo.get_active_order(client_id=client_id)
     latest_text = _last_client_text(recent_messages)
     if active and (
-        should_start_new_order(latest_text, active.card)
-        or _has_explicit_restart_in_history(recent_messages)
+        should_start_new_order(latest_text, active.card, company_profile=company_profile)
         or _completed_order_has_new_start_in_history(active.card, recent_messages)
     ):
         repo.close_active_orders(client_id=client_id)
@@ -159,8 +159,7 @@ async def update_active_order_from_messages_with_llm(
     active = repo.get_active_order(client_id=client_id)
     latest_text = _last_client_text(recent_messages)
     if active and (
-        should_start_new_order(latest_text, active.card)
-        or _has_explicit_restart_in_history(recent_messages)
+        should_start_new_order(latest_text, active.card, company_profile=company_profile)
         or _completed_order_has_new_start_in_history(active.card, recent_messages)
     ):
         repo.close_active_orders(client_id=client_id)
@@ -208,42 +207,74 @@ async def update_active_order_from_messages_with_optional_llm(
     )
 
 
+def apply_new_order_start(
+    repo: SQLiteRepository,
+    *,
+    client_id: int,
+    previous_order: OrderRecord,
+    updated_by: str = "model",
+) -> OrderRecord:
+    previous_order = repo.get_order_by_id(previous_order.id) or previous_order
+    close_status = "completed" if previous_order.card.admin_request_sent else "superseded"
+    repo.close_active_orders(client_id=client_id, status=close_status)
+    new_order = repo.get_or_create_active_order(client_id=client_id)
+    carried_card = OrderCard(sender_name=previous_order.card.sender_name, sender_phone=previous_order.card.sender_phone)
+    repo.update_order_card(order_id=new_order.id, card=carried_card)
+    return repo.get_order_by_id(new_order.id) or new_order
+
+
 def should_use_llm_extractor(settings: Settings, *, company_profile: CompanyProfile | None = None) -> bool:
     return bool(getattr(settings, "llm_extractor_enabled", False))
 
 
-def should_start_new_order(latest_client_text: str, existing_card: OrderCard) -> bool:
+@dataclass(frozen=True)
+class OrderScopeDecision:
+    start: bool
+    scope: str
+    overridden: bool = False
+    mismatch: bool = False
+
+    def __bool__(self) -> bool:
+        return self.start
+
+
+def should_start_new_order(
+    latest_client_text: str,
+    existing_card: OrderCard,
+    *,
+    model_order_scope: str | None = None,
+    company_profile: CompanyProfile | None = None,
+) -> OrderScopeDecision:
+    profile = company_profile or load_company_profile("amelia_flowers")
+    return_decision = model_order_scope is not None
+    def result(decision: OrderScopeDecision):
+        return decision if return_decision else decision.start
+
+    scope = model_order_scope if model_order_scope in {"continue", "new_order", "unrelated"} else "continue"
     text = latest_client_text.lower().replace("ё", "е").strip()
-    generic_new_request = _looks_like_order_start(text)
-    has_existing_order = any(
-        [
-            existing_card.budget,
-            existing_card.fulfillment_type,
-            existing_card.delivery_date,
-            existing_card.delivery_time,
-            existing_card.address,
-            existing_card.sender_phone,
-        ]
-    )
-    if generic_new_request and has_existing_order:
-        return True
+    has_existing_order = _has_existing_order_data(existing_card)
+    if not has_existing_order:
+        return result(OrderScopeDecision(False, scope, overridden=(scope == "new_order")))
 
-    if _is_greeting_order_restart(text) and has_existing_order:
-        return True
+    explicit_marker = _has_additional_order_marker(text, profile)
+    previous_order_done = existing_card.admin_request_sent or existing_card.is_ready_for_admin_request()
 
-    rich_new_request = _looks_like_order_start(text)
-    rich_order_details = sum(
-        bool(flag)
-        for flag in (
-            re.search(r"\bдо\s*\d{3,6}\b|\bбюджет\b", text),
-            re.search(r"\b\d{1,2}[:.]\d{2}\b", text),
-            "самовывоз" in text or "доставка" in text,
-            re.search(r"\b\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b", text),
-            "цвет" in text,
-        )
-    )
-    previous_order_is_effectively_done = existing_card.admin_request_sent or existing_card.is_ready_for_admin_request()
-    return previous_order_is_effectively_done and rich_new_request and rich_order_details >= 2
+    if explicit_marker and scope == "new_order":
+        return result(OrderScopeDecision(True, scope))
+
+    if not previous_order_done:
+        return result(OrderScopeDecision(False, "continue", overridden=(scope == "new_order")))
+
+    if scope == "new_order":
+        return result(OrderScopeDecision(True, scope))
+
+    mismatch = scope == "continue" and _completed_continue_mentions_new_details(text)
+    if model_order_scope is not None:
+        return result(OrderScopeDecision(False, scope, mismatch=mismatch))
+
+    # LLM-unavailable fallback: regex may start a new order only after the
+    # previous card is effectively done, never while an order is half-filled.
+    return result(OrderScopeDecision(_looks_like_order_start(text), scope))
 
 
 def _last_client_text(recent_messages: list[str]) -> str:
@@ -251,6 +282,49 @@ def _last_client_text(recent_messages: list[str]) -> str:
         if message.lower().startswith("клиент:"):
             return message.split(":", 1)[1].strip()
     return recent_messages[-1].strip() if recent_messages else ""
+
+
+def _has_existing_order_data(card: OrderCard) -> bool:
+    return any(
+        [
+            card.occasion,
+            card.budget,
+            card.colors,
+            card.forbidden_flowers,
+            card.fulfillment_type,
+            card.delivery_date,
+            card.delivery_time,
+            card.address,
+            card.sender_name,
+            card.sender_phone,
+            card.recipient_name,
+            card.recipient_phone,
+            card.payment_method,
+            card.postcard_text,
+            card.custom_fields,
+        ]
+    )
+
+
+def _has_additional_order_marker(text: str, profile: CompanyProfile) -> bool:
+    normalized = text.lower().replace("ё", "е")
+    markers = tuple(marker.lower().replace("ё", "е") for marker in profile.additional_order_markers)
+    return any(marker in normalized for marker in markers)
+
+
+def _completed_continue_mentions_new_details(text: str) -> bool:
+    return bool(
+        re.search(r"\b(маме|папе|сестре|подруге|коллеге|получател[ьяю])\b", text)
+        or re.search(r"\b\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\b", text)
+        or re.search(r"\b(?:завтра|послезавтра|сегодня)\b", text)
+    )
+
+
+def _prefix_new_order_confirmation(reply: str, *, previous_order_sent: bool) -> str:
+    prefix = "Хорошо, оформим второй букет — первый уже у менеджера. " if previous_order_sent else "Хорошо, оформим отдельный букет. "
+    if reply.startswith(prefix):
+        return reply
+    return prefix + reply
 
 
 def _looks_like_order_start(text: str) -> bool:
@@ -864,6 +938,42 @@ async def run_listener(settings: Settings) -> None:
             stock_context=stock_context,
             order_card=order_card,
         )
+
+        active_order = repo.get_active_order(client_id=db_client.id)
+        scope_decision: OrderScopeDecision | None = None
+        if active_order:
+            scope_decision = should_start_new_order(
+                _last_client_text(recent_messages),
+                active_order.card,
+                model_order_scope=action.order_scope,
+                company_profile=company_profile,
+            )
+            event_recorder.record(
+                EventName.ORDER_SCOPE_DECIDED,
+                client_id=db_client.id,
+                order_id=active_order.id,
+                payload={"scope": scope_decision.scope, "overridden": scope_decision.overridden},
+            )
+            if scope_decision.mismatch:
+                event_recorder.record(
+                    EventName.SCOPE_MISMATCH,
+                    client_id=db_client.id,
+                    order_id=active_order.id,
+                    payload={"scope": scope_decision.scope},
+                )
+            if scope_decision.start:
+                previous_sent = active_order.card.admin_request_sent
+                previous_id = active_order.id
+                active_order = apply_new_order_start(repo, client_id=db_client.id, previous_order=active_order)
+                order_card = active_order.card
+                if action.messages:
+                    action.messages[0] = _prefix_new_order_confirmation(action.messages[0], previous_order_sent=previous_sent)
+                event_recorder.record(
+                    EventName.NEW_ORDER_STARTED,
+                    client_id=db_client.id,
+                    order_id=active_order.id,
+                    payload={"previous_order_id": previous_id},
+                )
 
         if action.order_patch:
             active_order_for_patch = repo.get_active_order(client_id=db_client.id)

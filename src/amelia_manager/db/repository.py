@@ -425,6 +425,7 @@ class SQLiteRepository:
         is_active: bool = True,
         sort_order: int = 0,
         updated_by: int | None = None,
+        journal_date: date | None = None,
     ) -> CatalogItemRecord:
         clean_name = name.strip()
         if not clean_name:
@@ -453,7 +454,7 @@ class SQLiteRepository:
         item = self.get_catalog_item_by_name(clean_name)
         if item is None:
             raise RuntimeError("catalog item upsert failed")
-        self._append_catalog_daily_stock(item, updated_by=updated_by or 0)
+        self._append_catalog_daily_stock(item, updated_by=updated_by or 0, stock_date=journal_date)
         return item
 
     def update_catalog_item(self, item_id: int, **changes) -> CatalogItemRecord:
@@ -523,8 +524,8 @@ class SQLiteRepository:
             ).fetchall()
         return [self._catalog_item_from_row(row) for row in rows]
 
-    def _append_catalog_daily_stock(self, item: CatalogItemRecord, *, updated_by: int) -> None:
-        today = datetime.now(timezone.utc).date().isoformat()
+    def _append_catalog_daily_stock(self, item: CatalogItemRecord, *, updated_by: int, stock_date: date | None = None) -> None:
+        today = (stock_date or datetime.now(timezone.utc).date()).isoformat()
         with self._connect() as conn:
             conn.execute(
                 """

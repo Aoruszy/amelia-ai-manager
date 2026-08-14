@@ -29,6 +29,9 @@ SAFE_PAYLOAD_KEYS = {
     "item_name",
     "field",
     "updated_by",
+    "scope",
+    "overridden",
+    "previous_order_id",
 }
 
 

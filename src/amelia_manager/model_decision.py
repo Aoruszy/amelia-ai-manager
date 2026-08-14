@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 class ModelDecision(BaseModel):
@@ -17,6 +17,14 @@ class ModelDecision(BaseModel):
     next_step: str | None = None
     needs_human: bool = False
     confidence: float | None = Field(default=None, ge=0, le=1)
+    order_scope: str = "continue"
+
+    @field_validator("order_scope", mode="before")
+    @classmethod
+    def _valid_order_scope(cls, value: object) -> str:
+        if value in {"continue", "new_order", "unrelated"}:
+            return str(value)
+        return "continue"
 
 
 def parse_model_decision(raw: str) -> ModelDecision | None:
