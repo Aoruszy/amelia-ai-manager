@@ -78,7 +78,8 @@ class CompanyProfile:
     product_categories: tuple[str, ...] = field(default_factory=tuple)
     faq: dict[str, str] = field(default_factory=dict)
     timezone_name: str = "Europe/Kaliningrad"
-    stock_terms: tuple[str, ...] = ("в наличии",)
+    stock_terms: tuple[str, ...] = ()
+    stock_question_markers: tuple[str, ...] = ("в наличии",)
     alternative_offer_text: str = "могу предложить близкий вариант"
     followup_fallbacks: dict[str, str] = field(default_factory=dict)
     order_reminder_fallback: str = "Напоминаю про заказ на завтра. Если что-то изменилось, можно просто написать сюда."
@@ -119,7 +120,8 @@ _DEFAULT_PROFILES = {
         free_delivery_from=5000,
         delivery_city_price=400,
         max_bouquet_estimate=10000,
-        stock_terms=("пионы", "редкие", "в наличии", "точно есть"),
+        stock_terms=("пионы", "редкие"),
+        stock_question_markers=("есть", "в наличии", "точно есть", "сколько стоит", "сколько стоят"),
         stock_source=StockSourceConfig(
             type="db",
             sheets=SheetsStockConfig(

@@ -123,7 +123,6 @@ def _merge_states(regex_state: OrderState, llm_state: OrderState) -> OrderState:
     protected_regex_fields = {
         "delivery_date": regex_state.delivery_date,
         "delivery_time": regex_state.delivery_time,
-        "budget": regex_state.budget,
         "fulfillment_type": regex_state.fulfillment_type,
     }
     merged_card = merge_order_state(OrderCard(), regex_state)

@@ -11,6 +11,7 @@ def test_stock_uncertainty_terms_come_from_profile_not_florist_core():
         city="Калининград",
         tone="короткий",
         stock_terms=("зерно", "круассан"),
+        stock_question_markers=("в наличии",),
         alternative_offer_text="могу предложить другой напиток",
     )
 

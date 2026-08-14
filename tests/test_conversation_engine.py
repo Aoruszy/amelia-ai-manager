@@ -75,7 +75,8 @@ async def test_sensitive_occasion_stays_sticky_across_later_turns():
             self.prompts.append(prompt)
             assert "occasion_sensitive" in prompt
             assert "без эмодзи" in prompt
-            assert "яркий" in prompt
+            assert "запрещённые слова" in prompt
+            assert "яркий" not in prompt.lower()
             if len(self.prompts) == 1:
                 return '{"intent":"order","emotion":"grief","reply":"Соберу очень нежный и яркий букет 🌸 На какое время подготовить?","case_patch":{},"next_step":"ask_pickup_time","needs_human":false,"confidence":0.9}'
             assert "запрещённые слова для чувствительного повода" in prompt
@@ -202,7 +203,7 @@ async def test_engine_hands_off_unsafe_llm_reply():
 
     action = await engine.handle_messages(
         client_summary="Новый клиент",
-        recent_messages=["Есть розы?"],
+        recent_messages=["Нужен букет"],
         stage="bouquet_selection",
     )
 

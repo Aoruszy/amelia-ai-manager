@@ -8,6 +8,7 @@ class EventName(StrEnum):
     MESSAGE_RECEIVED = "message_received"
     REPLY_SENT = "reply_sent"
     STEP_COMPLETED = "step_completed"
+    CASE_PATCH_IGNORED = "case_patch_ignored"
     ORDER_READY = "order_ready"
     ADMIN_REQUEST_SENT = "admin_request_sent"
     ESCALATED = "escalated"

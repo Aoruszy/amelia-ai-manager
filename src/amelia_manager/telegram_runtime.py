@@ -22,7 +22,7 @@ from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteReposi
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
 from amelia_manager.llm_client import build_llm_client
-from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch, merge_order_state
+from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
 from amelia_manager.order_sheet import SheetsOrderAppender, append_order_to_sheet_if_needed, send_pending_sheet_rows
@@ -983,11 +983,19 @@ async def run_listener(settings: Settings) -> None:
         if action.order_patch:
             active_order_for_patch = repo.get_active_order(client_id=db_client.id)
             if active_order_for_patch:
-                order_card = merge_order_patch(active_order_for_patch.card, action.order_patch)
+                previous_card = active_order_for_patch.card
+                order_card = merge_order_patch(previous_card, action.order_patch)
                 repo.update_order_card(order_id=active_order_for_patch.id, card=order_card)
-                for field_code in action.order_patch.keys():
+                for field_code in applied_order_patch_field_codes(previous_card, order_card, action.order_patch):
                     event_recorder.record(
                         EventName.STEP_COMPLETED,
+                        client_id=db_client.id,
+                        order_id=active_order_for_patch.id,
+                        payload={"field_code": field_code},
+                    )
+                for field_code in unapplied_order_patch_field_codes(action.order_patch):
+                    event_recorder.record(
+                        EventName.CASE_PATCH_IGNORED,
                         client_id=db_client.id,
                         order_id=active_order_for_patch.id,
                         payload={"field_code": field_code},

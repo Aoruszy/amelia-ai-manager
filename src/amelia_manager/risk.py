@@ -146,11 +146,21 @@ _CATEGORY_PATTERNS: tuple[tuple[RiskCategory, RiskLevel, tuple[re.Pattern[str], 
 def assess_risk(text: str, *, company_profile: CompanyProfile | None = None) -> RiskAssessment:
     normalized = text.lower().replace("ё", "е")
     profile = company_profile or load_company_profile("amelia_flowers")
-    for term in profile.stock_terms:
-        term_pattern = re.escape(term.lower().replace("ё", "е"))
-        if re.search(rf"\b{term_pattern}\w*\b", normalized):
+    for category, level, patterns in _CATEGORY_PATTERNS:
+        if level != RiskLevel.HIGH:
+            continue
+        for pattern in patterns:
+            match = pattern.search(normalized)
+            if match:
+                return RiskAssessment(level=level, category=category, matched=match.group(0))
+    for term in profile.stock_question_markers:
+        marker = term.lower().replace("ё", "е")
+        term_pattern = re.escape(marker)
+        if re.search(rf"\b{term_pattern}\w*\b", normalized) and _stock_marker_has_product_context(marker, normalized, profile):
             return RiskAssessment(level=RiskLevel.MEDIUM, category=RiskCategory.STOCK_UNCERTAINTY, matched=term)
     for category, level, patterns in _CATEGORY_PATTERNS:
+        if level == RiskLevel.HIGH:
+            continue
         for pattern in patterns:
             match = pattern.search(normalized)
             if match:
@@ -158,6 +168,23 @@ def assess_risk(text: str, *, company_profile: CompanyProfile | None = None) -> 
                     continue
                 return RiskAssessment(level=level, category=category, matched=match.group(0))
     return RiskAssessment(level=RiskLevel.LOW)
+
+
+def _stock_marker_has_product_context(marker: str, normalized: str, profile: CompanyProfile) -> bool:
+    if marker not in {"есть"}:
+        return True
+    terms = [*profile.stock_terms, *profile.product_categories, *profile.services]
+    return any(_profile_term_matches(term, normalized) for term in terms)
+
+
+def _profile_term_matches(term: str, normalized: str) -> bool:
+    normalized_term = term.lower().replace("ё", "е").strip()
+    if not normalized_term:
+        return False
+    stem = normalized_term.rstrip("ыиаоеейюя")
+    if len(stem) < 4:
+        stem = normalized_term
+    return bool(re.search(rf"\b{re.escape(stem)}\w*\b", normalized))
 
 
 def _is_delivery_price_question(normalized: str) -> bool:

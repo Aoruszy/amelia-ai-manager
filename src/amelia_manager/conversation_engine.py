@@ -175,7 +175,7 @@ class ConversationEngine:
             next_step_instruction=next_step.instruction,
             stock_context=stock_context,
             company_profile=self.company_profile,
-            order_card_context=_format_order_card_context(order_card) if order_card else None,
+            order_card_context=_format_order_card_context(order_card, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile) if order_card else None,
             sensitive_occasion=sensitive_occasion,
         )
         try:
@@ -217,6 +217,7 @@ class ConversationEngine:
                 recent_messages=recent_messages,
                 stock_context=stock_context,
                 risk_level=risk_level,
+                sensitive_occasion=sensitive_occasion,
             )
             if retry_result is not None:
                 return retry_result
@@ -383,6 +384,7 @@ class ConversationEngine:
         recent_messages: list[str],
         stock_context: str | None,
         risk_level: RiskLevel,
+        sensitive_occasion: bool,
     ) -> ConversationAction | None:
         retry_prompt = (
             prompt
@@ -402,6 +404,9 @@ class ConversationEngine:
             return None
         reply = retry_decision.reply
         safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
+        sensitive_tone_reasons = _sensitive_tone_violations(reply, self.company_profile) if sensitive_occasion else []
+        if sensitive_tone_reasons:
+            safety = SafetyResult(is_safe=False, reasons=[*safety.reasons, *sensitive_tone_reasons])
         if not safety.is_safe:
             return ConversationAction(
                 kind="human_review",
@@ -414,7 +419,7 @@ class ConversationEngine:
         if retry_decision.needs_human:
             return ConversationAction(
                 kind="human_review",
-                messages=_finalize_messages(reply, sensitive_occasion=False, company_profile=self.company_profile),
+                messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                 risk_level=risk_level,
                 safety_reasons=["parse_failed", "model_decision_needs_human"],
                 order_patch=dict(retry_decision.case_patch),
@@ -425,7 +430,7 @@ class ConversationEngine:
             )
         return ConversationAction(
             kind="send",
-            messages=_finalize_messages(reply, sensitive_occasion=False, company_profile=self.company_profile),
+            messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
             risk_level=risk_level,
             safety_reasons=["parse_failed"],
             order_patch=dict(retry_decision.case_patch),
@@ -548,7 +553,13 @@ def _tokens_overlap(left: set[str], right: set[str]) -> bool:
     return False
 
 
-def _format_order_card_context(card: OrderCard) -> str:
+def _format_order_card_context(
+    card: OrderCard,
+    *,
+    sensitive_occasion: bool = False,
+    company_profile: CompanyProfile | None = None,
+) -> str:
+    profile = company_profile or load_company_profile("amelia_flowers")
     lines: list[str] = []
     if card.fulfillment_type:
         lines.append(f"- Формат: {'доставка' if card.fulfillment_type == 'delivery' else 'самовывоз'}")
@@ -560,7 +571,9 @@ def _format_order_card_context(card: OrderCard) -> str:
     if budget_display:
         lines.append(f"- Бюджет: {budget_display}")
     if card.colors:
-        lines.append(f"- Пожелания: {', '.join(card.colors)}")
+        preferences = _safe_order_preferences_for_prompt(card.colors, sensitive_occasion=sensitive_occasion, profile=profile)
+        if preferences:
+            lines.append(f"- Пожелания: {', '.join(preferences)}")
     if card.address:
         lines.append(f"- Адрес: {card.address}")
     if card.sender_name or card.sender_phone:
@@ -573,6 +586,26 @@ def _format_order_card_context(card: OrderCard) -> str:
         if value not in (None, "", [], {}):
             lines.append(f"- {key}: {value}")
     return "\n".join(lines) if lines else "- пока пусто"
+
+
+def _safe_order_preferences_for_prompt(
+    preferences: list[str],
+    *,
+    sensitive_occasion: bool,
+    profile: CompanyProfile,
+) -> list[str]:
+    if not sensitive_occasion:
+        return preferences
+    forbidden = [word.lower().replace("ё", "е") for word in profile.sensitive_occasion_forbidden_words]
+    safe: list[str] = []
+    for preference in preferences:
+        normalized = preference.lower().replace("ё", "е")
+        if any(re.search(rf"\b{re.escape(word)}\w*\b", normalized) for word in forbidden):
+            continue
+        safe.append(preference)
+    if safe:
+        return safe
+    return ["сдержанная гамма"]
 
 
 def _is_sensitive_occasion_sticky(card: OrderCard | None) -> bool:
@@ -606,7 +639,7 @@ def _sensitive_tone_violations(reply: str, profile: CompanyProfile) -> list[str]
     for word in profile.sensitive_occasion_forbidden_words:
         normalized_word = word.lower().replace("ё", "е")
         if re.search(rf"\b{re.escape(normalized_word)}\w*\b", normalized_reply):
-            violations.append(f"запрещённые слова для чувствительного повода: {word}")
+            violations.append("запрещённые слова для чувствительного повода")
     return violations
 
 

@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from amelia_manager.company_profile import CompanyProfile
+from amelia_manager.order_fields import card_field_for_profile_code, normalize_order_patch_keys, profile_code_for_card_field
 from amelia_manager.order_state import OrderState
 
 
@@ -111,12 +112,35 @@ def merge_order_patch(existing: OrderCard, patch: dict[str, Any]) -> OrderCard:
     if not patch:
         return existing
     allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
-    cleaned = {key: value for key, value in patch.items() if key in allowed and value not in (None, "", [], {})}
+    normalized, _unknown = normalize_order_patch_keys(patch, allowed_fields=allowed)
+    cleaned = {key: value for key, value in normalized.items() if value not in (None, "", [], {})}
     if "custom_fields" in cleaned and isinstance(cleaned["custom_fields"], dict):
         cleaned["custom_fields"] = {**existing.custom_fields, **cleaned["custom_fields"]}
     if not cleaned:
         return existing
     return OrderCard.from_dict({**existing.to_dict(), **cleaned})
+
+
+def applied_order_patch_field_codes(before: OrderCard, after: OrderCard, patch: dict[str, Any]) -> list[str]:
+    allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
+    normalized, _unknown = normalize_order_patch_keys(patch, allowed_fields=allowed)
+    changed: list[str] = []
+    for original_code, value in patch.items():
+        field = normalize_order_patch_keys({original_code: value}, allowed_fields=allowed)[0]
+        if not field:
+            continue
+        card_field = next(iter(field.keys()))
+        if value in (None, "", [], {}):
+            continue
+        if getattr(before, card_field, None) != getattr(after, card_field, None):
+            changed.append(profile_code_for_card_field(card_field))
+    return list(dict.fromkeys(changed))
+
+
+def unapplied_order_patch_field_codes(patch: dict[str, Any]) -> list[str]:
+    allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
+    _normalized, unknown = normalize_order_patch_keys(patch, allowed_fields=allowed)
+    return list(dict.fromkeys(unknown))
 
 
 def _merge_list(left: list[str], right: list[str]) -> list[str]:
@@ -159,24 +183,7 @@ def is_ready_for_profile_case(card: OrderCard, profile: CompanyProfile, case_typ
 
 
 def _business_field_value(card: OrderCard, code: str) -> object:
-    mapping = {
-        "budget": card.budget,
-        "date": card.delivery_date,
-        "time": card.delivery_time,
-        "delivery_address": card.address,
-        "address": card.address,
-        "recipient_name": card.recipient_name,
-        "recipient_phone": card.recipient_phone,
-        "customer_name": card.sender_name,
-        "sender_name": card.sender_name,
-        "customer_phone": card.sender_phone,
-        "sender_phone": card.sender_phone,
-        "payment_method": card.payment_method,
-        "product_preferences": card.colors,
-        "preferences": card.colors,
-        "postcard_text": card.postcard_text,
-        "anonymous": card.anonymous,
-        "photo_report_requested": card.photo_report_requested,
-        "fulfillment_type": card.fulfillment_type,
-    }
-    return mapping.get(code, card.custom_fields.get(code))
+    field = card_field_for_profile_code(code)
+    if field:
+        return getattr(card, field)
+    return card.custom_fields.get(code)
