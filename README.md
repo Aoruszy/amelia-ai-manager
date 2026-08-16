@@ -28,7 +28,7 @@ Keep only the declared baseline report and the latest eval run in `reports/`: to
 
 ## Admin UI
 
-The admin UI is a separate FastAPI app. It is protected with Basic Auth, rate-limits failed logins in memory, and refuses to start with empty/default admin credentials.
+The admin UI is a separate FastAPI app. It is protected with Basic Auth, rate-limits failed logins in memory, and refuses to start with empty/default admin credentials. Basic Auth sends credentials as base64, not encryption, so expose the panel only behind a TLS terminator such as Cloudflare Tunnel or Caddy; never publish it over plain HTTP.
 
 All logged-in users have the same access level: dialogs, catalog, and metrics. Give the password only to people trusted with customer messages and contacts, and rotate it when staff changes.
 
@@ -102,13 +102,13 @@ Use `AUTO_REPLY_ENABLED=false` for dry-runs. In dry-run mode the runtime should 
 
 Runtime data is stored locally in the SQLite database configured by `DATABASE_URL` (default: `data/amelia_manager.sqlite3`). This can include Telegram IDs/usernames, message history, order cards, phone numbers, names, addresses, postcard text, and company stock notes. Keep `data/` out of git and restrict access on the deployment host.
 
-`PII_RETENTION_DAYS` controls automatic cleanup at listener startup:
+`PII_RETENTION_DAYS` controls automatic cleanup at listener startup and in the daily `RETENTION_CLEANUP_INTERVAL_HOURS` background loop:
 
 - messages older than the retention window are deleted;
 - old completed/sent order cards are anonymized by clearing names, phones, delivery address, postcard text, and profile-specific `custom_fields`;
 - recent active orders are kept intact so the manager can continue the current conversation.
 
-Default retention is 30 days. For manual deletion requests, use the repository erasure helper from a maintenance shell:
+Default message/order-card retention is 30 days. `EVENT_RETENTION_DAYS` defaults to 90 days because anonymized events intentionally outlive messages for metrics. For SQLite backups, use the online `.backup` command rather than copying the database file directly; see `docs/operations.md`. For manual deletion requests, use the repository erasure helper from a maintenance shell:
 
 ```bash
 uv run python - <<'PY'

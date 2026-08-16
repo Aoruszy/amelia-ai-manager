@@ -21,7 +21,7 @@ from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
-from amelia_manager.llm_client import build_llm_client
+from amelia_manager.llm_client import GeminiClient, build_llm_client
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
@@ -728,11 +728,43 @@ async def weekly_stats_loop(
 ) -> None:
     sent_for_date: date | None = None
     while True:
-        now = datetime.now(ZoneInfo(timezone_name))
-        if now.weekday() == 0 and is_within_work_hours(now, settings=settings) and sent_for_date != now.date():
-            await telegram_client.send_message(admin_chat_id, format_stats_report(repo, days=7, today=now.date(), timezone_name=timezone_name))
-            sent_for_date = now.date()
+        try:
+            now = datetime.now(ZoneInfo(timezone_name))
+            if now.weekday() == 0 and is_within_work_hours(now, settings=settings) and sent_for_date != now.date():
+                await telegram_client.send_message(admin_chat_id, format_stats_report(repo, days=7, today=now.date(), timezone_name=timezone_name))
+                sent_for_date = now.date()
+        except Exception:
+            LOGGER.exception("weekly_stats_loop_failed", extra={"event": "weekly_stats_loop_failed"})
         await sleep(3600)
+
+
+async def retention_cleanup_loop(
+    *,
+    repo: SQLiteRepository,
+    settings: Settings,
+    sleep=asyncio.sleep,
+) -> None:
+    while True:
+        try:
+            cleanup_result = repo.cleanup_pii_older_than(
+                retention_days=settings.pii_retention_days,
+                event_retention_days=settings.event_retention_days,
+            )
+            if cleanup_result.deleted_messages or cleanup_result.anonymized_orders or cleanup_result.deleted_events:
+                LOGGER.info(
+                    "retention_cleanup",
+                    extra={
+                        "event": "retention_cleanup",
+                        "payload": {
+                            "deleted_messages": cleanup_result.deleted_messages,
+                            "anonymized_orders": cleanup_result.anonymized_orders,
+                            "deleted_events": cleanup_result.deleted_events,
+                        },
+                    },
+                )
+        except Exception:
+            LOGGER.exception("retention_cleanup_loop_failed", extra={"event": "retention_cleanup_loop_failed"})
+        await sleep(settings.retention_cleanup_interval_hours * 60 * 60)
 
 
 async def outbound_scheduler_loop(
@@ -746,22 +778,46 @@ async def outbound_scheduler_loop(
     sleep=asyncio.sleep,
 ) -> None:
     while True:
-        active_telegram_ids = await debounce_processor.active_sender_ids()
-        active_clients = {
-            client.id
-            for telegram_id in active_telegram_ids
-            if (client := repo.get_client_by_telegram_id(telegram_id)) is not None
-        }
-        await process_outbound_tick(
-            telegram_client,
-            repo=repo,
-            settings=settings,
-            company_profile=company_profile,
-            now=datetime.now(ZoneInfo(company_profile.timezone_name)),
-            active_buffers=active_clients,
-            llm_client=llm_client,
-        )
+        try:
+            active_telegram_ids = await debounce_processor.active_sender_ids()
+            active_clients = {
+                client.id
+                for telegram_id in active_telegram_ids
+                if (client := repo.get_client_by_telegram_id(telegram_id)) is not None
+            }
+            await process_outbound_tick(
+                telegram_client,
+                repo=repo,
+                settings=settings,
+                company_profile=company_profile,
+                now=datetime.now(ZoneInfo(company_profile.timezone_name)),
+                active_buffers=active_clients,
+                llm_client=llm_client,
+            )
+        except Exception:
+            LOGGER.exception("outbound_scheduler_loop_failed", extra={"event": "outbound_scheduler_loop_failed"})
         await sleep(settings.scheduler_interval_minutes * 60)
+
+
+def track_background_task(task: asyncio.Task, tasks: set[asyncio.Task], *, name: str) -> None:
+    tasks.add(task)
+
+    def _on_done(done_task: asyncio.Task) -> None:
+        tasks.discard(done_task)
+        if done_task.cancelled():
+            LOGGER.info("background_task_cancelled", extra={"event": "background_task_cancelled", "payload": {"name": name}})
+            return
+        try:
+            exc = done_task.exception()
+        except Exception:
+            LOGGER.exception("background_task_result_failed", extra={"event": "background_task_result_failed", "payload": {"name": name}})
+            return
+        if exc is not None:
+            LOGGER.error("background_task_failed %s", name, exc_info=(type(exc), exc, exc.__traceback__), extra={"event": "background_task_failed", "payload": {"name": name}})
+        else:
+            LOGGER.error("background_task_stopped %s", name, extra={"event": "background_task_stopped", "payload": {"name": name}})
+
+    task.add_done_callback(_on_done)
 
 
 def should_send_off_hours_reply(repo: SQLiteRepository, *, client_id: int, now: datetime, settings: Settings) -> bool:
@@ -816,7 +872,7 @@ async def run_listener(settings: Settings) -> None:
     repo.initialize()
     event_recorder = EventRecorder(repo)
     stock_source = build_stock_source(repo, company_profile)
-    cleanup_result = repo.cleanup_pii_older_than(retention_days=settings.pii_retention_days)
+    cleanup_result = repo.cleanup_pii_older_than(retention_days=settings.pii_retention_days, event_retention_days=settings.event_retention_days)
     if cleanup_result.deleted_messages or cleanup_result.anonymized_orders or cleanup_result.deleted_events:
         LOGGER.info(
             "retention_cleanup",
@@ -1114,6 +1170,7 @@ async def run_listener(settings: Settings) -> None:
         first_buffer_seconds=min(settings.message_buffer_seconds, 2),
         process_turn=process_customer_turn,
     )
+    background_tasks: set[asyncio.Task] = set()
 
     @client.on(events.NewMessage(incoming=True))
     async def handler(event):
@@ -1145,7 +1202,7 @@ async def run_listener(settings: Settings) -> None:
         await debounce_processor.enqueue(sender_id=sender_id, text=incoming.text)
 
     await client.start(phone=settings.telegram_phone)
-    me = await client.get_me()
+    await client.get_me()
     LOGGER.info("listener_started", extra={"event": "listener_started", "payload": {"auto_reply": settings.auto_reply_enabled}})
     if settings.auto_reply_enabled:
         pending_sent = await send_pending_admin_requests(
@@ -1159,24 +1216,39 @@ async def run_listener(settings: Settings) -> None:
         pending_sheet_rows = send_pending_sheet_rows(repo, company_profile=company_profile)
         if pending_sheet_rows:
             LOGGER.info("pending_sheet_rows_sent", extra={"event": "pending_sheet_rows_sent", "payload": {"count": pending_sheet_rows}})
-        asyncio.create_task(
-            weekly_stats_loop(
-                client,
-                repo=repo,
-                admin_chat_id=settings.admin_chat_id,
-                settings=settings,
-                timezone_name=company_profile.timezone_name,
-            )
+        track_background_task(
+            asyncio.create_task(
+                weekly_stats_loop(
+                    client,
+                    repo=repo,
+                    admin_chat_id=settings.admin_chat_id,
+                    settings=settings,
+                    timezone_name=company_profile.timezone_name,
+                )
+            ),
+            background_tasks,
+            name="weekly_stats_loop",
         )
-        asyncio.create_task(
-            outbound_scheduler_loop(
-                client,
-                repo=repo,
-                settings=settings,
-                company_profile=company_profile,
-                debounce_processor=debounce_processor,
-                llm_client=llm,
-            )
+        track_background_task(
+            asyncio.create_task(
+                retention_cleanup_loop(repo=repo, settings=settings)
+            ),
+            background_tasks,
+            name="retention_cleanup_loop",
+        )
+        track_background_task(
+            asyncio.create_task(
+                outbound_scheduler_loop(
+                    client,
+                    repo=repo,
+                    settings=settings,
+                    company_profile=company_profile,
+                    debounce_processor=debounce_processor,
+                    llm_client=llm,
+                )
+            ),
+            background_tasks,
+            name="outbound_scheduler_loop",
         )
     await client.run_until_disconnected()
 

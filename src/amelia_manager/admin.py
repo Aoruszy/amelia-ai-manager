@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -105,7 +105,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return response
 
     def require_auth(request: Request, credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> None:
-        ip = request.client.host if request.client else "unknown"
+        ip = _client_ip_for_rate_limit(request, settings=settings)
         if limiter.is_blocked(ip):
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many failed login attempts")
         ok_user = secrets.compare_digest(credentials.username, settings.admin_username)
@@ -114,6 +114,16 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             limiter.record_failure(ip)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, headers={"WWW-Authenticate": "Basic"})
         limiter.record_success(ip)
+
+    def require_same_origin(request: Request) -> None:
+        source = request.headers.get("origin") or request.headers.get("referer")
+        if not source:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing Origin or Referer")
+        parsed = urlparse(source)
+        source_host = parsed.netloc.lower()
+        request_host = request.headers.get("host", "").lower()
+        if not source_host or source_host != request_host:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site POST rejected")
 
     def render(template: str, **context) -> HTMLResponse:
         return HTMLResponse(env.get_template(template).render(**context))
@@ -136,7 +146,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return render("catalog.html", title="Ассортимент", items=repo.list_catalog_items(q=q), q=q)
 
     @app.post("/catalog/items")
-    async def add_catalog_item(request: Request, _auth=Depends(require_auth)):
+    async def add_catalog_item(request: Request, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
         data = {key: values[-1] for key, values in form.items()}
         item = repo.upsert_catalog_item(
@@ -150,7 +160,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return RedirectResponse("/catalog", status_code=303)
 
     @app.post("/catalog/items/{item_id}/quick")
-    async def quick_catalog_update(item_id: int, request: Request, _auth=Depends(require_auth)):
+    async def quick_catalog_update(item_id: int, request: Request, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         item = repo.get_catalog_item(item_id)
         if item is None:
             raise HTTPException(status_code=404)
@@ -179,7 +189,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return render("catalog_item.html", title=item.name, item=item)
 
     @app.post("/catalog/items/{item_id}")
-    async def edit_catalog_item(item_id: int, request: Request, _auth=Depends(require_auth)):
+    async def edit_catalog_item(item_id: int, request: Request, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         item = repo.get_catalog_item(item_id)
         if item is None:
             raise HTTPException(status_code=404)
@@ -203,7 +213,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return RedirectResponse(f"/catalog/items/{updated.id}", status_code=303)
 
     @app.post("/catalog/items/{item_id}/hide")
-    def hide_catalog_item(item_id: int, _auth=Depends(require_auth)):
+    def hide_catalog_item(item_id: int, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         item = repo.get_catalog_item(item_id)
         if item is None:
             raise HTTPException(status_code=404)
@@ -225,7 +235,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         )
 
     @app.post("/clients/{client_id}/pause")
-    def pause(client_id: int, _auth=Depends(require_auth)):
+    def pause(client_id: int, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         client = repo.get_client_by_id(client_id)
         if client is None:
             raise HTTPException(status_code=404)
@@ -233,7 +243,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return RedirectResponse(f"/clients/{client.id}", status_code=303)
 
     @app.post("/clients/{client_id}/resume")
-    def resume(client_id: int, _auth=Depends(require_auth)):
+    def resume(client_id: int, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         client = repo.get_client_by_id(client_id)
         if client is None:
             raise HTTPException(status_code=404)
@@ -241,7 +251,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return RedirectResponse(f"/clients/{client.id}", status_code=303)
 
     @app.post("/clients/{client_id}/card")
-    async def edit_card(client_id: int, request: Request, _auth=Depends(require_auth)):
+    async def edit_card(client_id: int, request: Request, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         client = repo.get_client_by_id(client_id)
         order = repo.get_active_order(client_id=client_id)
         if client is None or order is None:
@@ -256,7 +266,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return RedirectResponse(f"/clients/{client.id}", status_code=303)
 
     @app.post("/clients/{client_id}/orders/{order_id}/status")
-    async def change_order_status(client_id: int, order_id: int, request: Request, _auth=Depends(require_auth)):
+    async def change_order_status(client_id: int, order_id: int, request: Request, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         client = repo.get_client_by_id(client_id)
         order = repo.get_order_by_id(order_id)
         if client is None or order is None or order.client_id != client.id:
@@ -292,6 +302,18 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
 def _validate_admin_credentials(settings: Settings) -> None:
     if not settings.admin_username.strip() or not settings.admin_password.strip() or (settings.admin_username == "admin" and settings.admin_password == "admin"):
         raise RuntimeError("Set ADMIN_USERNAME and ADMIN_PASSWORD in .env before starting admin UI; default or empty credentials are forbidden")
+
+
+def _client_ip_for_rate_limit(request: Request, *, settings: Settings) -> str:
+    peer_ip = request.client.host if request.client else "unknown"
+    if peer_ip not in settings.trusted_proxy_ips:
+        return peer_ip
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    for raw_ip in forwarded_for.split(","):
+        ip = raw_ip.strip()
+        if ip:
+            return ip
+    return peer_ip
 
 
 def _parse_optional_int(value: str | None) -> int | None:

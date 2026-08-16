@@ -1,6 +1,6 @@
 import pytest
 
-from amelia_manager.conversation_engine import ConversationAction, ConversationEngine
+from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.order_card import OrderCard
 from amelia_manager.risk import RiskLevel
 

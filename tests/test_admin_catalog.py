@@ -47,7 +47,7 @@ def test_admin_catalog_requires_auth_and_allows_mobile_quick_sold_out(tmp_path):
     assert 'inputmode="numeric"' in page.text
     assert "data-catalog-card" in page.text
 
-    response = client.post(f"/catalog/items/{item.id}/quick", json={"action": "sold_out"}, auth=("owner", "secret-password"))
+    response = client.post(f"/catalog/items/{item.id}/quick", json={"action": "sold_out"}, headers={"Origin": "http://testserver"}, auth=("owner", "secret-password"))
     assert response.status_code == 200
     body = response.json()
     assert body["item"]["status"] == "unavailable"
@@ -69,6 +69,7 @@ def test_admin_catalog_add_and_hide_without_delete(tmp_path):
     response = client.post(
         "/catalog/items",
         data={"name": "Гортензия", "quantity_number": "2", "price": "1800", "unit": "шт"},
+        headers={"Origin": "http://testserver"},
         auth=("owner", "secret-password"),
         follow_redirects=False,
     )
@@ -76,7 +77,7 @@ def test_admin_catalog_add_and_hide_without_delete(tmp_path):
     [item] = repo.list_catalog_items(include_inactive=True)
     assert item.name == "Гортензия"
 
-    response = client.post(f"/catalog/items/{item.id}/hide", auth=("owner", "secret-password"), follow_redirects=False)
+    response = client.post(f"/catalog/items/{item.id}/hide", headers={"Origin": "http://testserver"}, auth=("owner", "secret-password"), follow_redirects=False)
     assert response.status_code == 303
     assert repo.list_catalog_items() == []
     assert repo.list_catalog_items(include_inactive=True)[0].is_active is False

@@ -53,12 +53,15 @@ class Settings(BaseSettings):
     conversation_history_limit: int = Field(default=20, ge=1, le=30)
     conversation_memory_days: int = Field(default=7, ge=1, le=30)
     pii_retention_days: int = Field(default=30, ge=1, le=3650)
+    event_retention_days: int = Field(default=90, ge=1, le=3650)
+    retention_cleanup_interval_hours: int = Field(default=24, ge=1, le=168)
     max_reply_chars: int = Field(default=400, ge=100, le=1000)
     work_hours_start: str = "09:00"
     work_hours_end: str = "20:00"
     delivery_hours_start: str = "08:00"
     delivery_hours_end: str = "22:00"
     scheduler_interval_minutes: int = Field(default=15, ge=1, le=1440)
+    admin_trusted_proxy_ips: str = ""
 
     @field_validator("max_reply_delay_seconds")
     @classmethod
@@ -78,3 +81,7 @@ class Settings(BaseSettings):
             if raw_id:
                 ids.add(int(raw_id))
         return ids
+
+    @cached_property
+    def trusted_proxy_ips(self) -> set[str]:
+        return {ip.strip() for ip in self.admin_trusted_proxy_ips.split(",") if ip.strip()}

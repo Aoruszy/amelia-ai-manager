@@ -1,6 +1,6 @@
 from amelia_manager.config import Settings
 from amelia_manager.db.repository import SQLiteRepository
-from amelia_manager.telegram_runtime import should_use_llm_extractor, update_active_order_from_messages, update_active_order_from_messages_with_optional_llm
+from amelia_manager.telegram_runtime import should_use_llm_extractor, update_active_order_from_messages_with_optional_llm
 
 
 class ExplodingLLM:

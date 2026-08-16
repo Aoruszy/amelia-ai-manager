@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import timedelta
 
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.stock import StockItem, StockStatus, build_stock_context

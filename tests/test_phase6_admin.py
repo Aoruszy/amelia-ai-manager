@@ -18,6 +18,10 @@ def _auth(username: str = "admin", password: str = "secret") -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
+def _post_headers() -> dict[str, str]:
+    return {**_auth(), "Origin": "http://testserver"}
+
+
 def _app(tmp_path: Path) -> tuple[TestClient, SQLiteRepository]:
     db_path = tmp_path / "admin.sqlite3"
     repo = SQLiteRepository(db_path)
@@ -64,7 +68,7 @@ def test_admin_rate_limits_failed_basic_auth_by_ip(tmp_path):
 def test_admin_adds_security_headers(tmp_path):
     client, _repo = _app(tmp_path)
 
-    response = client.get("/", headers=_auth())
+    response = client.get("/", headers=_post_headers())
 
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-content-type-options"] == "nosniff"
@@ -74,8 +78,8 @@ def test_admin_adds_security_headers(tmp_path):
 def test_admin_serves_static_assets_and_uses_file_templates(tmp_path):
     client, _repo = _app(tmp_path)
 
-    response = client.get("/", headers=_auth())
-    css = client.get("/static/style.css", headers=_auth())
+    response = client.get("/", headers=_post_headers())
+    css = client.get("/static/style.css", headers=_post_headers())
 
     assert response.status_code == 200
     assert "pico.min.css" in response.text
@@ -92,7 +96,7 @@ def test_admin_dialogue_list_filters_searches_and_hides_telegram_ids_from_urls(t
     repo.add_message(client_id=active.id, direction="in", text="привет")
     repo.pause_client(client_id=paused.id, paused_by="manual", reason="manual")
 
-    response = client.get("/?filter=paused&q=paused", headers=_auth())
+    response = client.get("/?filter=paused&q=paused", headers=_post_headers())
 
     assert response.status_code == 200
     assert "paused_user" in response.text
@@ -110,7 +114,7 @@ def test_admin_dialogue_detail_shows_chat_messages_card_and_pause_actions(tmp_pa
     repo.add_message(client_id=record.id, direction="in", text="хочу букет")
     repo.add_message(client_id=record.id, direction="out", text="Подскажите бюджет")
 
-    response = client.get(f"/clients/{record.id}", headers=_auth())
+    response = client.get(f"/clients/{record.id}", headers=_post_headers())
 
     assert response.status_code == 200
     assert "message-bubble incoming" in response.text
@@ -127,17 +131,17 @@ def test_admin_pause_resume_and_card_edit_write_events(tmp_path):
     record = repo.upsert_client(telegram_id=111, username="user1")
     order = repo.get_or_create_active_order(client_id=record.id)
 
-    pause = client.post(f"/clients/{record.id}/pause", headers=_auth(), follow_redirects=False)
+    pause = client.post(f"/clients/{record.id}/pause", headers=_post_headers(), follow_redirects=False)
     assert pause.status_code == 303
     assert repo.get_client_by_id(record.id).bot_paused_at is not None
 
-    resume = client.post(f"/clients/{record.id}/resume", headers=_auth(), follow_redirects=False)
+    resume = client.post(f"/clients/{record.id}/resume", headers=_post_headers(), follow_redirects=False)
     assert resume.status_code == 303
     assert repo.get_client_by_id(record.id).bot_paused_at is None
 
     edit = client.post(
         f"/clients/{record.id}/card",
-        headers=_auth(),
+        headers=_post_headers(),
         data={
             "budget": "7000",
             "fulfillment_type": "delivery",
@@ -187,7 +191,7 @@ def test_admin_card_edit_can_clear_existing_fields(tmp_path):
 
     response = client.post(
         f"/clients/{record.id}/card",
-        headers=_auth(),
+        headers=_post_headers(),
         data={"budget": "", "colors": "", "sender_name": "", "sender_phone": "", "recipient_name": "", "recipient_phone": "", "postcard_text": "", "payment_method": ""},
         follow_redirects=False,
     )
@@ -210,7 +214,7 @@ def test_admin_metrics_page_shows_human_readable_sections_for_selected_period(tm
     repo.record_event(client_id=record.id, order_id=None, event=EventName.DIALOG_STARTED)
     repo.record_event(client_id=record.id, order_id=None, event=EventName.ADMIN_REQUEST_SENT)
 
-    response = client.get("/metrics?days=30", headers=_auth())
+    response = client.get("/metrics?days=30", headers=_post_headers())
 
     assert response.status_code == 200
     assert "Воронка" in response.text
@@ -226,7 +230,7 @@ def test_admin_metrics_csv_exports_raw_numbers(tmp_path):
     record = repo.upsert_client(telegram_id=111, username=None)
     repo.record_event(client_id=record.id, order_id=None, event=EventName.DIALOG_STARTED)
 
-    response = client.get("/metrics.csv?days=7", headers=_auth())
+    response = client.get("/metrics.csv?days=7", headers=_post_headers())
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")

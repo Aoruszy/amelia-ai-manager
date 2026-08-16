@@ -4,7 +4,6 @@ from amelia_manager.company_profile import load_company_profile
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.order_card import OrderCard
 from amelia_manager.order_policy import format_upsell_offers, get_next_step
-from amelia_manager.order_state import OrderState
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 

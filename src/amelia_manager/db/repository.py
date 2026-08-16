@@ -857,16 +857,19 @@ class SQLiteRepository:
         self,
         *,
         retention_days: int,
+        event_retention_days: int = 90,
         now: datetime | None = None,
     ) -> RetentionCleanupResult:
         """Delete old message history and anonymize PII in old completed orders."""
         if retention_days < 1:
             raise ValueError("retention_days must be >= 1")
+        if event_retention_days < 1:
+            raise ValueError("event_retention_days must be >= 1")
         reference_time = now or datetime.now(timezone.utc)
         if reference_time.tzinfo is not None:
             reference_time = reference_time.astimezone(timezone.utc).replace(tzinfo=None)
         cutoff_text = (reference_time - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
-        event_cutoff_text = (reference_time - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
+        event_cutoff_text = (reference_time - timedelta(days=event_retention_days)).strftime("%Y-%m-%d %H:%M:%S")
 
         with self._connect() as conn:
             deleted_messages = conn.execute("DELETE FROM messages WHERE datetime(created_at) < datetime(?)", (cutoff_text,)).rowcount

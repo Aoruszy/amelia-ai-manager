@@ -92,14 +92,14 @@ def test_admin_detail_shows_status_controls_and_changes_status_without_pii_paylo
     client = repo.upsert_client(telegram_id=103, username="buyer")
     order = repo.get_or_create_active_order(client_id=client.id)
 
-    page = web.get(f"/clients/{client.id}", headers=_auth())
+    page = web.get(f"/clients/{client.id}", headers={**_auth(), "Origin": "http://testserver"})
     assert page.status_code == 200
     assert "Статус заказа" in page.text
     assert "Подтверждён" in page.text
 
     response = web.post(
         f"/clients/{client.id}/orders/{order.id}/status",
-        headers=_auth(),
+        headers={**_auth(), "Origin": "http://testserver"},
         data={"status": "confirmed"},
         follow_redirects=False,
     )

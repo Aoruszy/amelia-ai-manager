@@ -19,6 +19,7 @@ dependencies = [
 dev = [
   "pytest>=8.3.0",
   "pytest-asyncio>=0.23.0",
+  "ruff>=0.16.3",
 ]
 
 [build-system]
@@ -37,3 +38,11 @@ artifacts = ["src/amelia_manager/web/templates/*.html", "src/amelia_manager/web/
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff.lint]
+select = ["F"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.3",
+]

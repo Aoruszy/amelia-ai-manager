@@ -5,7 +5,6 @@ import pytest
 from amelia_manager import dialogue_eval
 from amelia_manager.dialogue_eval import DialogueScenario, run_dialogue_eval, write_dialogue_eval_report
 from amelia_manager.order_card import OrderCard
-from amelia_manager.risk import RiskLevel
 
 
 class CountingLLM:

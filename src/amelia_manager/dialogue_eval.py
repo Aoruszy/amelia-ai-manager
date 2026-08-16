@@ -5,14 +5,14 @@ import asyncio
 import json
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from amelia_manager.config import Settings
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
-from amelia_manager.llm_client import GeminiClient, LLMError, build_llm_client
+from amelia_manager.llm_client import LLMError, build_llm_client
 from amelia_manager.order_card import OrderCard
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import OrderState, extract_order_state

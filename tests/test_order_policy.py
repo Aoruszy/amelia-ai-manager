@@ -1,4 +1,4 @@
-from amelia_manager.order_policy import NextStep, get_next_step
+from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import OrderState
 
 

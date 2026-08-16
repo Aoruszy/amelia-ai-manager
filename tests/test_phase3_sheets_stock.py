@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-import pytest
 
 from amelia_manager.company_profile import CompanyProfile, StockSourceConfig, SheetsStockConfig
 from amelia_manager.date_formatting import _today_in_timezone

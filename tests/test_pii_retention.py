@@ -11,6 +11,22 @@ def test_settings_expose_configurable_pii_retention_window():
     assert settings.pii_retention_days == 14
 
 
+def test_cleanup_pii_uses_configurable_event_retention_window(tmp_path):
+    repo = SQLiteRepository(tmp_path / "test.sqlite3")
+    repo.initialize()
+    client = repo.upsert_client(telegram_id=123, username="client_user")
+    repo.record_event(client_id=client.id, order_id=None, event="message_received")
+    old_timestamp = (datetime.now(timezone.utc) - timedelta(days=61)).strftime("%Y-%m-%d %H:%M:%S")
+    with repo._connect() as conn:
+        conn.execute("UPDATE events SET created_at = ? WHERE client_id = ?", (old_timestamp, client.id))
+
+    keep = repo.cleanup_pii_older_than(retention_days=30, event_retention_days=90, now=datetime.now(timezone.utc))
+    delete = repo.cleanup_pii_older_than(retention_days=30, event_retention_days=60, now=datetime.now(timezone.utc))
+
+    assert keep.deleted_events == 0
+    assert delete.deleted_events == 1
+
+
 def test_cleanup_pii_deletes_messages_older_than_retention_window(tmp_path):
     repo = SQLiteRepository(tmp_path / "test.sqlite3")
     repo.initialize()
