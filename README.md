@@ -22,6 +22,10 @@ uv run pytest -q
 uv run python -m amelia_manager.telegram_runtime
 ```
 
+## Measurement reports
+
+Keep only the declared baseline report and the latest eval run in `reports/`: today that means `eval_baseline_after_review.json` and the current `eval_round*.json`. When committing a new eval run, remove the previous round report in the same commit; change the baseline only by an explicit decision, never automatically. Do not add `reports/` to `.gitignore` because prompt/model changes are reviewed against committed eval output.
+
 ## Admin UI
 
 The admin UI is a separate FastAPI app. It is protected with Basic Auth, rate-limits failed logins in memory, and refuses to start with empty/default admin credentials.
