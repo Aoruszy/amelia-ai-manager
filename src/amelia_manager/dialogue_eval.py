@@ -442,7 +442,7 @@ def build_default_scenarios() -> list[DialogueScenario]:
         DialogueScenario("ask-fulfillment-after-style", "order_flow", ["Клиент: Букет до 5000", "Клиент: Нежный кремовый"], expected_next_step="ask_fulfillment_type"),
         DialogueScenario("ask-date-after-pickup", "pickup", ["Клиент: 5000 нежный", "Клиент: самовывоз"], must_not_contain=("получателя", "адрес доставки"), expected_next_step="ask_date"),
         DialogueScenario("ask-pickup-time", "pickup", ["Клиент: 5000 нежный самовывоз сегодня"], must_contain=("сергеева",), must_not_contain=("получателя",)),
-        DialogueScenario("pickup-time-outside-hours", "pickup", ["Клиент: 5000 нежный самовывоз сегодня в 22:30"], must_contain=("09:00", "20:00")),
+        DialogueScenario("pickup-time-outside-hours", "pickup", ["Клиент: 5000 нежный самовывоз сегодня в 22:30"], must_contain=("09:00", "20:00"), notes="Детерминированная runtime-ветка: часы магазина берём из профиля и подставляем названное клиентом время."),
         DialogueScenario("pickup-ready-summary", "pickup", ["Клиент: всё указал"], order_card=ready_pickup, must_contain=("итог заказа", "самовывоз", "5000"), expect_admin_ready=True),
         DialogueScenario("thanks-after-summary", "pickup", ["Клиент: Спасибо"], order_card=summarized, expect_admin_ready=True),
         DialogueScenario("ask-delivery-time", "delivery", ["Клиент: 5000 нежный доставка завтра"], must_not_contain=("самовывоз",), expected_next_step="ask_delivery_time"),

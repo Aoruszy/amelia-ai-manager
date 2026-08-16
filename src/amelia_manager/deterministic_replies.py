@@ -25,13 +25,14 @@ def deterministic_order_reply(
         return stock_reply
 
     pickup_address = profile.pickup_address or "адреса самовывоза"
+    pickup_hours_reply = _pickup_time_outside_hours_reply(recent_messages or [], profile)
     replies = {
         "ask_budget": "Подскажите, на какой бюджет ориентируемся? 🌸",
         "ask_bouquet_preferences": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
         "ask_fulfillment_type": "Хорошо, по букету поняла. Это будет доставка или самовывоз?",
         "ask_date": "На какое число нужен букет?",
         "ask_pickup_time": f"К какому времени удобно забрать букет самовывозом с {pickup_address}?",
-        "ask_pickup_time_within_shop_hours": "Самовывоз возможен в часы работы магазина 09:00–20:00. Выберите, пожалуйста, другое время в этом интервале.",
+        "ask_pickup_time_within_shop_hours": pickup_hours_reply,
         "ask_delivery_time": "К какому времени или в какой интервал доставить букет?",
         "ask_delivery_address": "Подскажите адрес доставки, пожалуйста.",
         "ask_upsell": f"Можно добавить к заказу: {format_upsell_offers(profile)}. Нужно что-то из этого?",
@@ -41,6 +42,28 @@ def deterministic_order_reply(
         "ask_anonymous_or_payment": "Подскажите, доставка будет анонимной или можно сказать от кого букет? И какой способ оплаты удобен?",
     }
     return replies.get(next_step.code)
+
+
+def _pickup_time_outside_hours_reply(recent_messages: list[str], profile: CompanyProfile) -> str:
+    shop_hours = profile.shop_hours or "09:00–20:00"
+    latest_time = _latest_time_mention(recent_messages)
+    if latest_time:
+        return (
+            f"Самовывоз к {latest_time} не получится: магазин работает {shop_hours}. "
+            "Выберите, пожалуйста, другое время в этом интервале."
+        )
+    return (
+        f"Самовывоз возможен в часы работы магазина {shop_hours}. "
+        "Выберите, пожалуйста, другое время в этом интервале."
+    )
+
+
+def _latest_time_mention(recent_messages: list[str]) -> str | None:
+    for message in reversed(recent_messages):
+        match = re.search(r"\b([01]?\d|2[0-3])[:.](\d{2})\b", message)
+        if match:
+            return f"{int(match.group(1)):02d}:{match.group(2)}"
+    return None
 
 
 def _stock_fallback(recent_messages: list[str], stock_context: str) -> str | None:

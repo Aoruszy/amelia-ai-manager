@@ -35,6 +35,7 @@ async def test_pickup_time_outside_hours_uses_deterministic_guard_before_llm_rep
 
     text = "\n".join(action.messages)
     assert action.next_step == "ask_pickup_time_within_shop_hours"
+    assert "22:30" in text
     assert "09:00" in text
     assert "20:00" in text
 
