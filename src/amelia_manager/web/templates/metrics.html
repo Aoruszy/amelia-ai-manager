@@ -26,21 +26,29 @@
     <small>Конверсия в заявку</small>
     <strong>{{ metric_percent(metrics.conversion.rate) }}</strong>
     <span>{{ metrics.conversion.admin_requests }} из {{ metrics.conversion.dialogs }}</span>
+    {% set d = metric_delta(metrics.conversion.rate, previous.conversion.rate) %}
+    {% if d %}<span class="delta {{ d.kind }}" title="к прошлому периоду">{{ d.text }}</span>{% endif %}
   </article>
   <article>
     <small>Число заявок</small>
     <strong>{{ metrics.conversion.admin_requests }}</strong>
     <span>за период</span>
+    {% set d = metric_delta(metrics.conversion.admin_requests, previous.conversion.admin_requests) %}
+    {% if d %}<span class="delta {{ d.kind }}" title="к прошлому периоду">{{ d.text }}</span>{% endif %}
   </article>
   <article>
     <small>Доля эскалаций</small>
     <strong>{{ metric_percent(metrics.escalations.rate) }}</strong>
     <span>{{ metrics.escalations.dialogs }} диалогов</span>
+    {% set d = metric_delta(metrics.escalations.rate, previous.escalations.rate, higher_is_better=False) %}
+    {% if d %}<span class="delta {{ d.kind }}" title="к прошлому периоду">{{ d.text }}</span>{% endif %}
   </article>
   <article>
     <small>Медианное время ответа</small>
     <strong>{{ metric_seconds(metrics.ops.reply_latency_seconds.median) }}</strong>
     <span>p95: {{ metric_seconds(metrics.ops.reply_latency_seconds.p95) }}</span>
+    {% set d = metric_delta(metrics.ops.reply_latency_seconds.median, previous.ops.reply_latency_seconds.median, higher_is_better=False) %}
+    {% if d %}<span class="delta {{ d.kind }}" title="к прошлому периоду">{{ d.text }}</span>{% endif %}
   </article>
 </section>
 
@@ -59,6 +67,7 @@
   </div>
 </section>
 
+<h2 style="margin-top:1.4rem">Подробности</h2>
 <section class="sections-grid">
   <article>
     <h3>Эскалации</h3>

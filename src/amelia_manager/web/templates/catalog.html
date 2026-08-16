@@ -27,7 +27,7 @@
       <button class="touch-target secondary" type="button" data-catalog-action="dec" aria-label="Уменьшить количество">−</button>
       <input class="touch-target" data-catalog-quantity inputmode="numeric" pattern="[0-9]*" type="number" min="0" value="{{ item.quantity_number if item.quantity_number is not none else '' }}" aria-label="Количество">
       <button class="touch-target secondary" type="button" data-catalog-action="inc" aria-label="Увеличить количество">+</button>
-      <button class="touch-target" type="button" data-catalog-action="sold_out">Закончилось</button>
+      <button class="touch-target secondary" type="button" data-catalog-action="sold_out">Закончилось</button>
     </div>
     <small class="muted-text">Обновлено: {{ format_time(item.updated_at) }}</small>
     <footer><a href="/catalog/items/{{ item.id }}">Редактировать →</a></footer>

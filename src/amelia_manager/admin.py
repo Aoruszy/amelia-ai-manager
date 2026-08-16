@@ -92,6 +92,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         metric_number=_metric_number,
         metric_seconds=_metric_seconds,
         funnel_items=_funnel_items,
+        metric_delta=_metric_delta,
         risk_label=_risk_label,
         confidence_label=_confidence_label,
     )
@@ -526,6 +527,25 @@ def _order_status_label(status: str) -> str:
         "fulfilled": "Выполнен",
         "cancelled": "Отменён",
     }.get(status, status)
+
+
+def _metric_delta(current: object, previous: object, *, higher_is_better: bool = True) -> dict[str, str] | None:
+    """Change against the previous period, already computed but never shown before."""
+    try:
+        current_value = float(current)  # type: ignore[arg-type]
+        previous_value = float(previous)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if previous_value == 0:
+        return None
+    change = (current_value - previous_value) / previous_value * 100
+    if abs(change) < 1:
+        return {"text": "без изменений", "kind": ""}
+    grew = change > 0
+    return {
+        "text": f"{'↑' if grew else '↓'} {abs(change):.0f}%",
+        "kind": "good" if grew == higher_is_better else "bad",
+    }
 
 
 def _status_info(dialogue) -> tuple[str, str]:
