@@ -306,12 +306,13 @@ def _validate_admin_credentials(settings: Settings) -> None:
 
 def _client_ip_for_rate_limit(request: Request, *, settings: Settings) -> str:
     peer_ip = request.client.host if request.client else "unknown"
-    if peer_ip not in settings.trusted_proxy_ips:
+    trusted_proxy_ips = settings.trusted_proxy_ips
+    if peer_ip not in trusted_proxy_ips:
         return peer_ip
     forwarded_for = request.headers.get("x-forwarded-for", "")
-    for raw_ip in forwarded_for.split(","):
+    for raw_ip in reversed(forwarded_for.split(",")):
         ip = raw_ip.strip()
-        if ip:
+        if ip and ip not in trusted_proxy_ips:
             return ip
     return peer_ip
 

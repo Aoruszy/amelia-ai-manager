@@ -21,7 +21,7 @@ from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
-from amelia_manager.llm_client import GeminiClient, build_llm_client
+from amelia_manager.llm_client import LLMClient, build_llm_client
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
@@ -774,7 +774,7 @@ async def outbound_scheduler_loop(
     settings: Settings,
     company_profile: CompanyProfile,
     debounce_processor: PerSenderDebounceProcessor,
-    llm_client: GeminiClient,
+    llm_client: LLMClient,
     sleep=asyncio.sleep,
 ) -> None:
     while True:
