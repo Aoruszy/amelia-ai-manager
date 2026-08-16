@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import secrets
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -25,6 +26,8 @@ from amelia_manager.metrics import calculate_metrics
 from amelia_manager.order_card import OrderCard
 
 security = HTTPBasic()
+DIALOGUES_PER_PAGE = 50
+MESSAGES_PREVIEW_LIMIT = 200
 WEB_DIR = Path(__file__).parent / "web"
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
@@ -125,34 +128,68 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         if not source_host or source_host != request_host:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site POST rejected")
 
-    def render(template: str, **context) -> HTMLResponse:
-        return HTMLResponse(env.get_template(template).render(**context))
+    def render(template: str, *, status_code: int = 200, **context) -> HTMLResponse:
+        return HTMLResponse(env.get_template(template).render(**context), status_code=status_code)
 
     @app.get("/", response_class=HTMLResponse)
-    def index(_auth=Depends(require_auth), filter: str | None = None, active_days: int | None = None, q: str = ""):
-        dialogues = repo.list_dialogues(filter_name=filter, active_days=active_days, limit=200)
-        dialogues = _filter_dialogues(dialogues, q=q)
+    def index(
+        _auth=Depends(require_auth),
+        filter: str | None = None,
+        active_days: int | None = None,
+        q: str = "",
+        page: int = 1,
+    ):
+        page = max(1, page)
+        total = repo.count_dialogues(filter_name=filter, active_days=active_days, q=q)
+        pages = max(1, -(-total // DIALOGUES_PER_PAGE))
+        page = min(page, pages)
+        dialogues = repo.list_dialogues(
+            filter_name=filter,
+            active_days=active_days,
+            limit=DIALOGUES_PER_PAGE,
+            offset=(page - 1) * DIALOGUES_PER_PAGE,
+            q=q,
+        )
         return render(
             "dialogues.html",
+            nav_active="dialogues",
             title="Диалоги",
             dialogues=dialogues,
             current_filter=filter or "all",
             active_days=active_days,
             q=q,
+            page=page,
+            pages=pages,
+            total=total,
+            page_query=_page_query(filter=filter, active_days=active_days, q=q),
         )
 
     @app.get("/catalog", response_class=HTMLResponse)
     def catalog(_auth=Depends(require_auth), q: str = ""):
-        return render("catalog.html", title="Ассортимент", items=repo.list_catalog_items(q=q), q=q)
+        return render("catalog.html", nav_active="catalog", title="Ассортимент", items=repo.list_catalog_items(q=q), q=q)
 
     @app.post("/catalog/items")
     async def add_catalog_item(request: Request, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
         form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
         data = {key: values[-1] for key, values in form.items()}
+        try:
+            quantity_number = _parse_int_field(data.get("quantity_number", ""), label="Количество")
+            price = _parse_int_field(data.get("price", ""), label="Цена")
+        except AdminInputError as exc:
+            return render(
+                "catalog.html",
+                status_code=400,
+                nav_active="catalog",
+                title="Ассортимент",
+                items=repo.list_catalog_items(q=""),
+                q="",
+                error=exc.message,
+                form=data,
+            )
         item = repo.upsert_catalog_item(
             name=data.get("name", ""),
-            quantity_number=_parse_optional_int(data.get("quantity_number", "")),
-            price=_parse_optional_int(data.get("price", "")),
+            quantity_number=quantity_number,
+            price=price,
             unit=(data.get("unit", "") or "шт").strip(),
             updated_by=0,
         )
@@ -175,7 +212,11 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             value = max(0, current + delta)
             updated = repo.update_catalog_item(item_id, quantity_number=value, updated_by=0)
         elif "quantity_number" in payload:
-            updated = repo.update_catalog_item(item_id, quantity_number=_parse_optional_int(str(payload.get("quantity_number", ""))), updated_by=0)
+            try:
+                quantity_number = _parse_int_field(str(payload.get("quantity_number", "")), label="Количество")
+            except AdminInputError as exc:
+                return JSONResponse({"error": exc.message}, status_code=400)
+            updated = repo.update_catalog_item(item_id, quantity_number=quantity_number, updated_by=0)
         else:
             raise HTTPException(status_code=400, detail="Unknown catalog action")
         _record_catalog_update(repo, item_name=updated.name, field=field, updated_by="admin")
@@ -186,7 +227,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         item = repo.get_catalog_item(item_id)
         if item is None:
             raise HTTPException(status_code=404)
-        return render("catalog_item.html", title=item.name, item=item)
+        return render("catalog_item.html", nav_active="catalog", title=item.name, item=item)
 
     @app.post("/catalog/items/{item_id}")
     async def edit_catalog_item(item_id: int, request: Request, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
@@ -196,14 +237,17 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
         data = {key: values[-1] for key, values in form.items()}
         changed = []
-        changes = {
-            "name": data.get("name", item.name),
-            "quantity_number": _parse_optional_int(data.get("quantity_number", "")),
-            "price": _parse_optional_int(data.get("price", "")),
-            "unit": (data.get("unit", item.unit or "шт") or "шт").strip(),
-            "is_active": data.get("is_active", "1") == "1",
-            "updated_by": 0,
-        }
+        try:
+            changes = {
+                "name": data.get("name", item.name),
+                "quantity_number": _parse_int_field(data.get("quantity_number", ""), label="Количество"),
+                "price": _parse_int_field(data.get("price", ""), label="Цена"),
+                "unit": (data.get("unit", item.unit or "шт") or "шт").strip(),
+                "is_active": data.get("is_active", "1") == "1",
+                "updated_by": 0,
+            }
+        except AdminInputError as exc:
+            return render("catalog_item.html", status_code=400, nav_active="catalog", title=item.name, item=item, error=exc.message)
         for field, value in changes.items():
             if field != "updated_by" and getattr(item, field) != value:
                 changed.append(field)
@@ -222,16 +266,23 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         return RedirectResponse("/catalog", status_code=303)
 
     @app.get("/clients/{client_id}", response_class=HTMLResponse)
-    def client_detail(client_id: int, _auth=Depends(require_auth)):
+    def client_detail(client_id: int, _auth=Depends(require_auth), all: int = 0):
         client = repo.get_client_by_id(client_id)
         if client is None:
             raise HTTPException(status_code=404)
+        total_messages = repo.count_messages(client_id=client.id)
+        show_all = bool(all)
+        limit = total_messages if show_all else MESSAGES_PREVIEW_LIMIT
         return render(
             "dialogue.html",
+            nav_active="dialogues",
             title="Диалог",
             client=client,
-            messages=repo.list_messages(client_id=client.id, limit=1000),
+            messages=repo.list_messages(client_id=client.id, limit=max(limit, 1)),
             order=repo.get_active_order(client_id=client.id),
+            total_messages=total_messages,
+            shown_messages=min(limit, total_messages),
+            show_all=show_all,
         )
 
     @app.post("/clients/{client_id}/pause")
@@ -257,7 +308,23 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         if client is None or order is None:
             raise HTTPException(status_code=404)
         form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
-        patch = _card_patch({key: values[-1] for key, values in form.items()})
+        try:
+            patch = _card_patch({key: values[-1] for key, values in form.items()})
+        except AdminInputError as exc:
+            total_messages = repo.count_messages(client_id=client.id)
+            return render(
+                "dialogue.html",
+                status_code=400,
+                nav_active="dialogues",
+                title="Диалог",
+                client=client,
+                messages=repo.list_messages(client_id=client.id, limit=MESSAGES_PREVIEW_LIMIT),
+                order=order,
+                total_messages=total_messages,
+                shown_messages=min(MESSAGES_PREVIEW_LIMIT, total_messages),
+                show_all=False,
+                error=exc.message,
+            )
         updated = _apply_card_patch(order.card, patch)
         repo.update_order_card(order_id=order.id, card=updated)
         changed = [key for key in patch if getattr(order.card, key) != getattr(updated, key)]
@@ -284,7 +351,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         start, end, label = _metric_period(settings, days=days, date_from=date_from, date_to=date_to)
         report = calculate_metrics(repo, date_from=start, date_to=end)
         previous = calculate_metrics(repo, date_from=start - (end - start) - timedelta(days=1), date_to=start - timedelta(days=1))
-        return render("metrics.html", title="Метрики", days=days, period_label=label, date_from=start, date_to=end, metrics=report, previous=previous)
+        return render("metrics.html", nav_active="metrics", title="Метрики", days=days, period_label=label, date_from=start, date_to=end, metrics=report, previous=previous)
 
     @app.get("/metrics.csv")
     def metrics_csv(days: int = 7, date_from: str | None = None, date_to: str | None = None, _auth=Depends(require_auth)):
@@ -317,9 +384,38 @@ def _client_ip_for_rate_limit(request: Request, *, settings: Settings) -> str:
     return peer_ip
 
 
-def _parse_optional_int(value: str | None) -> int | None:
-    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
-    return int(digits) if digits else None
+class AdminInputError(ValueError):
+    """Invalid value in an admin form: shown to the user instead of being guessed."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+_SPACES_RE = re.compile(r"[\s  ]")
+_CURRENCY_SUFFIX_RE = re.compile(r"(?:₽|руб(?:\.|лей)?|р\.)$", re.IGNORECASE)
+_NUMBER_RE = re.compile(r"(-?\d+)(?:[.](\d+))?")
+
+
+def _parse_int_field(value: str | None, *, label: str, minimum: int | None = 0) -> int | None:
+    """Parse an integer form field, refusing to guess at anything unexpected.
+
+    The old implementation kept only digits, so "12.50" silently became 1250 and a
+    price could be off by a factor of a hundred. Now anything ambiguous is an error.
+    """
+    raw = _SPACES_RE.sub("", str(value or ""))
+    raw = _CURRENCY_SUFFIX_RE.sub("", raw)
+    if not raw:
+        return None
+    match = _NUMBER_RE.fullmatch(raw.replace(",", "."))
+    if not match:
+        raise AdminInputError(f"{label}: нужно число, а получено «{value}»")
+    if match.group(2) and int(match.group(2)) != 0:
+        raise AdminInputError(f"{label}: дробные значения не поддерживаются, введите целое число")
+    result = int(match.group(1))
+    if minimum is not None and result < minimum:
+        raise AdminInputError(f"{label}: значение не может быть меньше {minimum}")
+    return result
 
 
 def _catalog_item_payload(item: CatalogItemRecord) -> dict[str, object]:
@@ -346,16 +442,16 @@ def _record_catalog_update(repo: SQLiteRepository, *, item_name: str, field: str
     )
 
 
-def _filter_dialogues(dialogues, *, q: str):
-    query = q.strip().lower()
-    if not query:
-        return dialogues
-    result = []
-    for dialogue in dialogues:
-        values = [dialogue.client.username or "", str(dialogue.client.telegram_id), str(dialogue.client.id)]
-        if any(query in value.lower() for value in values):
-            result.append(dialogue)
-    return result
+def _page_query(*, filter: str | None, active_days: int | None, q: str) -> str:
+    """Query string that keeps filters when moving between pages."""
+    parts = []
+    if filter:
+        parts.append(f"filter={quote_plus(filter)}")
+    if active_days is not None:
+        parts.append(f"active_days={active_days}")
+    if q.strip():
+        parts.append(f"q={quote_plus(q.strip())}")
+    return ("&" + "&".join(parts)) if parts else ""
 
 
 def _card_patch(form: dict[str, str]) -> dict[str, Any]:
@@ -377,8 +473,7 @@ def _card_patch(form: dict[str, str]) -> dict[str, Any]:
             value = form[field].strip()
             patch[field] = value or None
     if "budget" in form:
-        budget = form["budget"].strip()
-        patch["budget"] = int(budget) if budget else None
+        patch["budget"] = _parse_int_field(form["budget"], label="Бюджет")
     if "colors" in form:
         patch["colors"] = [item.strip() for item in form.get("colors", "").split(",") if item.strip()]
     return patch

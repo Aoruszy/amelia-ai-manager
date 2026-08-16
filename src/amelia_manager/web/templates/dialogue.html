@@ -3,7 +3,8 @@
 <section class="sticky-actions">
   <div>
     <h1>Диалог {{ client.username or ('client #' ~ client.id) }}</h1>
-    {% if client.bot_paused_at %}<strong class="badge danger">Бот на паузе</strong>{% else %}<strong class="badge neutral">Бот активен</strong>{% endif %}
+    {% if client.bot_paused_at %}<span class="badge danger">Бот на паузе</span>{% else %}<span class="badge success">Бот активен</span>{% endif %}
+    {% if client.stage %}<span class="badge neutral">{{ client.stage }}</span>{% endif %}
   </div>
   <div>
     {% if client.bot_paused_at %}
@@ -17,6 +18,10 @@
 <div class="dialogue-layout">
   <section class="chat-panel">
     <h2>Переписка</h2>
+    <p class="muted-text"><small>Показано {{ shown_messages }} из {{ total_messages }} сообщений.</small></p>
+    {% if total_messages > shown_messages %}
+    <p class="chat-more"><a class="button secondary" href="/clients/{{ client.id }}?all=1">Показать все сообщения</a></p>
+    {% endif %}
     <div class="chat-feed" id="chat-feed">
       {% set ns = namespace(day='') %}
       {% for m in messages %}
@@ -30,7 +35,7 @@
           <div>{{ m.text }}</div>
         </article>
       {% else %}
-        <p>Сообщений пока нет.</p>
+        <p class="empty-state">Сообщений пока нет.</p>
       {% endfor %}
     </div>
   </section>
@@ -58,7 +63,7 @@
         {% endfor %}
       </dl>
       <form method="post" action="/clients/{{ client.id }}/card" class="card-edit-form">
-        <label>Бюджет <input name="budget" value="{{ order.card.budget or '' }}"></label>
+        <label>Бюджет <input name="budget" inputmode="numeric" value="{{ order.card.budget or '' }}"></label>
         <label>Формат <input name="fulfillment_type" value="{{ order.card.fulfillment_type or '' }}"></label>
         <label>Пожелания / цвета <input name="colors" value="{{ ', '.join(order.card.colors) }}"></label>
         <label>Дата <input name="delivery_date" value="{{ order.card.delivery_date or '' }}"></label>
@@ -73,7 +78,7 @@
         <button>Сохранить карточку</button>
       </form>
     {% else %}
-      <p>Активной карточки нет.</p>
+      <p class="empty-state">Активной карточки нет.</p>
     {% endif %}
   </aside>
 </div>

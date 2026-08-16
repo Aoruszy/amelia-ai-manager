@@ -1,19 +1,18 @@
 {% extends 'base.html' %}
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>{% endblock %}
 {% block body %}
 <section class="page-title">
   <div>
     <h1>Метрики за {{ period_label }}</h1>
     <p>Показатели продаж, качества ответов и операций.</p>
   </div>
-  <a role="button" href="/metrics.csv?days={{ days }}&date_from={{ date_from }}&date_to={{ date_to }}">Экспорт CSV</a>
+  <a class="button" role="button" href="/metrics.csv?days={{ days }}&date_from={{ date_from }}&date_to={{ date_to }}">Экспорт CSV</a>
 </section>
 
 <form method="get" class="filters">
   <div class="button-row">
-    <button name="days" value="7" class="{{ 'contrast' if days == 7 else 'secondary outline' }}">7 дней</button>
-    <button name="days" value="30" class="{{ 'contrast' if days == 30 else 'secondary outline' }}">30 дней</button>
-    <button name="days" value="90" class="{{ 'contrast' if days == 90 else 'secondary outline' }}">90 дней</button>
+    <button name="days" value="7" class="{{ 'contrast' if days == 7 else 'secondary' }}">7 дней</button>
+    <button name="days" value="30" class="{{ 'contrast' if days == 30 else 'secondary' }}">30 дней</button>
+    <button name="days" value="90" class="{{ 'contrast' if days == 90 else 'secondary' }}">90 дней</button>
   </div>
   <div class="date-range">
     <label>С <input type="date" name="date_from" value="{{ date_from }}"></label>
@@ -45,7 +44,7 @@
   </article>
 </section>
 
-<section>
+<section class="panel">
   <h2>Воронка</h2>
   <div class="funnel">
     {% for label, count, percent in funnel_items(metrics) %}

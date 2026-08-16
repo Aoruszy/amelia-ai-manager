@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block head %}<meta http-equiv="refresh" content="30">{% endblock %}
+{% block head %}{% if not q and page == 1 %}<meta http-equiv="refresh" content="30">{% endif %}{% endblock %}
 {% block body %}
 <section class="page-title">
   <div>
@@ -9,14 +9,20 @@
 </section>
 
 <form method="get" class="filters" role="search">
-  <input type="search" name="q" placeholder="Поиск по username или Telegram ID" value="{{ q }}">
+  <input type="search" name="q" placeholder="Имя, телефон, username или Telegram ID" value="{{ q }}" aria-label="Поиск по диалогам">
   <div class="button-row">
-    <button name="filter" value="" class="{{ 'contrast' if current_filter == 'all' else 'secondary outline' }}">Все</button>
-    <button name="filter" value="paused" class="{{ 'contrast' if current_filter == 'paused' else 'secondary outline' }}">На паузе</button>
-    <button name="filter" value="ready" class="{{ 'contrast' if current_filter == 'ready' else 'secondary outline' }}">Заявки отправлены</button>
-    <button name="active_days" value="7" class="{{ 'contrast' if active_days == 7 else 'secondary outline' }}">Активные 7 дней</button>
+    <button type="submit">Найти</button>
+    <button name="filter" value="" class="{{ 'contrast' if current_filter == 'all' else 'secondary' }}">Все</button>
+    <button name="filter" value="paused" class="{{ 'contrast' if current_filter == 'paused' else 'secondary' }}">На паузе</button>
+    <button name="filter" value="ready" class="{{ 'contrast' if current_filter == 'ready' else 'secondary' }}">Заявки отправлены</button>
+    <button name="active_days" value="7" class="{{ 'contrast' if active_days == 7 else 'secondary' }}">Активные 7 дней</button>
   </div>
 </form>
+
+<div class="result-meta">
+  <span>{% if q %}Найдено: {{ total }}{% else %}Всего диалогов: {{ total }}{% endif %}</span>
+  {% if pages > 1 %}<span>Страница {{ page }} из {{ pages }}</span>{% endif %}
+</div>
 
 <div id="dialogues-table" class="dialogue-table">
   <table>
@@ -33,16 +39,30 @@
       {% for d in dialogues %}
       {% set label, kind = status_info(d) %}
       <tr>
-        <td><a href="/clients/{{ d.client.id }}">{{ d.client.username or ('client #' ~ d.client.id) }}</a></td>
-        <td>{{ d.client.stage }}</td>
-        <td><span class="badge {{ kind }}">{{ label }}</span></td>
-        <td><small>{{ format_time(d.last_message_at) }}</small><br><span class="muted-text">{{ d.last_message_text or '' }}</span></td>
-        <td><pre class="card-preview">{{ card_summary(d.active_order.card) if d.active_order else 'Карточки нет' }}</pre></td>
+        <td data-label="Клиент" class="client-cell">
+          <a href="/clients/{{ d.client.id }}">{{ d.client.username or ('client #' ~ d.client.id) }}</a>
+          {% if d.active_order and d.active_order.card.sender_name %}<small>{{ d.active_order.card.sender_name }}</small>{% endif %}
+        </td>
+        <td data-label="Стадия">{{ d.client.stage }}</td>
+        <td data-label="Статус"><span class="badge {{ kind }}">{{ label }}</span></td>
+        <td data-label="Последнее сообщение">
+          <small class="muted-text">{{ format_time(d.last_message_at) }}</small><br>
+          <span class="muted-text">{{ d.last_message_text or '' }}</span>
+        </td>
+        <td data-label="Карточка"><pre class="card-preview">{{ card_summary(d.active_order.card) if d.active_order else 'Карточки нет' }}</pre></td>
       </tr>
       {% else %}
-      <tr><td colspan="5">Диалогов по фильтру нет.</td></tr>
+      <tr><td colspan="5" class="empty-state">{% if q %}По запросу «{{ q }}» ничего не нашлось.{% else %}Диалогов по фильтру нет.{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if pages > 1 %}
+<nav class="pagination" aria-label="Страницы">
+  <a class="page-link" href="/?page={{ page - 1 }}{{ page_query }}" aria-disabled="{{ 'true' if page <= 1 else 'false' }}">← Назад</a>
+  <span class="page-status">{{ page }} / {{ pages }}</span>
+  <a class="page-link" href="/?page={{ page + 1 }}{{ page_query }}" aria-disabled="{{ 'true' if page >= pages else 'false' }}">Вперёд →</a>
+</nav>
+{% endif %}
 {% endblock %}

@@ -103,6 +103,22 @@ class DialogueRecord:
     last_message_text: str | None
 
 
+_PHONE_DIGITS_SQL = (
+    "replace(replace(replace(replace(replace("
+    "COALESCE(json_extract(so.card_json, '$.{field}'), '')"
+    ", ' ', ''), '+', ''), '-', ''), '(', ''), ')', '')"
+)
+
+
+def _pylower(value: object) -> str:
+    # ё→е как везде в проекте: иначе «петр» не найдёт «Пётр».
+    return str(value).lower().replace("ё", "е") if value is not None else ""
+
+
+def _digits_only(value: str) -> str:
+    return "".join(ch for ch in value if ch.isdigit())
+
+
 def path_from_sqlite_url(database_url: str) -> Path:
     prefix = "sqlite:///"
     if database_url.startswith(prefix):
@@ -289,7 +305,13 @@ class SQLiteRepository:
             ).fetchall()
         return [self._client_from_row(row) for row in rows]
 
-    def list_dialogues(self, *, filter_name: str | None = None, active_days: int | None = None, limit: int = 200) -> list[DialogueRecord]:
+    @staticmethod
+    def _dialogue_filters(
+        *,
+        filter_name: str | None,
+        active_days: int | None,
+        q: str | None,
+    ) -> tuple[str, list[object]]:
         clauses: list[str] = []
         params: list[object] = []
         if filter_name == "paused":
@@ -299,8 +321,76 @@ class SQLiteRepository:
         if active_days is not None:
             clauses.append("datetime(lm.last_message_at) >= datetime('now', ?)")
             params.append(f"-{active_days} days")
+        query = (q or "").strip()
+        if query:
+            like = f"%{query.lower().replace(chr(1105), chr(1077))}%"
+            digits = _digits_only(query)
+            search_clauses = [
+                ("pylower(COALESCE(c.username, '')) LIKE ?", [like]),
+                ("CAST(c.telegram_id AS TEXT) LIKE ?", [f"%{digits or query}%"]),
+                ("CAST(c.id AS TEXT) = ?", [query]),
+                (
+                    "EXISTS (SELECT 1 FROM orders so WHERE so.client_id = c.id AND ("
+                    " pylower(COALESCE(json_extract(so.card_json, '$.sender_name'), '')) LIKE ?"
+                    " OR pylower(COALESCE(json_extract(so.card_json, '$.recipient_name'), '')) LIKE ?"
+                    " OR pylower(COALESCE(json_extract(so.card_json, '$.address'), '')) LIKE ?"
+                    "))",
+                    [like, like, like],
+                ),
+            ]
+            if len(digits) >= 4:
+                phone_pattern = f"%{digits}%"
+                search_clauses.append(
+                    (
+                        "EXISTS (SELECT 1 FROM orders so WHERE so.client_id = c.id AND ("
+                        f" {_PHONE_DIGITS_SQL.format(field='sender_phone')} LIKE ?"
+                        f" OR {_PHONE_DIGITS_SQL.format(field='recipient_phone')} LIKE ?"
+                        "))",
+                        [phone_pattern, phone_pattern],
+                    )
+                )
+            clauses.append("(" + " OR ".join(clause for clause, _ in search_clauses) + ")")
+            for _, clause_params in search_clauses:
+                params.extend(clause_params)
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
-        params.append(limit)
+        return where, params
+
+    def count_dialogues(
+        self,
+        *,
+        filter_name: str | None = None,
+        active_days: int | None = None,
+        q: str | None = None,
+    ) -> int:
+        where, params = self._dialogue_filters(filter_name=filter_name, active_days=active_days, q=q)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS total
+                FROM clients c
+                LEFT JOIN orders o ON o.client_id = c.id AND o.status IN ('draft', 'submitted', 'confirmed', 'in_production', 'ready', 'active')
+                LEFT JOIN (
+                    SELECT m1.client_id, m1.created_at AS last_message_at, m1.text AS last_message_text
+                    FROM messages m1
+                    JOIN (SELECT client_id, MAX(id) AS max_id FROM messages GROUP BY client_id) latest ON latest.max_id = m1.id
+                ) lm ON lm.client_id = c.id
+                {where}
+                """,
+                params,
+            ).fetchone()
+        return int(row["total"]) if row else 0
+
+    def list_dialogues(
+        self,
+        *,
+        filter_name: str | None = None,
+        active_days: int | None = None,
+        limit: int = 200,
+        offset: int = 0,
+        q: str | None = None,
+    ) -> list[DialogueRecord]:
+        where, params = self._dialogue_filters(filter_name=filter_name, active_days=active_days, q=q)
+        params = [*params, limit, max(0, offset)]
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
@@ -318,11 +408,16 @@ class SQLiteRepository:
                 ) lm ON lm.client_id = c.id
                 {where}
                 ORDER BY datetime(COALESCE(lm.last_message_at, '1970-01-01')) DESC, c.id DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
                 params,
             ).fetchall()
         return [self._dialogue_from_row(row) for row in rows]
+
+    def count_messages(self, *, client_id: int) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS total FROM messages WHERE client_id = ?", (client_id,)).fetchone()
+        return int(row["total"]) if row else 0
 
     def add_message(self, *, client_id: int, direction: str, text: str) -> MessageRecord:
         with self._connect() as conn:
@@ -956,6 +1051,8 @@ class SQLiteRepository:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 30000")
         conn.execute("PRAGMA journal_mode = WAL")
+        # SQLite lower() folds ASCII only, so search by Russian names needs Python casefolding.
+        conn.create_function("pylower", 1, _pylower)
         try:
             yield conn
             conn.commit()

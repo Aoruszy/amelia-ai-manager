@@ -1,13 +1,16 @@
 {% extends "base.html" %}
 {% block body %}
-<section>
-  <h1>Ассортимент</h1>
-  <p>Главный источник наличия и цен для бота. Закончившиеся и заканчивающиеся позиции показаны первыми.</p>
-  <form method="get" action="/catalog" role="search">
-    <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию">
-    <button type="submit">Найти</button>
-  </form>
+<section class="page-title">
+  <div>
+    <h1>Ассортимент</h1>
+    <p>Главный источник наличия и цен для бота. Закончившиеся и заканчивающиеся позиции показаны первыми.</p>
+  </div>
 </section>
+
+<form method="get" action="/catalog" class="filters" role="search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Поиск по названию" aria-label="Поиск по названию">
+  <button type="submit">Найти</button>
+</form>
 
 <section class="catalog-grid">
   {% for item in items %}
@@ -21,26 +24,26 @@
       <span>{% if item.price %}{{ item.price }} ₽/{{ item.unit or 'шт' }}{% else %}цена не указана{% endif %}</span>
     </div>
     <div class="catalog-controls">
-      <button class="touch-target" type="button" data-catalog-action="dec">−</button>
-      <input class="touch-target" data-catalog-quantity inputmode="numeric" pattern="[0-9]*" type="number" min="0" value="{{ item.quantity_number if item.quantity_number is not none else '' }}">
-      <button class="touch-target" type="button" data-catalog-action="inc">+</button>
-      <button class="touch-target secondary" type="button" data-catalog-action="sold_out">Закончилось</button>
+      <button class="touch-target secondary" type="button" data-catalog-action="dec" aria-label="Уменьшить количество">−</button>
+      <input class="touch-target" data-catalog-quantity inputmode="numeric" pattern="[0-9]*" type="number" min="0" value="{{ item.quantity_number if item.quantity_number is not none else '' }}" aria-label="Количество">
+      <button class="touch-target secondary" type="button" data-catalog-action="inc" aria-label="Увеличить количество">+</button>
+      <button class="touch-target" type="button" data-catalog-action="sold_out">Закончилось</button>
     </div>
-    <small>Обновлено: {{ format_time(item.updated_at) }}</small>
-    <footer><a href="/catalog/items/{{ item.id }}">Редактировать</a></footer>
+    <small class="muted-text">Обновлено: {{ format_time(item.updated_at) }}</small>
+    <footer><a href="/catalog/items/{{ item.id }}">Редактировать →</a></footer>
   </article>
   {% else %}
-  <p>Позиции пока не добавлены.</p>
+  <p class="empty-state">{% if q %}По запросу «{{ q }}» ничего не нашлось.{% else %}Позиции пока не добавлены.{% endif %}</p>
   {% endfor %}
 </section>
 
-<section>
+<section class="panel">
   <h2>Добавить позицию</h2>
   <form method="post" action="/catalog/items" class="catalog-add-form">
-    <input name="name" placeholder="Название" required>
-    <input name="quantity_number" placeholder="Количество" inputmode="numeric" pattern="[0-9]*" type="number" min="0">
-    <input name="price" placeholder="Цена" inputmode="numeric" pattern="[0-9]*" type="number" min="0">
-    <input name="unit" placeholder="Единица" value="шт">
+    <input name="name" placeholder="Название" value="{{ form.name if form else '' }}" required>
+    <input name="quantity_number" placeholder="Количество" inputmode="numeric" value="{{ form.quantity_number if form else '' }}">
+    <input name="price" placeholder="Цена" inputmode="numeric" value="{{ form.price if form else '' }}">
+    <input name="unit" placeholder="Единица" value="{{ form.unit if form else 'шт' }}">
     <button type="submit">Добавить</button>
   </form>
 </section>

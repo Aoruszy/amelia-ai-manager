@@ -82,7 +82,8 @@ def test_admin_serves_static_assets_and_uses_file_templates(tmp_path):
     css = client.get("/static/style.css", headers=_post_headers())
 
     assert response.status_code == 200
-    assert "pico.min.css" in response.text
+    # Стили больше не тянутся с CDN: панель должна открываться без интернета.
+    assert "cdn.jsdelivr.net" not in response.text
     assert "/static/style.css" in response.text
     assert css.status_code == 200
     assert "message-bubble" in css.text

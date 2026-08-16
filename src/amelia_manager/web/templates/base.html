@@ -1,29 +1,28 @@
 <!doctype html>
-<html lang="ru" data-theme="light">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="300">
-  <title>{{ title }}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{ title }} · Amelia Admin</title>
   <link rel="stylesheet" href="/static/style.css">
   {% block head %}{% endblock %}
 </head>
 <body>
-  <header class="container app-header">
+  <header class="app-header">
     <nav>
-      <ul>
-        <li><strong>Amelia Admin</strong></li>
-      </ul>
-      <ul>
-        <li><a href="/">Диалоги</a></li>
-        <li><a href="/catalog">Ассортимент</a></li>
-        <li><a href="/metrics">Метрики</a></li>
-        <li><button id="theme-toggle" class="secondary outline" type="button">Тема</button></li>
-      </ul>
+      <a class="brand" href="/">Amelia Admin</a>
+      <div class="nav-links">
+        <a href="/" class="{{ 'active' if nav_active|default('') == 'dialogues' else '' }}">Диалоги</a>
+        <a href="/catalog" class="{{ 'active' if nav_active|default('') == 'catalog' else '' }}">Ассортимент</a>
+        <a href="/metrics" class="{{ 'active' if nav_active|default('') == 'metrics' else '' }}">Метрики</a>
+        <button id="theme-toggle" class="secondary" type="button" aria-label="Переключить тему">Тема</button>
+      </div>
     </nav>
   </header>
   <main class="container">
+    {% if error %}<div class="error-banner" role="alert">{{ error }}</div>{% endif %}
     {% block body %}{% endblock %}
   </main>
   <script src="/static/app.js"></script>
