@@ -32,10 +32,10 @@ class Settings(BaseSettings):
     admin_password: str = ""
 
     # LLM
-    llm_provider: str = "gemini"
+    llm_provider: str = "openai"
     llm_base_url: str | None = None
     llm_api_key: str | None = None
-    llm_model: str = "gemini-flash-lite-latest"
+    llm_model: str = "gpt-5.6-luna"
     llm_max_output_tokens: int = Field(default=1000, ge=100, le=4000)
     llm_extractor_enabled: bool = True
 

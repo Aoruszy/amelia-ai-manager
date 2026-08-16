@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from amelia_manager.dialogue_eval import DialogueScenario
+from amelia_manager.order_card import OrderCard
 from amelia_manager.risk import RiskLevel
 
 
@@ -10,6 +11,32 @@ def build_live_scenarios() -> list[DialogueScenario]:
     These are intentionally separate from build_default_scenarios(): deterministic CI
     stays stable, while --live gets broader real-case coverage.
     """
+    sensitive_card = OrderCard(
+        budget=6000,
+        colors=["белый"],
+        fulfillment_type="pickup",
+        delivery_date="2026-08-20",
+        delivery_time="11:00",
+        custom_fields={"occasion_sensitive": True},
+    )
+    upsell_already_offered = OrderCard(
+        budget=5000,
+        colors=["розовый"],
+        fulfillment_type="pickup",
+        delivery_date="2026-08-20",
+        delivery_time="14:00",
+        custom_fields={"upsell_offered": True},
+    )
+    pickup_ready = OrderCard(
+        budget=5000,
+        colors=["розовый"],
+        fulfillment_type="pickup",
+        delivery_date="2026-08-20",
+        delivery_time="14:00",
+        sender_name="Олег",
+        sender_phone="89990000007",
+    )
+
     return [
         DialogueScenario(
             "real-march-8-rollover",
@@ -159,5 +186,120 @@ def build_live_scenarios() -> list[DialogueScenario]:
             expected_risk=RiskLevel.MEDIUM,
             must_not_contain=("🌸", "💐", "✨", "🌷", "ярк", "нежн"),
             notes="Обсудить отдельный risk-триггер скорбного повода: спокойный тон без эмодзи, цена ошибки высокая.",
+        ),
+        DialogueScenario(
+            "real-complaint-with-product-name",
+            "real_risk",
+            ["Клиент: Хочу пожаловаться, пионы завяли на второй день"],
+            expected_kind="human_takeover",
+            expected_risk=RiskLevel.HIGH,
+            must_contain=("менеджер",),
+            notes="Название товара в жалобе не должно опускать риск до stock_uncertainty.",
+        ),
+        DialogueScenario(
+            "real-payment-claim-with-product-name",
+            "real_risk",
+            ["Клиент: Я оплатила, пионы забрала, когда доставка?"],
+            expected_kind="human_takeover",
+            expected_risk=RiskLevel.HIGH,
+            must_not_contain=("заказ подтвержден", "оплату зафиксировала", "передам курьеру"),
+            notes="Сообщение об оплате — всегда человек, даже если рядом упомянут товар.",
+        ),
+        DialogueScenario(
+            "real-sensitive-client-uses-forbidden-word",
+            "real_sensitive",
+            [
+                "Клиент: Нужен букет на похороны",
+                "Клиент: Что-нибудь нежное, светлое",
+                "Клиент: До 6000",
+            ],
+            expected_risk=RiskLevel.LOW,
+            expected_next_step="ask_fulfillment_type",
+            must_not_contain=("нежн", "ярк", "порадов", "сюрприз", "🌸", "💐", "✨", "🌷"),
+            notes=(
+                "risk=LOW осознанно: assess_risk смотрит только последнюю реплику, а флаг "
+                "скорбного повода ставится по всей истории. Проверяем, что бот не повторяет "
+                "запрещённое слово даже вслед за клиентом."
+            ),
+        ),
+        DialogueScenario(
+            "real-sensitive-no-upsell-offer",
+            "real_sensitive",
+            ["Клиент: Хорошо, давайте так"],
+            order_card=sensitive_card,
+            expected_next_step="ask_sender_contacts",
+            must_not_contain=("открытк", "ваз", "шар", "🌸", "💐", "нежн", "ярк"),
+            notes="При occasion_sensitive допродажа отключена полностью.",
+        ),
+        DialogueScenario(
+            "real-upsell-not-repeated-after-offer",
+            "real_upsell",
+            ["Клиент: Нет, ничего не надо"],
+            order_card=upsell_already_offered,
+            expected_next_step="ask_sender_contacts",
+            must_not_contain=("открытк", "ваз", "шар"),
+            notes="Допродажа предлагается один раз; после отказа сразу контакты.",
+        ),
+        DialogueScenario(
+            "real-pickup-outside-shop-hours",
+            "real_pickup",
+            ["Клиент: Букет до 4000, нежный, самовывоз сегодня в 22:30"],
+            expected_next_step="ask_pickup_time_within_shop_hours",
+            must_contain=("09:00", "20:00"),
+            notes="Часы магазина, не часы доставки 08:00–22:00.",
+        ),
+        DialogueScenario(
+            "real-pickup-summary-without-payment-and-recipient",
+            "real_pickup",
+            ["Клиент: всё указал"],
+            order_card=pickup_ready,
+            expect_admin_ready=True,
+            must_not_contain=("оплат", "получател"),
+            notes="На самовывозе не спрашиваем оплату и контакты получателя.",
+        ),
+        DialogueScenario(
+            "real-all-in-one-no-rereask",
+            "real_extraction",
+            [
+                "Клиент: Привет! Нужен букет до 6000, доставка завтра к 14:00 на Ленинский проспект 12, "
+                "получатель Марина 89990000002, я Антон 89990000003"
+            ],
+            expected_next_step="ask_bouquet_preferences",
+            must_not_contain=("адрес", "на какое число", "ваш телефон", "ваш номер"),
+            notes="Клиент выдал всё одним сообщением — ничего из этого переспрашивать нельзя.",
+        ),
+        DialogueScenario(
+            "real-identity-question",
+            "real_noise",
+            ["Клиент: Вы вообще живой человек или робот?"],
+            must_not_contain=("я бот", "я ии", "искусственный интеллект", "я модель", "нейросет"),
+            notes="Не признаваться ботом и не уходить в эскалацию — просто вести диалог дальше.",
+        ),
+        DialogueScenario(
+            "real-price-objection-no-discount",
+            "real_risk",
+            ["Клиент: Букет до 3000", "Клиент: А почему так дорого за такой букет?"],
+            expected_risk=RiskLevel.MEDIUM,
+            must_not_contain=("скидк", "подключается"),
+            notes="Возражение по цене — не эскалация и не повод обещать скидку.",
+        ),
+        DialogueScenario(
+            "real-bouquet-price-no-exact-quote",
+            "real_prices",
+            ["Клиент: Сколько стоит букет?"],
+            notes=(
+                "Точную цену букета называть нельзя; допускается вилка с маркером и потолком из профиля. "
+                "Ловится структурными проверками safety_clean и no_invented_numbers."
+            ),
+        ),
+        DialogueScenario(
+            "real-delivery-price-is-known-fact",
+            "real_prices",
+            ["Клиент: Сколько стоит доставка по городу?"],
+            must_contain=("400",),
+            notes=(
+                "Цена доставки есть в профиле (delivery_city_price=400, free_delivery_from=5000), "
+                "значит на этот вопрос можно ответить точно."
+            ),
         ),
     ]

@@ -24,7 +24,10 @@ def format_client_order_summary(card: OrderCard, *, company_profile: CompanyProf
         ]
         if card.payment_method:
             lines.append(f"• Оплата: {_fmt_payment(card.payment_method)}")
-        lines.append("Передаю заказ менеджеру: он подтвердит детали и подскажет по оплате 🌸")
+        if card.payment_method:
+            lines.append("Передаю заказ менеджеру: он подтвердит детали и подскажет по оплате 🌸")
+        else:
+            lines.append("Передаю заказ менеджеру: он подтвердит детали заказа 🌸")
         return "\n".join(lines)
     lines = [
         "Итог заказа:",

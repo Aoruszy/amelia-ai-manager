@@ -95,7 +95,11 @@ class ConversationEngine:
                 risk_category=risk.category,
             )
 
-        catalog_price_reply = _catalog_price_reply_for_question(last_client_text, stock_context)
+        catalog_price_reply = _catalog_price_reply_for_question(
+            last_client_text,
+            stock_context,
+            company_profile=self.company_profile,
+        )
         if catalog_price_reply:
             return ConversationAction(kind="send", messages=[catalog_price_reply], risk_level=risk_level)
 
@@ -144,6 +148,21 @@ class ConversationEngine:
 
         order_state = order_card or extract_order_state(recent_messages)
         next_step = get_next_step(order_state, company_profile=self.company_profile)
+        if next_step.code == "ask_pickup_time_within_shop_hours":
+            reply = deterministic_order_reply(
+                next_step,
+                order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context,
+                company_profile=self.company_profile,
+            )
+            if reply:
+                return ConversationAction(
+                    kind="send",
+                    messages=[reply],
+                    risk_level=risk_level,
+                    next_step=next_step.code,
+                )
         if next_step.code == "ask_upsell" and isinstance(order_card, OrderCard):
             reply = deterministic_order_reply(
                 next_step,
@@ -521,10 +540,22 @@ def _cautious_reply_for_medium_risk(
     return None
 
 
-def _catalog_price_reply_for_question(text: str, stock_context: str | None) -> str | None:
+def _catalog_price_reply_for_question(
+    text: str,
+    stock_context: str | None,
+    *,
+    company_profile: CompanyProfile | None = None,
+) -> str | None:
     normalized = text.lower().replace("ё", "е")
     if not re.search(r"\b(?:сколько\s+(?:сто\w*|выйд\w*)|цен\w*|почем|за\s+сколько|обойд\w*)\b", normalized):
         return None
+    if re.search(r"\bдоставк\w*\b", normalized):
+        profile = company_profile or load_company_profile("amelia_flowers")
+        if profile.delivery_city_price is not None and profile.free_delivery_from is not None:
+            return (
+                f"По городу доставка — {profile.delivery_city_price} ₽. "
+                f"От {profile.free_delivery_from} ₽ доставка бесплатная."
+            )
     requested_tokens = set(re.findall(r"[а-яa-z]{4,}", normalized))
     if not stock_context:
         return "По цене лучше уточню у менеджера, чтобы не назвать неверно."
