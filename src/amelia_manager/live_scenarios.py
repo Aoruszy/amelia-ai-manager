@@ -246,7 +246,7 @@ def build_live_scenarios() -> list[DialogueScenario]:
             ["Клиент: Букет до 4000, нежный, самовывоз сегодня в 22:30"],
             expected_next_step="ask_pickup_time_within_shop_hours",
             must_contain=("09:00", "20:00"),
-            notes="Часы магазина, не часы доставки 08:00–22:00.",
+            notes="Детерминированная runtime-ветка: часы магазина, не часы доставки 08:00–22:00.",
         ),
         DialogueScenario(
             "real-pickup-summary-without-payment-and-recipient",

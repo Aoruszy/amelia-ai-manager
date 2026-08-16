@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
+from amelia_manager.delivery_questions import is_delivery_price_question, is_out_of_area_delivery_price_question
 
 
 class RiskLevel(StrEnum):
@@ -150,13 +151,19 @@ def assess_risk(text: str, *, company_profile: CompanyProfile | None = None) -> 
         term_pattern = re.escape(marker)
         if re.search(rf"\b{term_pattern}\w*\b", normalized) and _stock_marker_has_product_context(marker, normalized, profile):
             return RiskAssessment(level=RiskLevel.MEDIUM, category=RiskCategory.STOCK_UNCERTAINTY, matched=term)
+    if is_out_of_area_delivery_price_question(normalized, company_profile=profile):
+        return RiskAssessment(
+            level=RiskLevel.MEDIUM,
+            category=RiskCategory.OUT_OF_AREA_DELIVERY,
+            matched="delivery_price_out_of_area",
+        )
     for category, level, patterns in _CATEGORY_PATTERNS:
         if level == RiskLevel.HIGH:
             continue
         for pattern in patterns:
             match = pattern.search(normalized)
             if match:
-                if category in {RiskCategory.DISCOUNT, RiskCategory.STOCK_UNCERTAINTY} and _is_delivery_price_question(normalized):
+                if category in {RiskCategory.DISCOUNT, RiskCategory.STOCK_UNCERTAINTY} and is_delivery_price_question(normalized):
                     continue
                 return RiskAssessment(level=level, category=category, matched=match.group(0))
     return RiskAssessment(level=RiskLevel.LOW)
@@ -177,13 +184,6 @@ def _profile_term_matches(term: str, normalized: str) -> bool:
     if len(stem) < 4:
         stem = normalized_term
     return bool(re.search(rf"\b{re.escape(stem)}\w*\b", normalized))
-
-
-def _is_delivery_price_question(normalized: str) -> bool:
-    return bool(
-        re.search(r"\bдоставк\w*\b", normalized)
-        and re.search(r"\b(?:дорог\w*|цен\w*|сто\w*|сколько|почем|платн\w*)\b", normalized)
-    )
 
 
 def classify_risk(text: str) -> RiskLevel:

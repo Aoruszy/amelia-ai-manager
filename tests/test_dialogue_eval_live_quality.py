@@ -136,12 +136,10 @@ async def test_live_eval_report_records_model_name(tmp_path):
 def test_live_cli_returns_zero_and_prints_failures(monkeypatch, tmp_path, capsys):
     class FakeSettings:
         llm_api_key = "test-key"
+        llm_provider = "openai"
         llm_model = "test-model"
-
-    class FakeGemini:
-        def __init__(self, *, api_key: str, model: str) -> None:
-            self.api_key = api_key
-            self.model = model
+        llm_base_url = None
+        llm_max_output_tokens = 1000
 
     async def fake_write_report(*args, **kwargs):
         return {
@@ -157,7 +155,7 @@ def test_live_cli_returns_zero_and_prints_failures(monkeypatch, tmp_path, capsys
         }
 
     monkeypatch.setattr(dialogue_eval, "Settings", FakeSettings)
-    monkeypatch.setattr(dialogue_eval, "GeminiClient", FakeGemini)
+    monkeypatch.setattr(dialogue_eval, "build_llm_client", lambda **kwargs: CountingLLM())
     monkeypatch.setattr(dialogue_eval, "write_dialogue_eval_report", fake_write_report)
 
     dialogue_eval.main(["--live", "--output", str(tmp_path / "report.json")])

@@ -9,7 +9,7 @@ AI Telegram manager core with a first company profile for Amelia Flowers.
 - Company profile: `COMPANY_PROFILE_NAME=amelia_flowers`.
 - Admin notifications in Telegram via `ADMIN_CHAT_ID`.
 - Auto-reply can be enabled for everyone who writes to the account.
-- Current LLM target: Gemini or OpenAI through `LLM_PROVIDER`.
+- Current LLM target: OpenAI Responses API by default (`LLM_PROVIDER=openai`); Gemini remains supported through `LLM_PROVIDER=gemini`.
 
 ## Setup
 

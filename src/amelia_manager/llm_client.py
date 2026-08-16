@@ -152,6 +152,11 @@ def build_llm_client(*, provider: str, api_key: str, model: str, base_url: str |
 
 
 def _extract_openai_output_text(data: dict[str, Any]) -> str:
+    if data.get("status") == "incomplete":
+        details = data.get("incomplete_details")
+        reason = details.get("reason") if isinstance(details, dict) else None
+        suffix = f": {reason}" if reason else ""
+        raise LLMError(f"OpenAI response incomplete{suffix}")
     direct = data.get("output_text")
     if isinstance(direct, str):
         return direct

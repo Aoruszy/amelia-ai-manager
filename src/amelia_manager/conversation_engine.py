@@ -7,6 +7,7 @@ from typing import Protocol
 from amelia_manager.client_order_summary import format_client_order_summary
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.deterministic_replies import deterministic_order_reply
+from amelia_manager.delivery_questions import is_city_delivery_price_question, is_delivery_price_question
 from amelia_manager.emoji_variation import vary_reply_emoji
 from amelia_manager.humanizer import split_into_telegram_messages, suppress_emojis
 from amelia_manager.intent import is_greeting_only
@@ -111,7 +112,13 @@ class ConversationEngine:
         )
         if cautious_reply:
             order_patch = _sensitive_occasion_patch(risk.category)
-            return ConversationAction(kind="send", messages=[cautious_reply], risk_level=risk_level, order_patch=order_patch)
+            return ConversationAction(
+                kind="send",
+                messages=[cautious_reply],
+                risk_level=risk_level,
+                order_patch=order_patch,
+                risk_category=risk.category,
+            )
 
         if order_card and order_card.client_summary_sent and _is_thanks_only(last_client_text):
             return ConversationAction(
@@ -549,13 +556,15 @@ def _catalog_price_reply_for_question(
     normalized = text.lower().replace("ё", "е")
     if not re.search(r"\b(?:сколько\s+(?:сто\w*|выйд\w*)|цен\w*|почем|за\s+сколько|обойд\w*)\b", normalized):
         return None
-    if re.search(r"\bдоставк\w*\b", normalized):
+    if is_city_delivery_price_question(normalized, company_profile=company_profile):
         profile = company_profile or load_company_profile("amelia_flowers")
         if profile.delivery_city_price is not None and profile.free_delivery_from is not None:
             return (
                 f"По городу доставка — {profile.delivery_city_price} ₽. "
                 f"От {profile.free_delivery_from} ₽ доставка бесплатная."
             )
+    if is_delivery_price_question(normalized):
+        return None
     requested_tokens = set(re.findall(r"[а-яa-z]{4,}", normalized))
     if not stock_context:
         return "По цене лучше уточню у менеджера, чтобы не назвать неверно."

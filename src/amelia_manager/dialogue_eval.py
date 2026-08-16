@@ -105,11 +105,15 @@ async def run_dialogue_eval(
                 "checks": checks,
                 "kind": action.kind,
                 "risk_level": action.risk_level.value,
+                "risk_category": action.risk_category.value if action.risk_category else None,
                 "output": output,
                 "llm_called": scenario_llm.called,
                 "intent": action.intent,
                 "next_step": action.next_step,
                 "confidence": action.confidence,
+                "safety_reasons": action.safety_reasons,
+                "safety_triggered_reasons": action.safety_triggered_reasons,
+                "safety_retry_succeeded": action.safety_retry_succeeded,
                 "notes": scenario.notes,
             }
         )
@@ -467,7 +471,7 @@ def build_default_scenarios() -> list[DialogueScenario]:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run dialogue-quality evals and write a JSON report.")
     parser.add_argument("--output", default="reports/dialogue_eval_report.json", help="Path to JSON report")
-    parser.add_argument("--live", action="store_true", help="Run against the configured live Gemini model instead of deterministic fallback")
+    parser.add_argument("--live", action="store_true", help="Run against the configured live LLM instead of deterministic fallback")
     parser.add_argument("--cache", default="reports/dialogue_eval_live_cache.json", help="Raw live LLM reply cache path")
     parser.add_argument("--no-cache", action="store_true", help="Disable live eval cache reads and writes")
     args = parser.parse_args(argv)
@@ -482,11 +486,11 @@ def main(argv: list[str] | None = None) -> None:
         if not settings.llm_api_key:
             raise SystemExit("LLM_API_KEY is required for --live")
         llm = build_llm_client(
-            provider=getattr(settings, "llm_provider", "gemini"),
+            provider=settings.llm_provider,
             api_key=settings.llm_api_key,
             model=settings.llm_model,
-            base_url=getattr(settings, "llm_base_url", None),
-            max_output_tokens=getattr(settings, "llm_max_output_tokens", 1000),
+            base_url=settings.llm_base_url,
+            max_output_tokens=settings.llm_max_output_tokens,
         )
         cache_path = args.cache
         model_name = settings.llm_model

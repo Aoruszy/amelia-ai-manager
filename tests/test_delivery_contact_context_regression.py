@@ -1,3 +1,5 @@
+from datetime import date
+
 from amelia_manager.order_state import extract_order_state
 
 
@@ -13,7 +15,8 @@ def test_delivery_contacts_follow_manager_questions_when_recipient_comes_before_
             "Клиент: Ольга 89990000011",
             "Менеджер: Записала имя получателя и номер. Подскажите ещё, как зовут вас и ваш номер телефона для связи?",
             "Клиент: Даниил 89990000012",
-        ]
+        ],
+        today=date(2026, 1, 1),
     )
 
     assert state.address == "ул. Гайдара 172"
