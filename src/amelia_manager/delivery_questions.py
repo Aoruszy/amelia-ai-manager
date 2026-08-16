@@ -86,12 +86,10 @@ def is_out_of_area_delivery_price_question(
         return False
 
     profile = company_profile or load_company_profile("amelia_flowers")
-    if _has_city_scope(normalized, profile):
-        return False
-    if _has_only_non_direction_targets(normalized):
-        return False
     if _OUT_OF_AREA_RE.search(normalized):
         return True
+    if _has_city_scope(normalized, profile):
+        return False
     return _has_unknown_direction(normalized, profile)
 
 
@@ -103,11 +101,6 @@ def _has_city_scope(normalized: str, profile: CompanyProfile) -> bool:
         return False
     own_city_stem = own_city.rstrip("аеуыиоюяь")
     return bool(re.search(rf"\bпо\s+{re.escape(own_city_stem)}\w*\b", normalized))
-
-
-def _has_only_non_direction_targets(normalized: str) -> bool:
-    matches = list(_DIRECTION_RE.finditer(normalized))
-    return bool(matches) and all(_direction_word(match) in _NON_DIRECTION_WORDS for match in matches)
 
 
 def _has_unknown_direction(normalized: str, profile: CompanyProfile) -> bool:

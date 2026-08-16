@@ -1,7 +1,12 @@
 import pytest
 
+import amelia_manager.conversation_engine as conversation_engine
 from amelia_manager.conversation_engine import ConversationEngine
-from amelia_manager.delivery_questions import is_city_delivery_price_question, is_delivery_price_question
+from amelia_manager.delivery_questions import (
+    is_city_delivery_price_question,
+    is_delivery_price_question,
+    is_out_of_area_delivery_price_question,
+)
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 
 
@@ -59,6 +64,28 @@ def test_non_direction_words_after_prepositions_are_not_out_of_area():
         assert risk.level != RiskLevel.MEDIUM, text
 
 
+def test_out_of_area_markers_win_over_weekday_and_city_address_words():
+    cases = {
+        "Сколько стоит доставка по городу?": False,
+        "Сколько стоит доставка в пределах города?": False,
+        "Сколько стоит доставка?": False,
+        "Сколько стоит доставка в субботу?": False,
+        "Сколько стоит доставка до вечера?": False,
+        "Сколько стоит доставка в центр?": False,
+        "Сколько стоит доставка за город?": True,
+        "Сколько стоит доставка в Светлогорск?": True,
+        "Доставка ночью сколько стоит?": True,
+        "Сколько стоит доставка за город в субботу?": True,
+        "Сколько стоит доставка ночью в центр?": True,
+        "Сколько стоит доставка после 22:00 в центр?": True,
+        "Сколько стоит доставка в пределах города ночью?": True,
+        "Сколько стоит доставка в Светлогорск в субботу?": True,
+    }
+
+    for text, expected in cases.items():
+        assert is_out_of_area_delivery_price_question(text) is expected, text
+
+
 @pytest.mark.asyncio
 async def test_out_of_area_delivery_price_questions_do_not_quote_city_price():
     engine = ConversationEngine(StaticLLM())
@@ -77,3 +104,20 @@ async def test_out_of_area_delivery_price_questions_do_not_quote_city_price():
         assert action.risk_level == RiskLevel.MEDIUM, question
         assert "400" not in text, question
         assert "уточню у менеджера" in text.lower(), question
+
+
+@pytest.mark.asyncio
+async def test_out_of_area_risk_blocks_city_price_even_if_detector_misclassifies(monkeypatch):
+    monkeypatch.setattr(conversation_engine, "is_city_delivery_price_question", lambda *args, **kwargs: True)
+
+    action = await ConversationEngine(StaticLLM()).handle_messages(
+        client_summary="Eval клиент",
+        recent_messages=["Клиент: Сколько стоит доставка за город?"],
+        stage="eval",
+        stock_context="",
+    )
+
+    text = "\n".join(action.messages)
+    assert action.risk_level == RiskLevel.MEDIUM
+    assert "400" not in text
+    assert "уточню у менеджера" in text.lower()

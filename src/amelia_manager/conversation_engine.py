@@ -96,11 +96,13 @@ class ConversationEngine:
                 risk_category=risk.category,
             )
 
-        catalog_price_reply = _catalog_price_reply_for_question(
-            last_client_text,
-            stock_context,
-            company_profile=self.company_profile,
-        )
+        catalog_price_reply = None
+        if risk.category != RiskCategory.OUT_OF_AREA_DELIVERY:
+            catalog_price_reply = _catalog_price_reply_for_question(
+                last_client_text,
+                stock_context,
+                company_profile=self.company_profile,
+            )
         if catalog_price_reply:
             return ConversationAction(kind="send", messages=[catalog_price_reply], risk_level=risk_level)
 
