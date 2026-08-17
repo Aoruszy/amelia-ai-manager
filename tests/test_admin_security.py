@@ -204,3 +204,55 @@ def test_admin_ignores_default_port_difference_between_origin_and_host(tmp_path)
     )
 
     assert response.status_code == 303
+
+
+def test_admin_accepts_browser_post_by_sec_fetch_site_regardless_of_origin(tmp_path):
+    """Браузер шлёт Origin: null при Referrer-Policy: no-referrer — полагаться на него нельзя."""
+    client, _repo = _client(tmp_path)
+
+    response = client.post(
+        "/catalog/items",
+        data={"name": "Пионы"},
+        headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"},
+        auth=("owner", "secret-password"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+
+
+def test_admin_rejects_cross_site_by_sec_fetch_site_even_with_matching_origin(tmp_path):
+    client, _repo = _client(tmp_path)
+
+    response = client.post(
+        "/catalog/items",
+        data={"name": "Розы"},
+        headers={"Origin": "https://admin.test", "Sec-Fetch-Site": "cross-site"},
+        auth=("owner", "secret-password"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+
+
+def test_admin_rejects_opaque_origin_without_sec_fetch_site(tmp_path):
+    """Старый браузер без Sec-Fetch-Site: Origin: null принимать нельзя, это песочница."""
+    client, _repo = _client(tmp_path)
+
+    response = client.post(
+        "/catalog/items",
+        data={"name": "Розы"},
+        headers={"Origin": "null"},
+        auth=("owner", "secret-password"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 403
+
+
+def test_admin_sends_same_origin_referrer_policy(tmp_path):
+    client, _repo = _client(tmp_path)
+
+    response = client.get("/", auth=("owner", "secret-password"))
+
+    assert response.headers["referrer-policy"] == "same-origin"

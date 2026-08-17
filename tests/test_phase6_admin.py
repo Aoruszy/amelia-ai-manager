@@ -72,7 +72,10 @@ def test_admin_adds_security_headers(tmp_path):
 
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.headers["referrer-policy"] == "no-referrer"
+    # Было no-referrer, но браузер тогда шлёт Origin: null на form POST,
+    # и проверка CSRF отклоняет собственные запросы панели. same-origin
+    # так же не отдаёт реферер наружу, но сохраняет его для своих страниц.
+    assert response.headers["referrer-policy"] == "same-origin"
 
 
 def test_admin_serves_static_assets_and_uses_file_templates(tmp_path):

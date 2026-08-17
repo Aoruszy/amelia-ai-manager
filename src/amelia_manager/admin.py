@@ -108,7 +108,9 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         response = await call_next(request)
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        # same-origin, а не no-referrer: последний заставляет браузер слать Origin: null
+        # на form POST, из-за чего проверка CSRF отклоняла собственные запросы панели.
+        response.headers["Referrer-Policy"] = "same-origin"
         return response
 
     def require_auth(request: Request, credentials: Annotated[HTTPBasicCredentials, Depends(security)]) -> None:
@@ -123,6 +125,11 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         limiter.record_success(ip)
 
     def require_same_origin(request: Request) -> None:
+        fetch_site = request.headers.get("sec-fetch-site", "").lower()
+        if fetch_site in {"same-origin", "none"}:
+            return
+        if fetch_site in {"cross-site", "same-site"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site POST rejected")
         source = request.headers.get("origin") or request.headers.get("referer")
         if not source:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing Origin or Referer")
@@ -133,7 +140,13 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
                 "csrf_host_mismatch",
                 extra={
                     "event": "csrf_host_mismatch",
-                    "payload": {"source_host": source_host, "expected": sorted(expected)},
+                    "payload": {
+                        "source_host": source_host,
+                        "expected": sorted(expected),
+                        "origin": request.headers.get("origin"),
+                        "referer": request.headers.get("referer"),
+                        "sec_fetch_site": fetch_site or None,
+                    },
                 },
             )
             raise HTTPException(
