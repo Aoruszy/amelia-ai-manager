@@ -4,6 +4,7 @@ import csv
 import io
 import re
 import secrets
+import sqlite3
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -252,7 +253,18 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         for field, value in changes.items():
             if field != "updated_by" and getattr(item, field) != value:
                 changed.append(field)
-        updated = repo.update_catalog_item(item_id, **changes)
+        try:
+            updated = repo.update_catalog_item(item_id, **changes)
+        except sqlite3.IntegrityError:
+            # Имя позиции уникально; без этой ветки переименование в занятое имя роняло страницу в 500.
+            return render(
+                "catalog_item.html",
+                status_code=400,
+                nav_active="catalog",
+                title=item.name,
+                item=item,
+                error=f"Позиция с названием «{changes['name']}» уже есть в каталоге",
+            )
         for field in changed:
             _record_catalog_update(repo, item_name=updated.name, field=field, updated_by="admin")
         return RedirectResponse(f"/catalog/items/{updated.id}", status_code=303)

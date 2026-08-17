@@ -515,7 +515,6 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-tint) 55%, transpar
   max-width: 74%;
   padding: .6rem .85rem .65rem;
   border-radius: 1.05rem;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   border: 1px solid transparent;
   box-shadow: var(--shadow-1);
@@ -523,6 +522,7 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-tint) 55%, transpar
 }
 @keyframes bubble-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
+.message-bubble > div { white-space: pre-wrap; }
 .message-bubble small {
   display: block;
   color: var(--muted);

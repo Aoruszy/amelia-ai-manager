@@ -60,9 +60,17 @@
 
 {% if pages > 1 %}
 <nav class="pagination" aria-label="Страницы">
-  <a class="page-link" href="/?page={{ page - 1 }}{{ page_query }}" aria-disabled="{{ 'true' if page <= 1 else 'false' }}">← Назад</a>
+  {% if page > 1 %}
+    <a class="page-link" href="/?page={{ page - 1 }}{{ page_query }}">← Назад</a>
+  {% else %}
+    <span class="page-link" aria-disabled="true">← Назад</span>
+  {% endif %}
   <span class="page-status">{{ page }} / {{ pages }}</span>
-  <a class="page-link" href="/?page={{ page + 1 }}{{ page_query }}" aria-disabled="{{ 'true' if page >= pages else 'false' }}">Вперёд →</a>
+  {% if page < pages %}
+    <a class="page-link" href="/?page={{ page + 1 }}{{ page_query }}">Вперёд →</a>
+  {% else %}
+    <span class="page-link" aria-disabled="true">Вперёд →</span>
+  {% endif %}
 </nav>
 {% endif %}
 {% endblock %}
