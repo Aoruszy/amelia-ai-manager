@@ -149,3 +149,58 @@ def test_admin_falls_back_to_peer_when_all_xff_addresses_are_trusted(tmp_path):
     )
 
     assert blocked.status_code == 429
+
+
+def test_admin_accepts_public_host_from_allowed_hosts_behind_tunnel(tmp_path):
+    """Туннель подменяет Host на внутренний, браузер шлёт публичное имя в Origin."""
+    client, _repo = _client(tmp_path, admin_allowed_hosts="panel.example.com")
+
+    allowed = client.post(
+        "/catalog/items",
+        data={"name": "Пионы"},
+        headers={"Origin": "https://panel.example.com"},
+        auth=("owner", "secret-password"),
+        follow_redirects=False,
+    )
+    foreign = client.post(
+        "/catalog/items",
+        data={"name": "Розы"},
+        headers={"Origin": "https://evil.example"},
+        auth=("owner", "secret-password"),
+        follow_redirects=False,
+    )
+
+    assert allowed.status_code == 303
+    assert foreign.status_code == 403
+
+
+def test_admin_trusts_forwarded_host_only_from_trusted_proxy(tmp_path):
+    trusted, _repo = _client(tmp_path, admin_trusted_proxy_ips="testclient")
+    untrusted, _repo2 = _client(tmp_path)
+
+    headers = {"Origin": "https://panel.example.com", "X-Forwarded-Host": "panel.example.com"}
+    from_proxy = trusted.post(
+        "/catalog/items", data={"name": "Пионы"}, headers=headers,
+        auth=("owner", "secret-password"), follow_redirects=False,
+    )
+    spoofed = untrusted.post(
+        "/catalog/items", data={"name": "Пионы"}, headers=headers,
+        auth=("owner", "secret-password"), follow_redirects=False,
+    )
+
+    assert from_proxy.status_code == 303
+    assert spoofed.status_code == 403
+
+
+def test_admin_ignores_default_port_difference_between_origin_and_host(tmp_path):
+    client, _repo = _client(tmp_path)
+
+    response = client.post(
+        "/catalog/items",
+        data={"name": "Пионы"},
+        headers={"Origin": "https://admin.test:443"},
+        auth=("owner", "secret-password"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303

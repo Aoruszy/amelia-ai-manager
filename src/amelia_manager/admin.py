@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 import secrets
 import sqlite3
@@ -26,6 +27,7 @@ from amelia_manager.events import EventName
 from amelia_manager.metrics import calculate_metrics
 from amelia_manager.order_card import OrderCard
 
+LOGGER = logging.getLogger(__name__)
 security = HTTPBasic()
 DIALOGUES_PER_PAGE = 50
 MESSAGES_PREVIEW_LIMIT = 200
@@ -124,11 +126,24 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         source = request.headers.get("origin") or request.headers.get("referer")
         if not source:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing Origin or Referer")
-        parsed = urlparse(source)
-        source_host = parsed.netloc.lower()
-        request_host = request.headers.get("host", "").lower()
-        if not source_host or source_host != request_host:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-site POST rejected")
+        source_host = _normalize_host(urlparse(source).netloc)
+        expected = _expected_request_hosts(request, settings=settings)
+        if not source_host or source_host not in expected:
+            LOGGER.warning(
+                "csrf_host_mismatch",
+                extra={
+                    "event": "csrf_host_mismatch",
+                    "payload": {"source_host": source_host, "expected": sorted(expected)},
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Cross-site POST rejected: запрос пришёл с «{source_host}», "
+                    f"а панель считает своими именами {sorted(expected)}. "
+                    "Если панель за прокси, добавьте её публичное имя в ADMIN_ALLOWED_HOSTS."
+                ),
+            )
 
     def render(template: str, *, status_code: int = 200, **context) -> HTMLResponse:
         return HTMLResponse(env.get_template(template).render(**context), status_code=status_code)
@@ -378,6 +393,30 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
 
     return app
 
+
+def _normalize_host(value: str) -> str:
+    """Хост без учёта регистра и стандартного порта: example.com:443 и example.com — одно и то же."""
+    host = (value or "").strip().lower()
+    for default_port in (":80", ":443"):
+        if host.endswith(default_port):
+            return host[: -len(default_port)]
+    return host
+
+
+def _expected_request_hosts(request: Request, *, settings: Settings) -> set[str]:
+    """Имена, под которыми панель может быть открыта.
+
+    За прокси Host часто внутренний (127.0.0.1:8000), а браузер шлёт Origin с публичным
+    именем. Поэтому к собственному Host добавляем X-Forwarded-Host от доверенного прокси
+    и явно заданные в настройках имена.
+    """
+    hosts = {_normalize_host(request.headers.get("host", ""))}
+    peer_ip = request.client.host if request.client else ""
+    if peer_ip in settings.trusted_proxy_ips:
+        forwarded = request.headers.get("x-forwarded-host", "")
+        hosts.update(_normalize_host(part) for part in forwarded.split(","))
+    hosts.update(_normalize_host(host) for host in settings.allowed_admin_hosts)
+    return {host for host in hosts if host}
 
 def _validate_admin_credentials(settings: Settings) -> None:
     if not settings.admin_username.strip() or not settings.admin_password.strip() or (settings.admin_username == "admin" and settings.admin_password == "admin"):

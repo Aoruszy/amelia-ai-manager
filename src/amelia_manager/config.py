@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     delivery_hours_end: str = "22:00"
     scheduler_interval_minutes: int = Field(default=15, ge=1, le=1440)
     admin_trusted_proxy_ips: str = ""
+    admin_allowed_hosts: str = ""
 
     @field_validator("max_reply_delay_seconds")
     @classmethod
@@ -85,3 +86,8 @@ class Settings(BaseSettings):
     @cached_property
     def trusted_proxy_ips(self) -> set[str]:
         return {ip.strip() for ip in self.admin_trusted_proxy_ips.split(",") if ip.strip()}
+
+    @cached_property
+    def allowed_admin_hosts(self) -> set[str]:
+        """Публичные имена панели: нужны, когда прокси не пробрасывает свой Host."""
+        return {host.strip().lower() for host in self.admin_allowed_hosts.split(",") if host.strip()}

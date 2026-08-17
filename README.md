@@ -28,6 +28,10 @@ Keep only the declared baseline report and the latest eval run in `reports/`: to
 
 ## Admin UI
 
+If you open the panel through a tunnel or a reverse proxy, set `ADMIN_ALLOWED_HOSTS` to its public
+hostname. A tunnel usually rewrites `Host` to the internal address, and without this the CSRF check
+rejects your own POST requests as cross-site.
+
 The admin UI is a separate FastAPI app. It is protected with Basic Auth, rate-limits failed logins in memory, and refuses to start with empty/default admin credentials. Basic Auth sends credentials as base64, not encryption, so expose the panel only behind a TLS terminator such as Cloudflare Tunnel or Caddy; never publish it over plain HTTP.
 
 All logged-in users have the same access level: dialogs, catalog, and metrics. Give the password only to people trusted with customer messages and contacts, and rotate it when staff changes.
