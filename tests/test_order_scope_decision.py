@@ -177,3 +177,49 @@ def test_is_order_abandoned_uses_the_configured_threshold():
     assert is_order_abandoned(order(1), settings=settings, now=now) is False
     assert is_order_abandoned(SimpleNamespace(updated_at=None, created_at=None), settings=settings, now=now) is False
     assert is_order_abandoned(SimpleNamespace(updated_at="не дата", created_at=None), settings=settings, now=now) is False
+
+
+def test_abandoned_order_is_reset_before_the_reply_is_composed(tmp_path):
+    """Сброс должен случиться до движка, иначе первый ответ всё равно уйдёт со старой карточкой."""
+    repo = SQLiteRepository(tmp_path / "scope.sqlite3")
+    repo.initialize()
+    settings = Settings(admin_username="x", admin_password="y", abandoned_order_days=3)
+    client = repo.upsert_client(telegram_id=1, username="tester")
+    order = repo.get_or_create_active_order(client_id=client.id)
+    repo.update_order_card(
+        order_id=order.id,
+        card=OrderCard(budget=4000, colors=["экзотический стиль"], fulfillment_type="pickup",
+                       delivery_date="2026-08-19", delivery_time="12:00"),
+    )
+    with repo._connect() as conn:
+        conn.execute(
+            "UPDATE orders SET updated_at = ? WHERE id = ?",
+            ((datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d %H:%M:%S"), order.id),
+        )
+    messages = ["Клиент: Здравствуйте", "Менеджер: Здравствуйте 🙂 Чем могу помочь?", "Клиент: нужны цветочки"]
+
+    card = update_active_order_from_messages(
+        repo, client_id=client.id, recent_messages=messages, settings=settings, today=date(2026, 8, 16)
+    )
+
+    assert card.budget is None
+    assert card.colors == []
+    assert card.delivery_date is None
+    assert card.fulfillment_type is None
+
+
+def test_fresh_order_survives_the_same_dialog(tmp_path):
+    repo = SQLiteRepository(tmp_path / "scope-fresh.sqlite3")
+    repo.initialize()
+    settings = Settings(admin_username="x", admin_password="y", abandoned_order_days=3)
+    client = repo.upsert_client(telegram_id=2, username="fresh")
+    order = repo.get_or_create_active_order(client_id=client.id)
+    repo.update_order_card(order_id=order.id, card=OrderCard(budget=4000, colors=["экзотический стиль"]))
+    messages = ["Клиент: Здравствуйте", "Менеджер: Здравствуйте 🙂 Чем могу помочь?", "Клиент: нужны цветочки"]
+
+    card = update_active_order_from_messages(
+        repo, client_id=client.id, recent_messages=messages, settings=settings, today=date(2026, 8, 16)
+    )
+
+    assert card.budget == 4000
+    assert card.colors == ["экзотический стиль"]

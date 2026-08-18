@@ -126,11 +126,17 @@ def update_active_order_from_messages(
     recent_messages: list[str],
     company_profile: CompanyProfile | None = None,
     today: date | None = None,
+    settings: Settings | None = None,
 ) -> OrderCard:
     active = repo.get_active_order(client_id=client_id)
     latest_text = _last_client_text(recent_messages)
     if active and (
-        should_start_new_order(latest_text, active.card, company_profile=company_profile)
+        should_start_new_order(
+            latest_text,
+            active.card,
+            company_profile=company_profile,
+            previous_order_stale=is_order_abandoned(active, settings=settings) if settings else False,
+        )
         or _completed_order_has_new_start_in_history(active.card, recent_messages)
     ):
         repo.close_active_orders(client_id=client_id)
@@ -155,11 +161,17 @@ async def update_active_order_from_messages_with_llm(
     recent_messages: list[str],
     company_profile: CompanyProfile | None = None,
     today: date | None = None,
+    settings: Settings | None = None,
 ) -> OrderCard:
     active = repo.get_active_order(client_id=client_id)
     latest_text = _last_client_text(recent_messages)
     if active and (
-        should_start_new_order(latest_text, active.card, company_profile=company_profile)
+        should_start_new_order(
+            latest_text,
+            active.card,
+            company_profile=company_profile,
+            previous_order_stale=is_order_abandoned(active, settings=settings) if settings else False,
+        )
         or _completed_order_has_new_start_in_history(active.card, recent_messages)
     ):
         repo.close_active_orders(client_id=client_id)
@@ -197,6 +209,7 @@ async def update_active_order_from_messages_with_optional_llm(
             recent_messages=recent_messages,
             company_profile=company_profile,
             today=today,
+            settings=settings,
         )
     return update_active_order_from_messages(
         repo,
@@ -204,6 +217,7 @@ async def update_active_order_from_messages_with_optional_llm(
         recent_messages=recent_messages,
         company_profile=company_profile,
         today=today,
+        settings=settings,
     )
 
 
