@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     message_buffer_seconds: int = Field(default=20, ge=0)
     conversation_history_limit: int = Field(default=20, ge=1, le=30)
     conversation_memory_days: int = Field(default=7, ge=1, le=30)
+    abandoned_order_days: int = Field(default=3, ge=1, le=60)
     pii_retention_days: int = Field(default=30, ge=1, le=3650)
     event_retention_days: int = Field(default=90, ge=1, le=3650)
     retention_cleanup_interval_hours: int = Field(default=24, ge=1, le=168)

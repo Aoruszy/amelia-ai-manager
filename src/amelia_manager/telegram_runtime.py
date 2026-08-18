@@ -8,7 +8,7 @@ import re
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient, events
@@ -238,12 +238,33 @@ class OrderScopeDecision:
         return self.start
 
 
+def is_order_abandoned(order, *, settings: Settings, now: datetime | None = None) -> bool:
+    """Заказ, по которому давно не было движения, перестаёт быть текущим.
+
+    Без срока давности недозаполненная карточка присваивала себе любое новое
+    обращение клиента: через пять дней «здравствуйте, нужны цветочки» дополняло
+    заказ прошлой недели вместо того, чтобы начать новый.
+    """
+    updated_at = getattr(order, "updated_at", None) or getattr(order, "created_at", None)
+    if not updated_at:
+        return False
+    try:
+        touched = datetime.fromisoformat(str(updated_at))
+    except ValueError:
+        return False
+    if touched.tzinfo is None:
+        touched = touched.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    return (reference - touched) > timedelta(days=settings.abandoned_order_days)
+
+
 def should_start_new_order(
     latest_client_text: str,
     existing_card: OrderCard,
     *,
     model_order_scope: str | None = None,
     company_profile: CompanyProfile | None = None,
+    previous_order_stale: bool = False,
 ) -> OrderScopeDecision:
     profile = company_profile or load_company_profile("amelia_flowers")
     return_decision = model_order_scope is not None
@@ -262,11 +283,19 @@ def should_start_new_order(
     if explicit_marker and scope == "new_order":
         return result(OrderScopeDecision(True, scope))
 
-    if not previous_order_done:
+    if not previous_order_done and not previous_order_stale:
+        # Замок на недозаполненной карточке: пока заказ собирается, любое сообщение —
+        # продолжение. Но он действует только на свежий заказ: без срока давности
+        # брошенная неделю назад карточка навсегда присваивала себе новые обращения.
         return result(OrderScopeDecision(False, "continue", overridden=(scope == "new_order")))
 
     if scope == "new_order":
         return result(OrderScopeDecision(True, scope))
+
+    if previous_order_stale and not previous_order_done and _looks_like_order_start(text):
+        # Модель видит старую карточку в промпте и склонна отвечать «continue»;
+        # на просроченном заказе явное начало запроса важнее её вердикта.
+        return result(OrderScopeDecision(True, "new_order", overridden=True))
 
     mismatch = scope == "continue" and _completed_continue_mentions_new_details(text)
     if model_order_scope is not None:
@@ -327,20 +356,16 @@ def _prefix_new_order_confirmation(reply: str, *, previous_order_sent: bool) -> 
     return prefix + reply
 
 
+_ORDER_START_RE = re.compile(
+    r"\b(?:нужен|нужна|нужно|нужны|хочу|хочется|закажу|заказать|купить|подобрать|оформить)\b"
+    r"[^.!?\n]{0,20}?"
+    r"\b(?:букет\w*|цвет(?:ы|ок|очк\w*|ов|ами|та)|композици\w*|корзин\w*)\b"
+)
+
+
 def _looks_like_order_start(text: str) -> bool:
-    return any(
-        phrase in text
-        for phrase in (
-            "нужен букет",
-            "нужны цветы",
-            "хочу букет",
-            "хочу цветы",
-            "цветы купить",
-            "купить цветы",
-            "хочу букет купить",
-            "заказать букет",
-        )
-    ) or _is_greeting_order_restart(text)
+    normalized = text.lower().replace("ё", "е")
+    return bool(_ORDER_START_RE.search(normalized)) or _is_greeting_order_restart(normalized)
 
 
 def _is_greeting_order_restart(text: str) -> bool:
@@ -1008,6 +1033,7 @@ async def run_listener(settings: Settings) -> None:
                 active_order.card,
                 model_order_scope=action.order_scope,
                 company_profile=company_profile,
+                previous_order_stale=is_order_abandoned(active_order, settings=settings),
             )
             event_recorder.record(
                 EventName.ORDER_SCOPE_DECIDED,

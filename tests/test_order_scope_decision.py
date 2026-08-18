@@ -1,6 +1,8 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from amelia_manager.company_profile import load_company_profile
+from amelia_manager.config import Settings
 from amelia_manager.db.repository import SQLiteRepository
 from amelia_manager.events import EventName
 from amelia_manager.metrics import calculate_metrics
@@ -8,7 +10,9 @@ from amelia_manager.model_decision import parse_model_decision
 from amelia_manager.observability import EventRecorder
 from amelia_manager.order_card import OrderCard
 from amelia_manager.telegram_runtime import (
+    _looks_like_order_start,
     apply_new_order_start,
+    is_order_abandoned,
     should_start_new_order,
     update_active_order_from_messages,
 )
@@ -120,3 +124,56 @@ def test_order_scope_override_metric(tmp_path):
     metrics = calculate_metrics(repo, date_from=today, date_to=today)
 
     assert metrics["quality"]["order_scope_override_rate"] == 0.5
+
+
+def _stale_half_filled_card() -> OrderCard:
+    """Заказ, брошенный на середине: поля есть, контактов нет, менеджеру не ушёл."""
+    return OrderCard(budget=4000, fulfillment_type="pickup", delivery_date="2026-08-19", delivery_time="12:00")
+
+
+def test_abandoned_half_filled_order_does_not_swallow_a_new_request():
+    card = _stale_half_filled_card()
+
+    for text in ("нужны цветочки", "нужны цветы", "хочу букет"):
+        decision = should_start_new_order(text, card, model_order_scope="continue", previous_order_stale=True)
+        assert decision.start is True, text
+
+
+def test_fresh_half_filled_order_still_continues():
+    """Негативный случай: пока заказ собирается, новое сообщение — продолжение, а не новый заказ."""
+    card = _stale_half_filled_card()
+
+    for text in ("нужны цветочки", "хочу букет", "5000", "самовывоз"):
+        decision = should_start_new_order(text, card, model_order_scope="continue", previous_order_stale=False)
+        assert decision.start is False, text
+
+
+def test_abandoned_order_keeps_continuing_when_client_answers_a_question():
+    """Негативный случай: просроченный заказ не сбрасывается от обычного ответа по делу."""
+    card = _stale_half_filled_card()
+
+    for text in ("5000", "самовывоз", "завтра к 12", "да, подтверждаю"):
+        decision = should_start_new_order(text, card, model_order_scope="continue", previous_order_stale=True)
+        assert decision.start is False, text
+
+
+def test_order_start_detection_survives_diminutives_without_false_positives():
+    assert _looks_like_order_start("нужны цветочки") is True
+    assert _looks_like_order_start("закажу композицию") is True
+    assert _looks_like_order_start("хочу корзину цветов") is True
+
+    for text in ("5000", "самовывоз", "спасибо", "а сколько стоит доставка", "завтра к 12"):
+        assert _looks_like_order_start(text) is False, text
+
+
+def test_is_order_abandoned_uses_the_configured_threshold():
+    settings = Settings(admin_username="x", admin_password="y", abandoned_order_days=3)
+    now = datetime(2026, 8, 16, 12, 0, tzinfo=timezone.utc)
+
+    def order(days_ago: float):
+        return SimpleNamespace(updated_at=(now - timedelta(days=days_ago)).isoformat(), created_at=None)
+
+    assert is_order_abandoned(order(5), settings=settings, now=now) is True
+    assert is_order_abandoned(order(1), settings=settings, now=now) is False
+    assert is_order_abandoned(SimpleNamespace(updated_at=None, created_at=None), settings=settings, now=now) is False
+    assert is_order_abandoned(SimpleNamespace(updated_at="не дата", created_at=None), settings=settings, now=now) is False
