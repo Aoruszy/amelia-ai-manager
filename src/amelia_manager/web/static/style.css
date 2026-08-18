@@ -594,6 +594,24 @@ tbody tr:hover { background: color-mix(in srgb, var(--accent-tint) 55%, transpar
 .card-edit-form label { margin-bottom: .6rem; }
 .card-edit-form button { width: 100%; margin-top: .3rem; }
 
+.orders-history { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.orders-history h3 { font-family: var(--ui); font-size: .74rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.order-list { list-style: none; margin: .6rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .55rem; }
+.order-list-item {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: .6rem .7rem;
+  background: var(--surface-2);
+  display: grid;
+  gap: .4rem;
+}
+.order-list-item.is-current { border-color: var(--accent-line); background: var(--accent-tint); }
+.order-list-item > div { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.order-list-meta { display: flex; gap: .35rem; flex-wrap: wrap; }
+.order-list-form { display: flex; gap: .4rem; }
+.order-list-form select { flex: 1; padding: .35rem .5rem; font-size: .86rem; }
+.order-list-form button { padding: .35rem .7rem; font-size: .84rem; }
+
 /* ============================ catalog ============================ */
 
 .catalog-grid { display: grid; gap: 1rem; margin-bottom: 1.7rem; }

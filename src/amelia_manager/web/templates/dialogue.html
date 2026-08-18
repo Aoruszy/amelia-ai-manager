@@ -80,6 +80,35 @@
     {% else %}
       <p class="empty-state">Активной карточки нет.</p>
     {% endif %}
+
+    {% if orders|length > 1 %}
+    <section class="orders-history">
+      <h3>Все заказы клиента</h3>
+      <p class="muted-text"><small>Карточка выше — активный заказ. Остальные закрыты или заменены новыми.</small></p>
+      <ul class="order-list">
+        {% for past in orders %}
+        <li class="order-list-item {{ 'is-current' if order and past.id == order.id else '' }}">
+          <div>
+            <strong>Заказ №{{ past.id }}</strong>
+            <small class="muted-text">{{ format_time(past.created_at) }}</small>
+          </div>
+          <div class="order-list-meta">
+            <span class="badge {{ 'success' if past.status in ('submitted', 'confirmed', 'in_production', 'ready') else ('muted' if past.status in ('fulfilled', 'cancelled', 'superseded', 'completed') else 'neutral') }}">{{ order_status_label(past.status) }}</span>
+            {% if order and past.id == order.id %}<span class="badge neutral">показан выше</span>{% endif %}
+          </div>
+          <form method="post" action="/clients/{{ client.id }}/orders/{{ past.id }}/status" class="order-list-form">
+            <select name="status" aria-label="Статус заказа {{ past.id }}">
+              {% for code, label in order_status_options() %}
+                <option value="{{ code }}" {{ 'selected' if past.status == code else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <button class="secondary">Сохранить</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
   </aside>
 </div>
 {% endblock %}

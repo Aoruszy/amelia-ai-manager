@@ -872,6 +872,25 @@ class SQLiteRepository:
             ).fetchone()
         return self._order_from_row(row) if row else None
 
+    def list_orders_for_client(self, *, client_id: int, limit: int = 20) -> list[OrderRecord]:
+        """Все заказы клиента, новые первыми.
+
+        Панель показывала только активный, поэтому после старта нового заказа
+        смена статуса выглядела так, будто карточку очистили, а статус не сохранился.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, client_id, status, card_json, created_at, updated_at
+                FROM orders
+                WHERE client_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (client_id, limit),
+            ).fetchall()
+        return [self._order_from_row(row) for row in rows]
+
     def get_order_by_id(self, order_id: int) -> OrderRecord | None:
         with self._connect() as conn:
             row = conn.execute(

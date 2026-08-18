@@ -153,3 +153,21 @@ def test_confirmed_and_ready_statuses_schedule_existing_outbound_notifications(t
 
     due = repo.list_due_outbound(now=now + timedelta(minutes=2))
     assert [item.kind for item in due] == [OutboundKind.ORDER_CONFIRMED.value, OutboundKind.ORDER_READY.value]
+
+
+def test_dialogue_page_lists_all_client_orders_not_only_the_active_one(tmp_path):
+    """Панель показывала только активный заказ: после сброса смена статуса выглядела потерей карточки."""
+    from amelia_manager.order_card import OrderCard
+
+    client_app, repo = _admin_app(tmp_path)
+    client = repo.upsert_client(telegram_id=777, username="multi")
+    old = repo.get_or_create_active_order(client_id=client.id)
+    repo.update_order_card(order_id=old.id, card=OrderCard(budget=4000, colors=["экзотический стиль"]))
+    repo.update_order_status(order_id=old.id, status="superseded", changed_by="test")
+    repo.get_or_create_active_order(client_id=client.id)
+
+    page = client_app.get(f"/clients/{client.id}", headers=_auth())
+
+    assert "Все заказы клиента" in page.text
+    assert f"Заказ №{old.id}" in page.text
+    assert "показан выше" in page.text

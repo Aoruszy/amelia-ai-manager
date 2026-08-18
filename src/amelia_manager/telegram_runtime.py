@@ -252,6 +252,27 @@ class OrderScopeDecision:
         return self.start
 
 
+def messages_for_current_order(db_messages: list, order) -> list | None:
+    """История, относящаяся к текущему заказу, или None, если резать нечего.
+
+    Карточку при старте нового заказа мы очищаем, но модель всё равно читала
+    переписку за неделю и восстанавливала из неё пожелания прошлого заказа:
+    на «нужны цветы» отвечала «экзотический стиль уже отметила».
+
+    Режем только когда заказ создан позже начала истории — то есть сброс
+    действительно был. В обычном диалоге история остаётся целиком.
+    """
+    if order is None or not db_messages:
+        return None
+    started = str(getattr(order, "created_at", "") or "")
+    if not started:
+        return None
+    oldest = str(db_messages[0].created_at)
+    if started <= oldest:
+        return None
+    return [message for message in db_messages if str(message.created_at) >= started]
+
+
 def is_order_abandoned(order, *, settings: Settings, now: datetime | None = None) -> bool:
     """Заказ, по которому давно не было движения, перестаёт быть текущим.
 
@@ -1016,6 +1037,14 @@ async def run_listener(settings: Settings) -> None:
             recent_messages=recent_messages,
             company_profile=company_profile,
         )
+        active_for_history = repo.get_active_order(client_id=db_client.id)
+        scoped_db_messages = messages_for_current_order(recent_db_messages, active_for_history)
+        if scoped_db_messages is not None:
+            recent_messages = [
+                f"{'Клиент' if message.direction == 'in' else 'Менеджер'}: {message.text}"
+                for message in scoped_db_messages
+            ] or _messages_since_latest_order_start(recent_messages)
+
         stock_snapshot = get_current_stock_snapshot(stock_source)
         if stock_snapshot.source_name == "sqlite_fallback":
             event_recorder.record(
