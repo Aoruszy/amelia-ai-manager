@@ -98,6 +98,7 @@ class CompanyProfile:
     objection_examples: tuple[str, ...] = ("дорого", "дороговато", "долго ждать", "можно дешевле такой же", "подумаю")
     objection_response_rule: str = "При возражении предложи вариант дешевле в том же стиле или спокойно объясни, из чего складывается цена. Никогда не давай скидку; скидка — только через менеджера."
     upsell_offers: tuple[UpsellOffer, ...] = ()
+    upsell_reply_template: str = "Если захотите дополнить заказ — есть {offers}. Добавить что-нибудь?"
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]
@@ -155,6 +156,7 @@ _DEFAULT_PROFILES = {
             UpsellOffer("ваза", 1200),
             UpsellOffer("шары", 350),
         ),
+        upsell_reply_template="Букет уже собирается 🌸 Если захочется дополнить — есть {offers}. Добавить что-нибудь или оформляем так?",
         followup_fallbacks={
             "budget": "Если удобно, напишите примерный бюджет — подскажу варианты. Можно не отвечать, если уже неактуально.",
             "format": "Можем оформить самовывоз или доставку — как вам удобнее? Можно не отвечать, если уже неактуально.",

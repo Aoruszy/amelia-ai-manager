@@ -43,7 +43,7 @@ class OrderState:
 def extract_order_state(messages: list[str], *, today: date | None = None, timezone_name: str = "Europe/Kaliningrad") -> OrderState:
     client_messages = [_strip_role(message) for message in messages if _is_client_message(message)]
     text = "\n".join(client_messages).lower().replace("ё", "е")
-    context_text = "\n".join(_strip_role(message) for message in messages).lower().replace("ё", "е")
+    manager_schedule_text = _manager_scheduling_text(messages)
     original = "\n".join(client_messages)
     contacts = _extract_contacts_by_dialog_context(messages)
     budget_candidates = [*_extract_budget_candidates(text), *_extract_budget_by_dialog_context(messages)]
@@ -60,7 +60,7 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
         colors=_extract_colors(text),
         forbidden_flowers=_extract_forbidden_flowers(text),
         fulfillment_type=_extract_fulfillment_type(text),
-        delivery_date=_extract_delivery_date(context_text, today=reference_date),
+        delivery_date=_extract_delivery_date(text, manager_schedule_text, today=reference_date),
         delivery_time=_extract_delivery_time(text),
         address=_extract_address(original),
         sender_name=sender_name,
@@ -274,27 +274,71 @@ _MONTHS = {
 }
 
 
-def _extract_delivery_date(text: str, *, today: date) -> str | None:
+_SCHEDULING_MARKERS = re.compile(
+    r"\b(?:забра\w*|заберет\w*|заберут\w*|доставк\w*|достав\w*|привез\w*|планиру\w*|"
+    r"записал\w*|оформ\w*|во\s+сколько|к\s+какому|к\s+которому|на\s+какое|время|времени|срок\w*)\b"
+)
+
+
+def _manager_scheduling_text(messages: list[str]) -> str:
+    """Реплики менеджера, где речь о сроке, а не о чём угодно.
+
+    Дату разрешено брать из слов менеджера: он спрашивает «к какому времени сегодня
+    планируете забрать». Но «на сегодня гортензии нет» — это про наличие, и раньше
+    такая фраза записывалась как дата заказа.
+    """
+    parts: list[str] = []
+    for message in messages:
+        if not message.lower().startswith(("менеджер:", "алина:")):
+            continue
+        stripped = _strip_role(message).lower().replace("ё", "е")
+        for sentence in re.split(r"[.!?\n]+", stripped):
+            if _SCHEDULING_MARKERS.search(sentence):
+                parts.append(sentence)
+    return "\n".join(parts)
+
+
+def _extract_delivery_date(client_text: str, context_text: str, *, today: date) -> str | None:
+    """Дата заказа: сначала по словам клиента, и только потом по контексту диалога.
+
+    Внутри источника побеждает сказанное позже — клиент может передумать.
+    Разделение источников важно: бот написал «на сегодня гортензии нет», и это
+    читалось как дата заказа, перебивая явное «20 августа» от клиента.
+    """
+    for text in (client_text, context_text):
+        candidates = [item for item in (_explicit_date_in(text, today=today), _relative_date_in(text, today=today)) if item]
+        if candidates:
+            return max(candidates, key=lambda item: item[0])[1]
+    return None
+
+
+def _relative_date_in(text: str, *, today: date) -> tuple[int, str, str] | None:
     today_index = text.rfind("сегодня")
     tomorrow_index = text.rfind("завтра")
+    if today_index < 0 and tomorrow_index < 0:
+        return None
     if today_index > tomorrow_index:
-        return today.isoformat()
-    if tomorrow_index > today_index:
-        return (today + timedelta(days=1)).isoformat()
-    month_match = re.search(
+        return (today_index, today.isoformat(), "relative")
+    return (tomorrow_index, (today + timedelta(days=1)).isoformat(), "relative")
+
+
+def _explicit_date_in(text: str, *, today: date) -> tuple[int, str, str] | None:
+    month_match = None
+    for match in re.finditer(
         r"\b([1-9]|[12]\d|3[01])\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)(?:\s+(20\d{2}))?\b",
         text,
-    )
-    if month_match:
-        day = int(month_match.group(1))
-        month = _MONTHS[month_match.group(2)]
-        explicit_year = month_match.group(3)
-        year = int(explicit_year or today.year)
-        candidate = date(year, month, day)
-        if explicit_year is None and candidate < today:
-            candidate = date(today.year + 1, month, day)
-        return candidate.isoformat()
-    return None
+    ):
+        month_match = match
+    if not month_match:
+        return None
+    day = int(month_match.group(1))
+    month = _MONTHS[month_match.group(2)]
+    explicit_year = month_match.group(3)
+    year = int(explicit_year or today.year)
+    candidate = date(year, month, day)
+    if explicit_year is None and candidate < today:
+        candidate = date(today.year + 1, month, day)
+    return (month_match.start(), candidate.isoformat(), "explicit")
 
 
 def _extract_delivery_time(text: str) -> str | None:

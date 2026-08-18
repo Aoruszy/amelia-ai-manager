@@ -35,7 +35,7 @@ def deterministic_order_reply(
         "ask_pickup_time_within_shop_hours": pickup_hours_reply,
         "ask_delivery_time": "К какому времени или в какой интервал доставить букет?",
         "ask_delivery_address": "Подскажите адрес доставки, пожалуйста.",
-        "ask_upsell": f"Можно добавить к заказу: {format_upsell_offers(profile)}. Нужно что-то из этого?",
+        "ask_upsell": profile.upsell_reply_template.format(offers=format_upsell_offers(profile)),
         "ask_sender_contacts": "Подскажите ваше имя и номер телефона для связи по заказу.",
         "ask_recipient_contacts": "Подскажите имя и номер телефона получателя.",
         "ask_payment_or_confirm_pickup": "Данные по самовывозу записала. Как удобнее оплатить: переводом/картой или на месте?",
