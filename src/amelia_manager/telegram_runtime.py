@@ -1044,6 +1044,11 @@ async def run_listener(settings: Settings) -> None:
                 f"{'Клиент' if message.direction == 'in' else 'Менеджер'}: {message.text}"
                 for message in scoped_db_messages
             ] or _messages_since_latest_order_start(recent_messages)
+        if not _has_existing_order_data(order_card):
+            # Пустая карточка значит, что ничего ещё не согласовано. Всё, что было до
+            # последнего «нужны цветы», относится к прошлому запросу — включая собственные
+            # реплики бота, которые иначе он читает как уже принятые детали.
+            recent_messages = _messages_since_latest_order_start(recent_messages)
 
         stock_snapshot = get_current_stock_snapshot(stock_source)
         if stock_snapshot.source_name == "sqlite_fallback":

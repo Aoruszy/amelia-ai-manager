@@ -223,3 +223,33 @@ def test_fresh_order_survives_the_same_dialog(tmp_path):
 
     assert card.budget == 4000
     assert card.colors == ["экзотический стиль"]
+
+
+def test_empty_card_drops_the_bots_own_earlier_claims_from_history():
+    """Бот читал свои прошлые реплики как согласованные детали и повторял их."""
+    from amelia_manager.telegram_runtime import _messages_since_latest_order_start
+
+    poisoned = [
+        "Клиент: нужны цветочки",
+        "Менеджер: Экзотический стиль уже учла 🌿 Какие оттенки?",
+        "Клиент: Здравствуйте",
+        "Менеджер: Здравствуйте 🙂 Чем могу помочь?",
+        "Клиент: Нужны цветочки",
+    ]
+
+    assert _messages_since_latest_order_start(poisoned) == ["Клиент: Нужны цветочки"]
+
+
+def test_history_is_kept_whole_while_an_order_is_being_collected():
+    """Негативный случай: пока заказ собирается, переписку резать нельзя."""
+    from amelia_manager.telegram_runtime import _has_existing_order_data, _messages_since_latest_order_start
+
+    dialog = [
+        "Клиент: нужен букет",
+        "Менеджер: На какой бюджет ориентироваться?",
+        "Клиент: 5000",
+        "Менеджер: Записала. Доставка или самовывоз?",
+    ]
+
+    assert _has_existing_order_data(OrderCard(budget=5000)) is True
+    assert _messages_since_latest_order_start(dialog) == dialog
