@@ -53,7 +53,8 @@ class Settings(BaseSettings):
     conversation_history_limit: int = Field(default=20, ge=1, le=30)
     conversation_memory_days: int = Field(default=7, ge=1, le=30)
     abandoned_order_days: int = Field(default=3, ge=1, le=60)
-    conversation_session_gap_hours: int = Field(default=6, ge=1, le=72)
+    # 0 — выключено: границу разговора задаёт закрытие заказа, а не пауза.
+    conversation_session_gap_hours: int = Field(default=0, ge=0, le=72)
     pii_retention_days: int = Field(default=30, ge=1, le=3650)
     event_retention_days: int = Field(default=90, ge=1, le=3650)
     retention_cleanup_interval_hours: int = Field(default=24, ge=1, le=168)

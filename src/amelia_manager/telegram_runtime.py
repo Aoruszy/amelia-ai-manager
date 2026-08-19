@@ -252,6 +252,18 @@ class OrderScopeDecision:
         return self.start
 
 
+def messages_after_last_closed_order(db_messages: list, closed_at: str | None) -> list:
+    """Переписка после последнего закрытого заказа.
+
+    Заказ переведён в «выполнен», «отменён» или заменён новым — значит разговор
+    закончен. Всё сказанное до этого относится к закрытому заказу и в промпт
+    следующего диалога не попадает.
+    """
+    if not closed_at:
+        return db_messages
+    return [message for message in db_messages if str(message.created_at) >= str(closed_at)]
+
+
 def messages_after_last_session_gap(db_messages: list, *, gap_hours: int) -> list:
     """Сообщения после последней долгой паузы — то есть текущий разговор.
 
@@ -261,7 +273,7 @@ def messages_after_last_session_gap(db_messages: list, *, gap_hours: int) -> lis
     заказа, ни обрезка по пустой карточке этот случай не ловят: «здравствуйте»
     началом заказа не считается, а карточка к тому моменту уже не пуста.
     """
-    if len(db_messages) < 2:
+    if gap_hours <= 0 or len(db_messages) < 2:
         return db_messages
     gap = timedelta(hours=gap_hours)
     start = 0
@@ -1040,6 +1052,10 @@ async def run_listener(settings: Settings) -> None:
             client_id=db_client.id,
             limit=settings.conversation_history_limit,
             since_days=settings.conversation_memory_days,
+        )
+        recent_db_messages = messages_after_last_closed_order(
+            recent_db_messages,
+            repo.last_closed_order_closed_at(client_id=db_client.id),
         )
         recent_db_messages = messages_after_last_session_gap(
             recent_db_messages,

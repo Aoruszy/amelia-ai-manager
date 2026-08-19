@@ -891,6 +891,20 @@ class SQLiteRepository:
             ).fetchall()
         return [self._order_from_row(row) for row in rows]
 
+    def last_closed_order_closed_at(self, *, client_id: int) -> str | None:
+        """Когда у клиента в последний раз закрывали заказ.
+
+        Закрытый заказ — конец разговора: переписка до этого момента относится к
+        нему и в новый диалог попадать не должна.
+        """
+        placeholders = ", ".join("?" for _ in TERMINAL_ORDER_STATUSES)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT MAX(updated_at) AS closed_at FROM orders WHERE client_id = ? AND status IN ({placeholders})",
+                (client_id, *TERMINAL_ORDER_STATUSES),
+            ).fetchone()
+        return row["closed_at"] if row and row["closed_at"] else None
+
     def get_order_by_id(self, order_id: int) -> OrderRecord | None:
         with self._connect() as conn:
             row = conn.execute(
