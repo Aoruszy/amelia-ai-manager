@@ -252,6 +252,38 @@ class OrderScopeDecision:
         return self.start
 
 
+def messages_after_last_session_gap(db_messages: list, *, gap_hours: int) -> list:
+    """Сообщения после последней долгой паузы — то есть текущий разговор.
+
+    Карточка хранит согласованное, а переписка за неделю тянула в промпт прошлый
+    разговор целиком: клиент писал «букет до 5000, самовывоз», а бот отвечал
+    «голубая гамма с гортензией» — из вчерашнего диалога. Ни обрезка по началу
+    заказа, ни обрезка по пустой карточке этот случай не ловят: «здравствуйте»
+    началом заказа не считается, а карточка к тому моменту уже не пуста.
+    """
+    if len(db_messages) < 2:
+        return db_messages
+    gap = timedelta(hours=gap_hours)
+    start = 0
+    previous = None
+    for index, message in enumerate(db_messages):
+        current = _parsed_timestamp(message.created_at)
+        if current is None:
+            previous = None
+            continue
+        if previous is not None and current - previous > gap:
+            start = index
+        previous = current
+    return db_messages[start:]
+
+
+def _parsed_timestamp(value: object) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def messages_for_current_order(db_messages: list, order) -> list | None:
     """История, относящаяся к текущему заказу, или None, если резать нечего.
 
@@ -1008,6 +1040,10 @@ async def run_listener(settings: Settings) -> None:
             client_id=db_client.id,
             limit=settings.conversation_history_limit,
             since_days=settings.conversation_memory_days,
+        )
+        recent_db_messages = messages_after_last_session_gap(
+            recent_db_messages,
+            gap_hours=settings.conversation_session_gap_hours,
         )
         recent_messages = [
             f"{'Клиент' if message.direction == 'in' else 'Менеджер'}: {message.text}"
