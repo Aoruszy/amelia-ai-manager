@@ -1117,10 +1117,14 @@ async def run_listener(settings: Settings) -> None:
             timezone_name=company_profile.timezone_name,
         )
 
+        # summary хранится на клиенте, а не на заказе, и в промпт уходило значение
+        # с прошлого хода — по карточке уже закрытого заказа. Считаем по текущей.
+        current_stage, current_summary = derive_client_state(order_card, last_client_text="\n".join(texts))
+
         action = await engine.handle_messages(
-            client_summary=db_client.summary or "Новый или текущий клиент Telegram.",
+            client_summary=current_summary or "Новый или текущий клиент Telegram.",
             recent_messages=recent_messages,
-            stage=db_client.stage,
+            stage=current_stage,
             stock_context=stock_context,
             order_card=order_card,
         )

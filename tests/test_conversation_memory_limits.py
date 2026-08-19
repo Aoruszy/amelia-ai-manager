@@ -133,3 +133,20 @@ def test_session_gap_is_off_by_default():
 
     assert settings.conversation_session_gap_hours == 0
     assert messages_after_last_session_gap(history, gap_hours=settings.conversation_session_gap_hours) == history
+
+
+def test_prompt_summary_comes_from_the_current_card_not_the_previous_turn():
+    """summary хранится на клиенте: после закрытия заказа он ещё ход тянул старый бюджет."""
+    from amelia_manager.order_card import OrderCard
+    from amelia_manager.telegram_runtime import derive_client_state
+
+    stale_stage, stale_summary = derive_client_state(
+        OrderCard(budget="до 5000", fulfillment_type="pickup", colors=["голубой", "гортензии"]),
+        last_client_text="заберу сам",
+    )
+    fresh_stage, fresh_summary = derive_client_state(OrderCard(), last_client_text="здрасьте")
+
+    assert "5000" in stale_summary
+    assert stale_stage == "order_in_progress"
+    assert fresh_summary == "здрасьте"
+    assert fresh_stage == "new_lead"
