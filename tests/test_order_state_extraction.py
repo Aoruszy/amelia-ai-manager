@@ -87,3 +87,26 @@ def test_client_can_change_the_date_within_the_dialog():
 
     assert later.delivery_date == "2026-08-17"
     assert explicit.delivery_date == "2026-08-20"
+
+
+def test_deferred_choice_counts_as_an_answer_about_preferences():
+    """«На ваш выбор» — ответ. Без этого шаг про пожелания не закрывался и повторялся."""
+    for answer in ("что нибудь на ваш выбор", "на ваше усмотрение", "доверяю вам", "сами выберите", "на ваш вкус"):
+        state = extract_order_state([f"Клиент: {answer}"], today=date(2026, 8, 19))
+        assert state.colors == ["без особых пожеланий"], answer
+
+
+def test_ordinary_answers_do_not_become_a_deferred_choice():
+    """Негативный случай: обычный ответ или отсутствие ответа пожеланием не считается."""
+    assert extract_order_state(["Клиент: белые розы"], today=date(2026, 8, 19)).colors == ["белый", "розы"]
+    for answer in ("не знаю", "а что есть?", "подешевле", "сколько стоит?"):
+        assert extract_order_state([f"Клиент: {answer}"], today=date(2026, 8, 19)).colors == [], answer
+
+
+def test_deferred_choice_does_not_override_a_real_preference():
+    state = extract_order_state(
+        ["Клиент: белые розы, остальное на ваш выбор"], today=date(2026, 8, 19)
+    )
+
+    assert "без особых пожеланий" not in state.colors
+    assert state.colors == ["белый", "розы"]

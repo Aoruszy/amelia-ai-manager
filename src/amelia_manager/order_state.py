@@ -199,6 +199,14 @@ def _looks_like_year_in_date(text: str, start: int, end: int) -> bool:
     return bool(re.search(r"\b(?:[1-9]|[12]\d|3[01])[.]\s*(?:0?[1-9]|1[0-2])[.]\s*$", before))
 
 
+_DEFERRED_CHOICE_RE = re.compile(
+    r"\b(?:на\s+ваш\s+выбор|на\s+ваше\s+усмотрение|на\s+усмотрение|"
+    r"выберите\s+сами|сами\s+выберите|доверяю\s+вам|на\s+ваш\s+вкус|"
+    r"что\s*-?\s*нибудь\s+на\s+ваш|как\s+считаете\s+нужным|решайте\s+сами)\b"
+)
+DEFERRED_CHOICE_VALUE = "без особых пожеланий"
+
+
 def _extract_colors(text: str) -> list[str]:
     color_patterns = (
         ("синий", r"\bсин\w*"),
@@ -227,6 +235,10 @@ def _extract_colors(text: str) -> list[str]:
     for label, pattern in product_patterns:
         if re.search(pattern, text) and label not in preferences:
             preferences.append(label)
+    if not preferences and _DEFERRED_CHOICE_RE.search(text):
+        # «на ваш выбор» — это ответ, а не молчание. Без него шаг про пожелания
+        # не закрывался: бот спрашивал одно и то же, а модель начинала выдумывать.
+        preferences.append(DEFERRED_CHOICE_VALUE)
     return preferences
 
 
