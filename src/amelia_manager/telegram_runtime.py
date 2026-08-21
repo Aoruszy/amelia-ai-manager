@@ -22,6 +22,7 @@ from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteReposi
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
 from amelia_manager.media_storage import media_root_for_db, resolve_media_path
+from amelia_manager.media_storage import store_image_bytes, MediaValidationError
 from amelia_manager.llm_client import LLMClient, build_llm_client
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, invalid_order_state_field_codes, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm_result
@@ -613,6 +614,22 @@ def build_admin_order_request_if_needed(
     return text
 
 
+def add_client_photo_to_order(repo: SQLiteRepository, *, order: OrderRecord, relative_path: str) -> OrderCard:
+    paths = list(order.card.custom_fields.get("client_photo_paths") or [])
+    paths.append(relative_path)
+    card = OrderCard.from_dict({
+        **order.card.to_dict(),
+        "custom_fields": {**order.card.custom_fields, "client_photo_paths": paths},
+    })
+    repo.update_order_card(order_id=order.id, card=card)
+    return card
+
+
+def client_photo_paths(card: OrderCard) -> list[str]:
+    paths = card.custom_fields.get("client_photo_paths")
+    return [str(path) for path in paths] if isinstance(paths, list) else []
+
+
 @dataclass(frozen=True)
 class IncomingMessage:
     sender_id: int
@@ -631,6 +648,7 @@ async def send_admin_order_request_if_ready(
     company_profile: CompanyProfile | None = None,
     order_sheet_appender: SheetsOrderAppender | None = None,
     mark_status: bool = True,
+    media_root=None,
 ) -> bool:
     admin_order_text = build_admin_order_request_if_needed(
         repo,
@@ -642,6 +660,14 @@ async def send_admin_order_request_if_ready(
     if not admin_order_text:
         return False
     await telegram_client.send_message(admin_chat_id, admin_order_text)
+    photo_files = []
+    media_base = media_root or media_root_for_db(repo.db_path, "media")
+    for relative_path in client_photo_paths(order.card):
+        path = resolve_media_path(media_base, relative_path)
+        if path.exists():
+            photo_files.append(path)
+    if photo_files:
+        await telegram_client.send_file(admin_chat_id, photo_files, caption="Фото клиента к заявке")
     repo.update_order_card(
         order_id=order.id,
         card=OrderCard.from_dict(
@@ -1273,6 +1299,7 @@ async def run_listener(settings: Settings) -> None:
                 admin_chat_id=settings.admin_chat_id,
                 client_label=client_label,
                 company_profile=company_profile,
+                media_root=media_root_for_db(path_from_sqlite_url(settings.database_url), settings.media_storage_dir),
             ):
                 event_recorder.record(EventName.ADMIN_REQUEST_SENT, client_id=db_client.id, order_id=active_order.id)
 
@@ -1406,6 +1433,17 @@ async def run_listener(settings: Settings) -> None:
             return
 
         sender_usernames.set(sender_id, getattr(sender, "username", None))
+        if getattr(event, "photo", None):
+            try:
+                db_client = repo.upsert_client(telegram_id=sender_id, username=getattr(sender, "username", None))
+                order = repo.get_or_create_active_order(client_id=db_client.id)
+                data = await event.download_media(bytes)
+                if data:
+                    media_root = media_root_for_db(path_from_sqlite_url(settings.database_url), settings.media_storage_dir)
+                    stored = store_image_bytes(data, media_root=media_root, namespace=f"orders/{order.id}", max_bytes=settings.client_photo_max_bytes)
+                    add_client_photo_to_order(repo, order=order, relative_path=stored.relative_path)
+            except (MediaValidationError, Exception):
+                LOGGER.exception("client_photo_save_failed", extra={"event": "client_photo_save_failed", "payload": {}})
         await debounce_processor.enqueue(sender_id=sender_id, text=incoming.text)
 
     await client.start(phone=settings.telegram_phone)

@@ -107,6 +107,8 @@ class CompanyProfile:
     default_time_value: str = "14:00"
     default_date_choice_reply_template: str = "Могу записать на {date_label} — подойдёт?"
     default_time_choice_reply_template: str = "Давайте к {time}, удобно?"
+    client_photo_with_budget_reply_template: str = "Вижу фото, буду ориентироваться на этот стиль. Подскажите, какие оттенки или цветы особенно нравятся?"
+    client_photo_without_budget_reply_template: str = "Вижу фото, буду ориентироваться на этот стиль. Подскажите, на какой бюджет ориентируемся?"
     workload_warning_template: str = "Перегруз на {date}: заказов: {total}, доставка: {delivery}, самовывоз: {pickup}. Проверьте экран «Загрузка»."
 
     def required_field_codes(self, case_type: str) -> list[str]:

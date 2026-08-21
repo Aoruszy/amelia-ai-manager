@@ -77,9 +77,14 @@ class ConversationEngine:
             )
 
         if _is_photo_only(last_client_text):
+            template = (
+                self.company_profile.client_photo_with_budget_reply_template
+                if order_card and order_card.budget
+                else self.company_profile.client_photo_without_budget_reply_template
+            )
             return ConversationAction(
                 kind="send",
-                messages=["Вижу фото, могу ориентироваться на этот стиль. Подскажите, пожалуйста, бюджет?"],
+                messages=[template],
                 risk_level=risk_level,
             )
 

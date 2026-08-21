@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterator
 
 from amelia_manager.events import EventName
+from amelia_manager.media_storage import delete_media_file
 from amelia_manager.observability import sanitize_payload
 from amelia_manager.stock import StockItem, StockStatus
 from amelia_manager.order_card import OrderCard
@@ -1070,6 +1071,7 @@ class SQLiteRepository:
         *,
         retention_days: int,
         event_retention_days: int = 90,
+        media_root: str | Path | None = None,
         now: datetime | None = None,
     ) -> RetentionCleanupResult:
         """Delete old message history and anonymize PII in old completed orders."""
@@ -1100,6 +1102,9 @@ class SQLiteRepository:
             anonymized_orders = 0
             for row in rows:
                 card = OrderCard.from_dict(json.loads(row["card_json"] or "{}"))
+                if media_root is not None:
+                    for photo_path in card.custom_fields.get("client_photo_paths") or []:
+                        delete_media_file(media_root, str(photo_path))
                 anonymized = _anonymize_order_card(card)
                 if anonymized.to_dict() == card.to_dict():
                     continue

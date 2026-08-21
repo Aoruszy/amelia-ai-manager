@@ -62,6 +62,15 @@
           <dt>{{ label }}</dt><dd>{{ value if value not in (None, '') else '—' }}</dd>
         {% endfor %}
       </dl>
+      {% set photos = order.card.custom_fields.get('client_photo_paths') or [] %}
+      {% if photos %}
+      <section class="status-card">
+        <h3>Фото клиента</h3>
+        {% for photo in photos %}
+          <p><img src="/catalog/media/{{ photo }}" alt="Фото клиента к заказу" style="max-width:100%;border-radius:12px"></p>
+        {% endfor %}
+      </section>
+      {% endif %}
       <form method="post" action="/clients/{{ client.id }}/card" class="card-edit-form">
         <label>Бюджет <input name="budget" inputmode="numeric" value="{{ order.card.budget or '' }}"></label>
         <label>Формат <input name="fulfillment_type" value="{{ order.card.fulfillment_type or '' }}"></label>

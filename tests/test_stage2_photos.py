@@ -10,8 +10,15 @@ from amelia_manager.admin import create_app
 from amelia_manager.config import Settings
 from amelia_manager.db.repository import SQLiteRepository
 from amelia_manager.media_storage import store_image_bytes
+from amelia_manager.order_card import OrderCard
 from amelia_manager.stock import BudgetOption, BudgetOptions, StockItem, StockStatus, select_budget_options
-from amelia_manager.telegram_runtime import send_budget_options_album
+from amelia_manager.telegram_runtime import add_client_photo_to_order, send_admin_order_request_if_ready, send_budget_options_album
+from amelia_manager.conversation_engine import ConversationEngine
+
+
+class StaticLLM:
+    async def generate(self, prompt: str) -> str:
+        return '{"reply":"ok"}'
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 JPEG_BYTES = b"\xff\xd8\xff" + b"\x00" * 32
@@ -43,6 +50,10 @@ class FakeTelegramClient:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.files: list[tuple[int, list[Path], str]] = []
+        self.messages: list[tuple[int, str]] = []
+
+    async def send_message(self, chat_id: int, text: str) -> None:
+        self.messages.append((chat_id, text))
 
     async def send_file(self, sender_id: int, files: list[Path], *, caption: str) -> None:
         if self.fail:
@@ -154,3 +165,73 @@ def test_budget_selection_excludes_inactive_zero_and_forbidden_sensitive_items()
     )
     assert [item.name for item in sensitive.items] == ["Букет светлый", "Букет траурный"]
     assert sensitive.hide_names is True
+
+
+@pytest.mark.asyncio
+async def test_client_photo_is_bound_to_order_visible_in_admin_and_sent_to_manager(tmp_path):
+    client, repo, media_root = _app(tmp_path)
+    person = repo.upsert_client(telegram_id=555, username="photo_user")
+    order = repo.get_or_create_active_order(client_id=person.id)
+    stored = store_image_bytes(JPEG_BYTES, media_root=media_root, namespace=f"orders/{order.id}", max_bytes=1024)
+    card = add_client_photo_to_order(repo, order=order, relative_path=stored.relative_path)
+    ready_card = OrderCard.from_dict({
+        **card.to_dict(),
+        "budget": 5000,
+        "colors": ["розы"],
+        "fulfillment_type": "delivery",
+        "delivery_date": "2026-08-20",
+        "delivery_time": "14:00",
+        "address": "Гайдара 173",
+        "sender_name": "Даня",
+        "sender_phone": "89990000001",
+        "recipient_name": "Анна",
+        "recipient_phone": "89990000002",
+        "payment_method": "transfer",
+    })
+    repo.update_order_card(order_id=order.id, card=ready_card)
+
+    page = client.get(f"/clients/{person.id}", headers=_auth())
+    assert page.status_code == 200
+    assert "Фото клиента" in page.text
+    assert stored.relative_path in page.text
+
+    tg = FakeTelegramClient()
+    sent = await send_admin_order_request_if_ready(
+        tg,
+        repo=repo,
+        order=repo.get_order_by_id(order.id),
+        admin_chat_id=999,
+        client_label="@photo_user / 555",
+        media_root=media_root,
+    )
+    assert sent is True
+    assert len(tg.messages) == 1
+    assert len(tg.files) == 1
+    assert tg.files[0][2] == "Фото клиента к заявке"
+
+
+def test_retention_cleanup_deletes_client_photo_files(tmp_path):
+    _client, repo, media_root = _app(tmp_path)
+    person = repo.upsert_client(telegram_id=777, username="old")
+    order = repo.get_or_create_active_order(client_id=person.id)
+    stored = store_image_bytes(PNG_BYTES, media_root=media_root, namespace=f"orders/{order.id}", max_bytes=1024)
+    card = add_client_photo_to_order(repo, order=order, relative_path=stored.relative_path)
+    repo.update_order_card(order_id=order.id, card=OrderCard.from_dict({**card.to_dict(), "admin_request_sent": True}))
+    with repo._connect() as conn:
+        conn.execute("UPDATE orders SET updated_at = '2020-01-01 00:00:00' WHERE id = ?", (order.id,))
+
+    result = repo.cleanup_pii_older_than(retention_days=30, media_root=media_root)
+
+    assert result.anonymized_orders == 1
+    assert not (media_root / stored.relative_path).exists()
+
+
+@pytest.mark.asyncio
+async def test_photo_only_reply_uses_profile_and_budget_state():
+    engine = ConversationEngine(StaticLLM())
+
+    no_budget = await engine.handle_messages(client_summary="", recent_messages=["Клиент: [photo]"], stage="order", order_card=OrderCard())
+    with_budget = await engine.handle_messages(client_summary="", recent_messages=["Клиент: [photo]"], stage="order", order_card=OrderCard(budget=5000))
+
+    assert no_budget.messages == ["Вижу фото, буду ориентироваться на этот стиль. Подскажите, на какой бюджет ориентируемся?"]
+    assert with_budget.messages == ["Вижу фото, буду ориентироваться на этот стиль. Подскажите, какие оттенки или цветы особенно нравятся?"]
