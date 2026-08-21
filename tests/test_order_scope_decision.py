@@ -120,8 +120,8 @@ def test_order_scope_override_metric(tmp_path):
     recorder.record(EventName.ORDER_SCOPE_DECIDED, client_id=client.id, payload={"scope": "new_order", "overridden": True})
     recorder.record(EventName.ORDER_SCOPE_DECIDED, client_id=client.id, payload={"scope": "continue", "overridden": False})
 
-    today = date.today()
-    metrics = calculate_metrics(repo, date_from=today, date_to=today)
+    event_date = date.fromisoformat(repo.list_events()[-1].created_at[:10])
+    metrics = calculate_metrics(repo, date_from=event_date, date_to=event_date)
 
     assert metrics["quality"]["order_scope_override_rate"] == 0.5
 
