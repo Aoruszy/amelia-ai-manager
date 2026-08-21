@@ -98,6 +98,7 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         metric_delta=_metric_delta,
         risk_label=_risk_label,
         confidence_label=_confidence_label,
+        workload_fulfillment=_workload_fulfillment,
     )
     app = FastAPI(title="Amelia Admin")
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -389,6 +390,22 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return RedirectResponse(f"/clients/{client.id}", status_code=303)
 
+    @app.get("/workload", response_class=HTMLResponse)
+    def workload(date_from: str | None = None, _auth=Depends(require_auth)):
+        start = _parse_date_param(date_from) if date_from else _today_in_timezone(load_company_profile(settings.company_profile_name).timezone_name)
+        end = start + timedelta(days=settings.workload_horizon_days - 1)
+        orders = repo.list_workload_orders(date_from=start, date_to=end)
+        undated = repo.list_undated_active_orders()
+        return render(
+            "workload.html",
+            nav_active="workload",
+            title="Загрузка",
+            days=_workload_days(start=start, horizon_days=settings.workload_horizon_days, orders=orders, settings=settings),
+            undated_orders=undated,
+            date_from=start,
+            date_to=end,
+        )
+
     @app.get("/metrics", response_class=HTMLResponse)
     def metrics(days: int = 7, date_from: str | None = None, date_to: str | None = None, _auth=Depends(require_auth)):
         start, end, label = _metric_period(settings, days=days, date_from=date_from, date_to=date_to)
@@ -655,6 +672,52 @@ def _format_date_group(value: str) -> str:
     except ValueError:
         return value[:10]
     return format_human_date(parsed.date().isoformat())
+
+
+def _parse_date_param(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="date_from must be ISO YYYY-MM-DD") from exc
+
+
+def _workload_days(*, start: date, horizon_days: int, orders: list, settings: Settings) -> list[dict[str, object]]:
+    by_date: dict[str, list] = defaultdict(list)
+    for row in orders:
+        if row.order.card.delivery_date:
+            by_date[row.order.card.delivery_date].append(row)
+    return [
+        _workload_day(day=start + timedelta(days=offset), orders=by_date.get((start + timedelta(days=offset)).isoformat(), []), settings=settings)
+        for offset in range(horizon_days)
+    ]
+
+
+def _workload_day(*, day: date, orders: list, settings: Settings) -> dict[str, object]:
+    no_time = [row for row in orders if not row.order.card.delivery_time]
+    outside_hours = [row for row in orders if row.order.card.delivery_time and not _time_within_delivery_hours(row.order.card.delivery_time, settings=settings)]
+    return {
+        "date": day,
+        "orders": orders,
+        "total": len(orders),
+        "pickup": sum(1 for row in orders if row.order.card.fulfillment_type == "pickup"),
+        "delivery": sum(1 for row in orders if row.order.card.fulfillment_type == "delivery"),
+        "no_time": no_time,
+        "outside_hours": outside_hours,
+    }
+
+
+def _time_within_delivery_hours(value: str, *, settings: Settings) -> bool:
+    try:
+        current = datetime.strptime(value, "%H:%M").time()
+        start = datetime.strptime(settings.delivery_hours_start, "%H:%M").time()
+        end = datetime.strptime(settings.delivery_hours_end, "%H:%M").time()
+    except ValueError:
+        return False
+    return start <= current <= end
+
+
+def _workload_fulfillment(value: str | None) -> str:
+    return {"pickup": "самовывоз", "delivery": "доставка"}.get(value or "", "формат не указан")
 
 
 def _metric_period(settings: Settings, *, days: int, date_from: str | None, date_to: str | None) -> tuple[date, date, str]:

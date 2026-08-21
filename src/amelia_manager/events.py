@@ -32,3 +32,4 @@ class EventName(StrEnum):
     BOT_PAUSED = "bot_paused"
     BOT_RESUMED = "bot_resumed"
     CARD_EDITED_MANUALLY = "card_edited_manually"
+    WORKLOAD_WARNING_SENT = "workload_warning_sent"

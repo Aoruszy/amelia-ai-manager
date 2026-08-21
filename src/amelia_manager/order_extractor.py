@@ -7,7 +7,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
-from amelia_manager.order_card import OrderCard, merge_order_state
+from amelia_manager.order_card import OrderCard, invalid_order_state_field_codes, merge_order_state
 from amelia_manager.order_state import OrderState, extract_order_state
 from amelia_manager.structured_generation import generate_with_optional_schema
 
@@ -57,6 +57,9 @@ async def extract_order_state_with_llm(
             response_schema=ExtractedOrderState.model_json_schema(),
         )
         llm_state = ExtractedOrderState.model_validate(_parse_json_object(raw)).to_state()
+        ignored_field_codes = invalid_order_state_field_codes(llm_state) if (company_profile is None or company_profile.business_type == "florist") else []
+        if ignored_field_codes:
+            llm_state = OrderState(**{**llm_state.__dict__, "custom_fields": {**llm_state.custom_fields, "_ignored_field_codes": ignored_field_codes}})
         if llm_state.address and not looks_like_address(llm_state.address):
             llm_state = OrderState(**{**llm_state.__dict__, "address": None})
     except Exception:

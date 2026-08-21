@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 from datetime import datetime, time, timedelta
 from enum import StrEnum
@@ -113,6 +114,58 @@ def schedule_order_reminders(repo: SQLiteRepository, *, now: datetime, company_p
     return scheduled
 
 
+async def send_workload_warnings(telegram_client, *, repo: SQLiteRepository, settings: Settings, now: datetime) -> int:
+    if settings.workload_warning_threshold <= 0 or settings.admin_chat_id is None:
+        return 0
+    date_from = now.date()
+    date_to = date_from + timedelta(days=settings.workload_horizon_days - 1)
+    rows = repo.list_workload_orders(date_from=date_from, date_to=date_to)
+    by_date: dict[str, list[OrderRecord]] = {}
+    for row in rows:
+        if row.order.card.delivery_date:
+            by_date.setdefault(row.order.card.delivery_date, []).append(row.order)
+    sent = 0
+    for day, orders in sorted(by_date.items()):
+        total = len(orders)
+        if total <= settings.workload_warning_threshold:
+            continue
+        previous = _last_workload_warning_count(repo, day)
+        if previous is not None and total < previous + settings.workload_warning_repeat_growth:
+            continue
+        delivery = sum(1 for order in orders if order.card.fulfillment_type == "delivery")
+        pickup = sum(1 for order in orders if order.card.fulfillment_type == "pickup")
+        text = f"Перегруз на {day}: {total} заказа, доставка: {delivery}, самовывоз: {pickup}. Проверьте экран «Загрузка»."
+        try:
+            await telegram_client.send_message(settings.admin_chat_id, text)
+        except Exception:  # noqa: BLE001 - scheduler tick must survive Telegram failures
+            LOGGER.exception("workload_warning_send_failed", extra={"event": "workload_warning_send_failed", "payload": {"date": day, "count": total}})
+            continue
+        system = repo.upsert_client(telegram_id=0, username="system")
+        repo.record_event(
+            client_id=system.id,
+            order_id=None,
+            event=EventName.WORKLOAD_WARNING_SENT,
+            payload={"date": day, "count": total, "delivery": delivery, "pickup": pickup},
+            created_at=now,
+        )
+        sent += 1
+    return sent
+
+
+def _last_workload_warning_count(repo: SQLiteRepository, day: str) -> int | None:
+    for event in reversed(repo.list_events(event=EventName.WORKLOAD_WARNING_SENT)):
+        try:
+            payload = json.loads(event.payload_json or "{}")
+        except Exception:  # noqa: BLE001 - ignore malformed historical payloads
+            continue
+        if payload.get("date") == day:
+            try:
+                return int(payload.get("count"))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 async def process_outbound_tick(
     telegram_client,
     *,
@@ -124,6 +177,7 @@ async def process_outbound_tick(
     llm_client=None,
 ) -> None:
     try:
+        await send_workload_warnings(telegram_client, repo=repo, settings=settings, now=now)
         schedule_order_reminders(repo, now=now, company_profile=company_profile)
         due = repo.list_due_outbound(now=now)
         for item in due:

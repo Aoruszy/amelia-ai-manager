@@ -74,7 +74,9 @@ class OrderCard:
 
 
 def merge_order_state(existing: OrderCard, state: OrderState) -> OrderCard:
-    fulfillment_type = state.fulfillment_type or existing.fulfillment_type
+    delivery_date = _valid_delivery_date(state.delivery_date) or existing.delivery_date
+    delivery_time = _valid_delivery_time(state.delivery_time)
+    fulfillment_type = _valid_fulfillment_type(state.fulfillment_type) or existing.fulfillment_type
     changed_to_delivery = existing.fulfillment_type == "pickup" and state.fulfillment_type == "delivery"
     changed_to_pickup = existing.fulfillment_type == "delivery" and state.fulfillment_type == "pickup"
     return OrderCard(
@@ -83,8 +85,8 @@ def merge_order_state(existing: OrderCard, state: OrderState) -> OrderCard:
         colors=_merge_list(existing.colors, state.colors),
         forbidden_flowers=_merge_list(existing.forbidden_flowers, state.forbidden_flowers),
         fulfillment_type=fulfillment_type,
-        delivery_date=state.delivery_date or existing.delivery_date,
-        delivery_time=state.delivery_time or (None if changed_to_delivery else existing.delivery_time),
+        delivery_date=delivery_date,
+        delivery_time=delivery_time or (None if changed_to_delivery else existing.delivery_time),
         address=state.address or (None if changed_to_pickup else existing.address),
         sender_name=state.sender_name or existing.sender_name,
         sender_phone=state.sender_phone or existing.sender_phone,
@@ -114,6 +116,7 @@ def merge_order_patch(existing: OrderCard, patch: dict[str, Any]) -> OrderCard:
     allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
     normalized, _unknown = normalize_order_patch_keys(patch, allowed_fields=allowed)
     cleaned = {key: value for key, value in normalized.items() if value not in (None, "", [], {})}
+    cleaned = _drop_invalid_order_values(cleaned)
     if "custom_fields" in cleaned and isinstance(cleaned["custom_fields"], dict):
         cleaned["custom_fields"] = {**existing.custom_fields, **cleaned["custom_fields"]}
     if not cleaned:
@@ -138,8 +141,63 @@ def applied_order_patch_field_codes(before: OrderCard, after: OrderCard, patch: 
 
 def unapplied_order_patch_field_codes(patch: dict[str, Any]) -> list[str]:
     allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
-    _normalized, unknown = normalize_order_patch_keys(patch, allowed_fields=allowed)
-    return list(dict.fromkeys(unknown))
+    normalized, unknown = normalize_order_patch_keys(patch, allowed_fields=allowed)
+    invalid = invalid_order_values(normalized)
+    return list(dict.fromkeys([*unknown, *invalid]))
+
+
+def invalid_order_values(values: dict[str, Any]) -> list[str]:
+    invalid: list[str] = []
+    for field_name, validator in {
+        "delivery_date": _valid_delivery_date,
+        "delivery_time": _valid_delivery_time,
+        "fulfillment_type": _valid_fulfillment_type,
+    }.items():
+        if field_name in values and values[field_name] not in (None, [], {}) and validator(values[field_name]) is None:
+            invalid.append(field_name)
+    return invalid
+
+
+def invalid_order_state_field_codes(state: OrderState) -> list[str]:
+    return invalid_order_values({
+        "delivery_date": state.delivery_date,
+        "delivery_time": state.delivery_time,
+        "fulfillment_type": state.fulfillment_type,
+    })
+
+
+def _drop_invalid_order_values(values: dict[str, Any]) -> dict[str, Any]:
+    invalid = set(invalid_order_values(values))
+    return {key: value for key, value in values.items() if key not in invalid}
+
+
+def _valid_delivery_date(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return None
+    return text
+
+
+def _valid_delivery_time(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    match = re.fullmatch(r"(\d{2}):(\d{2})", text)
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return text
+
+
+def _valid_fulfillment_type(value: str | None) -> str | None:
+    if value in (None, ""):
+        return None
+    return value if value in {"pickup", "delivery"} else None
 
 
 def _merge_list(left: list[str], right: list[str]) -> list[str]:

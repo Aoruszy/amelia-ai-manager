@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block body %}
+<section class="page-header">
+  <div>
+    <h1>Загрузка</h1>
+    <p class="muted">{{ date_from.isoformat() }} — {{ date_to.isoformat() }}. Только чтение: без редактирования и слотов.</p>
+  </div>
+</section>
+
+<section class="workload-grid">
+  {% for day in days %}
+  <article class="workload-day">
+    <header>
+      <h2>{{ day.date.isoformat() }}</h2>
+      <p class="muted">Всего: {{ day.total }} · Самовывоз: {{ day.pickup }} · Доставка: {{ day.delivery }}</p>
+    </header>
+    {% if day.orders %}
+    <ul class="workload-orders">
+      {% for row in day.orders %}
+      <li>
+        <span class="time">{{ row.order.card.delivery_time or 'без времени' }}</span>
+        <span>{{ workload_fulfillment(row.order.card.fulfillment_type) }}</span>
+        <a href="/clients/{{ row.client.id }}">{{ row.order.card.sender_name or row.client.username or ('client #' ~ row.client.id) }}</a>
+        <span>{{ row.order.card.budget or 'бюджет не указан' }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">Пусто</p>
+    {% endif %}
+    {% if day.no_time %}
+    <details open>
+      <summary>Без времени: {{ day.no_time|length }}</summary>
+      <ul>
+        {% for row in day.no_time %}<li><a href="/clients/{{ row.client.id }}">{{ row.order.card.sender_name or row.client.username or row.client.id }}</a></li>{% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+    {% if day.outside_hours %}
+    <details open>
+      <summary>Вне часов работы: {{ day.outside_hours|length }}</summary>
+      <ul>
+        {% for row in day.outside_hours %}<li>{{ row.order.card.delivery_time }} — <a href="/clients/{{ row.client.id }}">{{ row.order.card.sender_name or row.client.username or row.client.id }}</a></li>{% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>Без даты</h2>
+  {% if undated_orders %}
+  <ul>
+    {% for row in undated_orders %}
+    <li><a href="/clients/{{ row.client.id }}">{{ row.order.card.sender_name or row.client.username or row.client.id }}</a> · {{ workload_fulfillment(row.order.card.fulfillment_type) }} · {{ row.order.card.budget or 'бюджет не указан' }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Нет активных заказов без даты.</p>
+  {% endif %}
+</section>
+{% endblock %}

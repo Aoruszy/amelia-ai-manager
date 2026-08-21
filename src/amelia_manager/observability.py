@@ -35,6 +35,10 @@ SAFE_PAYLOAD_KEYS = {
     "old_status",
     "new_status",
     "changed_by",
+    "date",
+    "count",
+    "delivery",
+    "pickup",
 }
 
 

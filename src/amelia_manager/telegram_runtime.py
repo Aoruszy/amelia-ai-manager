@@ -7,7 +7,7 @@ import random
 import re
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -22,7 +22,7 @@ from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteReposi
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
 from amelia_manager.llm_client import LLMClient, build_llm_client
-from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
+from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, invalid_order_state_field_codes, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm
 from amelia_manager.order_request import format_admin_order_request
 from amelia_manager.order_sheet import SheetsOrderAppender, append_order_to_sheet_if_needed, send_pending_sheet_rows
@@ -148,8 +148,10 @@ def update_active_order_from_messages(
         today=today,
         timezone_name=(company_profile or load_company_profile("amelia_flowers")).timezone_name,
     )
+    ignored_field_codes, extracted = _pop_ignored_extracted_fields(extracted)
     card = merge_order_state(order.card, extracted)
     repo.update_order_card(order_id=order.id, card=card)
+    _record_ignored_extracted_fields(repo, client_id=client_id, order_id=order.id, field_codes=ignored_field_codes)
     return card
 
 
@@ -186,9 +188,30 @@ async def update_active_order_from_messages_with_llm(
         today=today,
         timezone_name=profile.timezone_name,
     )
+    ignored_field_codes, extracted = _pop_ignored_extracted_fields(extracted)
     card = merge_order_state(order.card, extracted)
     repo.update_order_card(order_id=order.id, card=card)
+    _record_ignored_extracted_fields(repo, client_id=client_id, order_id=order.id, field_codes=ignored_field_codes)
     return card
+
+
+def _pop_ignored_extracted_fields(extracted):
+    field_codes = [*invalid_order_state_field_codes(extracted)]
+    custom_fields = dict(extracted.custom_fields)
+    stored = custom_fields.pop("_ignored_field_codes", [])
+    if isinstance(stored, list):
+        field_codes.extend(str(item) for item in stored)
+    return list(dict.fromkeys(field_codes)), replace(extracted, custom_fields=custom_fields)
+
+
+def _record_ignored_extracted_fields(repo: SQLiteRepository, *, client_id: int, order_id: int, field_codes: list[str]) -> None:
+    for field_code in field_codes:
+        repo.record_event(
+            client_id=client_id,
+            order_id=order_id,
+            event=EventName.CASE_PATCH_IGNORED,
+            payload={"field_code": field_code, "reason": "invalid_format"},
+        )
 
 
 async def update_active_order_from_messages_with_optional_llm(

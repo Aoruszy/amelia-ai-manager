@@ -103,6 +103,12 @@ class DialogueRecord:
     last_message_text: str | None
 
 
+@dataclass(frozen=True)
+class WorkloadOrderRecord:
+    order: OrderRecord
+    client: ClientRecord
+
+
 _PHONE_DIGITS_SQL = (
     "replace(replace(replace(replace(replace("
     "COALESCE(json_extract(so.card_json, '$.{field}'), '')"
@@ -973,6 +979,81 @@ class SQLiteRepository:
         with self._connect() as conn:
             rows = conn.execute("SELECT status, COUNT(*) AS count FROM orders GROUP BY status").fetchall()
         return {row["status"]: int(row["count"]) for row in rows}
+
+    def list_workload_orders(self, *, date_from: date, date_to: date) -> list[WorkloadOrderRecord]:
+        placeholders = ", ".join("?" for _ in TERMINAL_ORDER_STATUSES)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    o.id AS order_id,
+                    o.client_id AS order_client_id,
+                    o.status AS order_status,
+                    o.card_json AS order_card_json,
+                    o.created_at AS order_created_at,
+                    o.updated_at AS order_updated_at,
+                    c.id AS client_id,
+                    c.telegram_id,
+                    c.username,
+                    c.stage,
+                    c.summary,
+                    c.opted_out_at,
+                    c.bot_paused_at,
+                    c.paused_by
+                FROM orders o
+                JOIN clients c ON c.id = o.client_id
+                WHERE o.status NOT IN ({placeholders})
+                  AND json_extract(o.card_json, '$.delivery_date') >= ?
+                  AND json_extract(o.card_json, '$.delivery_date') <= ?
+                ORDER BY json_extract(o.card_json, '$.delivery_date'), json_extract(o.card_json, '$.delivery_time'), o.id
+                """,
+                (*TERMINAL_ORDER_STATUSES, date_from.isoformat(), date_to.isoformat()),
+            ).fetchall()
+        return [
+            WorkloadOrderRecord(
+                order=OrderRecord(
+                    id=int(row["order_id"]),
+                    client_id=int(row["order_client_id"]),
+                    status=row["order_status"],
+                    card=OrderCard.from_dict(json.loads(row["order_card_json"] or "{}")),
+                    created_at=row["order_created_at"],
+                    updated_at=row["order_updated_at"],
+                ),
+                client=ClientRecord(
+                    id=int(row["client_id"]),
+                    telegram_id=int(row["telegram_id"]),
+                    username=row["username"],
+                    stage=row["stage"],
+                    summary=row["summary"],
+                    opted_out_at=row["opted_out_at"],
+                    bot_paused_at=row["bot_paused_at"],
+                    paused_by=row["paused_by"],
+                ),
+            )
+            for row in rows
+        ]
+
+    def list_undated_active_orders(self) -> list[WorkloadOrderRecord]:
+        placeholders = ", ".join("?" for _ in TERMINAL_ORDER_STATUSES)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT o.id AS order_id, o.client_id AS order_client_id, o.status AS order_status,
+                       o.card_json AS order_card_json, o.created_at AS order_created_at, o.updated_at AS order_updated_at,
+                       c.id AS client_id, c.telegram_id, c.username, c.stage, c.summary, c.opted_out_at, c.bot_paused_at, c.paused_by
+                FROM orders o JOIN clients c ON c.id = o.client_id
+                WHERE o.status NOT IN ({placeholders})
+                  AND COALESCE(json_extract(o.card_json, '$.delivery_date'), '') = ''
+                ORDER BY o.updated_at DESC, o.id DESC
+                """,
+                (*TERMINAL_ORDER_STATUSES,),
+            ).fetchall()
+        return [
+            WorkloadOrderRecord(
+                order=OrderRecord(int(row["order_id"]), int(row["order_client_id"]), row["order_status"], OrderCard.from_dict(json.loads(row["order_card_json"] or "{}")), row["order_created_at"], row["order_updated_at"]),
+                client=ClientRecord(int(row["client_id"]), int(row["telegram_id"]), row["username"], row["stage"], row["summary"], row["opted_out_at"], row["bot_paused_at"], row["paused_by"]),
+            ) for row in rows
+        ]
 
     def close_active_orders(self, *, client_id: int, status: str = "superseded") -> None:
         with self._connect() as conn:

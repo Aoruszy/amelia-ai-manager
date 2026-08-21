@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     delivery_hours_start: str = "08:00"
     delivery_hours_end: str = "22:00"
     scheduler_interval_minutes: int = Field(default=15, ge=1, le=1440)
+    workload_horizon_days: int = Field(default=14, ge=1, le=60)
+    workload_warning_threshold: int = Field(default=0, ge=0, le=1000)
+    workload_warning_repeat_growth: int = Field(default=3, ge=1, le=1000)
     admin_trusted_proxy_ips: str = ""
     admin_allowed_hosts: str = ""
 
