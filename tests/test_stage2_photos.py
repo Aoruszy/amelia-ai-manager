@@ -311,6 +311,127 @@ async def test_photo_turn_sends_image_to_model_and_drops_forbidden_card_patch():
 
 
 @pytest.mark.asyncio
+async def test_photo_turn_filters_profile_codes_after_key_normalization():
+    llm = CapturingVisionLLM(
+        '{"reply":"Вижу светлый букет с розами.",'
+        '"case_patch":{"date":"2026-09-01","time":"12:00","delivery_address":"Ленина 5",'
+        '"customer_phone":"89990000001","budget":9000,"product_preferences":["розы"],"colors":["светлый"]},'
+        '"next_step":"ask_budget","confidence":0.9}'
+    )
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: [photo]"],
+        stage="order",
+        order_card=OrderCard(),
+        image_data_urls=["data:image/jpeg;base64,abc"],
+    )
+    merged = OrderCard.from_dict({**OrderCard().to_dict(), **action.order_patch})
+
+    assert action.order_patch == {"colors": ["розы"]}
+    assert merged.delivery_date is None
+    assert merged.delivery_time is None
+    assert merged.address is None
+    assert merged.sender_phone is None
+    assert merged.budget is None
+
+
+@pytest.mark.asyncio
+async def test_photo_turn_filters_order_card_field_names_but_keeps_style_fields():
+    llm = CapturingVisionLLM(
+        '{"reply":"Вижу пастельные оттенки.",'
+        '"case_patch":{"delivery_date":"2026-09-01","delivery_time":"12:00","address":"Ленина 5",'
+        '"payment_method":"transfer","anonymous":true,"colors":["пастельный"]},'
+        '"next_step":"ask_budget","confidence":0.9}'
+    )
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: хочу как на фото [photo]"],
+        stage="order",
+        order_card=OrderCard(),
+        image_data_urls=["data:image/jpeg;base64,abc"],
+    )
+
+    assert action.order_patch == {"colors": ["пастельный"]}
+
+
+@pytest.mark.asyncio
+async def test_without_image_patch_is_not_filtered():
+    llm = CapturingVisionLLM(
+        '{"reply":"Записала дату и адрес.",'
+        '"case_patch":{"date":"2026-09-01","delivery_address":"Ленина 5","budget":9000},'
+        '"next_step":"ask_time","confidence":0.9}'
+    )
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: доставка 1 сентября на Ленина 5, бюджет 9000"],
+        stage="order",
+        order_card=OrderCard(),
+    )
+
+    assert action.order_patch == {"date": "2026-09-01", "delivery_address": "Ленина 5", "budget": 9000}
+
+
+@pytest.mark.asyncio
+async def test_photo_only_with_image_reaches_model_instead_of_template():
+    llm = CapturingVisionLLM('{"reply":"Вижу пионы в светлых оттенках.","case_patch":{"colors":["пионы","светлый"]},"next_step":"ask_budget","confidence":0.9}')
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: [photo]"],
+        stage="order",
+        order_card=OrderCard(),
+        image_data_urls=["data:image/jpeg;base64,abc"],
+    )
+
+    assert llm.calls[0]["kwargs"]["image_data_urls"] == ["data:image/jpeg;base64,abc"]
+    assert action.messages == ["Вижу пионы в светлых оттенках."]
+    assert action.order_patch == {"colors": ["пионы", "светлый"]}
+
+
+@pytest.mark.asyncio
+async def test_photo_only_without_image_uses_previous_template_without_model():
+    llm = CapturingVisionLLM('{"reply":"should not be called"}')
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(client_summary="", recent_messages=["Клиент: [photo]"], stage="order", order_card=OrderCard())
+
+    assert not llm.calls
+    assert action.messages == ["Вижу фото, буду ориентироваться на этот стиль. Подскажите, на какой бюджет ориентируемся?"]
+
+
+@pytest.mark.asyncio
+async def test_generic_media_only_still_uses_media_fallback_without_model():
+    llm = CapturingVisionLLM('{"reply":"should not be called"}')
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(client_summary="", recent_messages=["Клиент: [media]"], stage="order", order_card=OrderCard())
+
+    assert not llm.calls
+    assert action.messages == ["Вижу вложение. Напишите, пожалуйста, что именно нужно по заказу, и я помогу сориентироваться."]
+
+
+@pytest.mark.asyncio
+async def test_photo_prep_failure_without_image_data_keeps_dialogue_send_fallback(tmp_path):
+    card = OrderCard(custom_fields={"client_photo_paths": ["orders/1/missing.jpg"]})
+    assert latest_client_photo_data_url(card, media_root=tmp_path, max_side_px=128) is None
+    llm = CapturingVisionLLM('{"reply":"should not be called"}')
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(client_summary="", recent_messages=["Клиент: [photo]"], stage="order", order_card=card)
+
+    assert action.kind == "send"
+    assert not llm.calls
+    assert action.messages == ["Вижу фото, буду ориентироваться на этот стиль. Подскажите, на какой бюджет ориентируемся?"]
+
+
+@pytest.mark.asyncio
 async def test_regular_text_turn_does_not_send_previous_image_to_model():
     llm = CapturingVisionLLM('{"reply":"Подскажите бюджет, пожалуйста.","case_patch":{},"next_step":"ask_budget","confidence":0.9}')
     engine = ConversationEngine(llm)

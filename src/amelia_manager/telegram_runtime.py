@@ -22,7 +22,7 @@ from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteReposi
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
 from amelia_manager.media_storage import media_root_for_db, resolve_media_path, image_data_url_for_llm
-from amelia_manager.media_storage import store_image_bytes, MediaValidationError
+from amelia_manager.media_storage import store_image_bytes
 from amelia_manager.llm_client import LLMClient, build_llm_client
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, invalid_order_state_field_codes, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm_result
@@ -1464,7 +1464,7 @@ async def run_listener(settings: Settings) -> None:
                     media_root = media_root_for_db(path_from_sqlite_url(settings.database_url), settings.media_storage_dir)
                     stored = store_image_bytes(data, media_root=media_root, namespace=f"orders/{order.id}", max_bytes=settings.client_photo_max_bytes)
                     add_client_photo_to_order(repo, order=order, relative_path=stored.relative_path)
-            except (MediaValidationError, Exception):
+            except Exception:
                 LOGGER.exception("client_photo_save_failed", extra={"event": "client_photo_save_failed", "payload": {}})
         await debounce_processor.enqueue(sender_id=sender_id, text=incoming.text)
 

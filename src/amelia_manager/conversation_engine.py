@@ -15,6 +15,7 @@ from amelia_manager.humanizer import split_into_telegram_messages, suppress_emoj
 from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
+from amelia_manager.order_fields import normalize_order_patch_keys
 from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch
 from amelia_manager.order_policy import NextStep, get_next_step
 from amelia_manager.order_state import extract_order_state, is_deferred_date_choice, is_deferred_fulfillment_choice, is_deferred_time_choice
@@ -77,7 +78,7 @@ class ConversationEngine:
                 risk_level=risk_level,
             )
 
-        if _is_photo_only(last_client_text):
+        if _is_photo_only(last_client_text) and not image_data_urls:
             template = (
                 self.company_profile.client_photo_with_budget_reply_template
                 if order_card and order_card.budget
@@ -736,8 +737,21 @@ def _default_date_choice_reply(profile: CompanyProfile) -> str:
 
 
 def _sanitize_image_order_patch(patch: dict[str, object]) -> dict[str, object]:
-    forbidden = {"budget", "delivery_date", "delivery_time", "address", "payment_method", "anonymous"}
-    return {key: value for key, value in patch.items() if key not in forbidden}
+    allowed = set(OrderCard.__dataclass_fields__.keys()) - {"admin_request_sent", "client_summary_sent"}
+    normalized, _unknown = normalize_order_patch_keys(patch, allowed_fields=allowed)
+    forbidden = {
+        "budget",
+        "delivery_date",
+        "delivery_time",
+        "address",
+        "sender_name",
+        "sender_phone",
+        "recipient_name",
+        "recipient_phone",
+        "payment_method",
+        "anonymous",
+    }
+    return {key: value for key, value in normalized.items() if key not in forbidden}
 
 
 def _format_order_card_context(
