@@ -102,6 +102,7 @@ class CompanyProfile:
     composition_units: tuple[str, ...] = ("букет", "композиция", "корзина")
     budget_options_reply_template: str = "Могу показать три варианта: {options}. Что ближе?"
     budget_levels_reply_template: str = "Могу предложить уровни по бюджету: {options}. Что ближе?"
+    default_fulfillment_choice_reply_template: str = "Самовывоз с {pickup_address} — самый простой вариант. Если удобнее доставка, тоже оформим."
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]

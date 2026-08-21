@@ -6,15 +6,16 @@ from amelia_manager.client_order_summary import format_client_order_summary
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.order_card import OrderCard
 from amelia_manager.order_policy import NextStep, format_upsell_offers
-
+from amelia_manager.stock import BudgetOption, BudgetOptions, is_budget_unknown_answer
 
 def deterministic_order_reply(
     next_step: NextStep,
     card: OrderCard | None,
     *,
     recent_messages: list[str] | None = None,
-    stock_context: str | None = None,
+    stock_context: str = "",
     company_profile: CompanyProfile | None = None,
+    budget_options: BudgetOptions | list[BudgetOption] | None = None,
 ) -> str | None:
     profile = company_profile or load_company_profile("amelia_flowers")
     if card and card.is_ready_for_admin_request():
@@ -24,7 +25,7 @@ def deterministic_order_reply(
     if stock_reply:
         return stock_reply
 
-    budget_options_reply = _budget_options_reply(recent_messages or [], stock_context or "", profile)
+    budget_options_reply = _budget_options_reply(recent_messages or [], budget_options, profile)
     pickup_address = profile.pickup_address or "адреса самовывоза"
     pickup_hours_reply = _pickup_time_outside_hours_reply(recent_messages or [], profile)
     replies = {
@@ -81,25 +82,22 @@ def _stock_fallback(recent_messages: list[str], stock_context: str) -> str | Non
     return None
 
 
-def _budget_options_reply(recent_messages: list[str], stock_context: str, profile: CompanyProfile) -> str | None:
+def _budget_options_reply(
+    recent_messages: list[str],
+    budget_options: BudgetOptions | list[BudgetOption] | None,
+    profile: CompanyProfile,
+) -> str | None:
     latest = recent_messages[-1].lower().replace("ё", "е") if recent_messages else ""
-    if not re.search(r"\b(?:не\s+знаю|не\s+понимаю|затрудняюсь|подскажите|сколько\s+нужно|какой\s+бюджет)\b", latest):
+    if not is_budget_unknown_answer(latest):
         return None
-    options = []
-    for line in stock_context.splitlines():
-        match = re.search(r"-\s*(?P<name>[^—-]+)\s*[—-].*?\b(?P<price>\d[\d ]{2,})\s*₽/(?P<unit>\S+)", line)
-        if not match:
-            continue
-        unit = match.group("unit").lower().replace("ё", "е")
-        if unit not in {item.lower().replace("ё", "е") for item in profile.composition_units}:
-            continue
-        options.append((int(match.group("price").replace(" ", "")), match.group("name").strip()))
-    options = sorted(dict.fromkeys(options))
+    if budget_options is None:
+        return None
+    hide_names = isinstance(budget_options, BudgetOptions) and budget_options.hide_names
+    options = budget_options.items if isinstance(budget_options, BudgetOptions) else budget_options
     if len(options) < 2:
         return None
-    selected = options if len(options) <= 3 else [options[0], options[(len(options)-1)//2], options[-1]]
-    if all(name == "ценовой уровень" for _, name in selected):
-        level_text = ", ".join(f"{price} ₽" for price, _ in selected)
+    if hide_names:
+        level_text = ", ".join(f"{option.price} ₽" for option in options)
         return profile.budget_levels_reply_template.format(options=level_text)
-    option_text = ", ".join(f"{name} — {price} ₽" for price, name in selected)
+    option_text = ", ".join(f"{option.name} — {option.price} ₽" for option in options)
     return profile.budget_options_reply_template.format(options=option_text)

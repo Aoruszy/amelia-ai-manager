@@ -106,6 +106,27 @@ async def test_live_eval_safety_fallback_records_invented_numbers_without_leakin
 
 
 @pytest.mark.asyncio
+async def test_live_eval_structural_checks_still_catch_reasking_known_fields():
+    card = OrderCard(budget=5000, colors=["розы"], fulfillment_type="delivery", address="ул. Тестовая 1")
+    llm = CountingLLM("Какой бюджет?")
+
+    report = await run_dialogue_eval(
+        [
+            DialogueScenario(
+                "bad-repeat-known-field",
+                "order_flow",
+                ["Клиент: продолжим"],
+                order_card=card,
+            )
+        ],
+        llm=llm,
+    )
+
+    checks = {check["name"]: check for check in report["results"][0]["checks"]}
+    assert checks["no_repeat_known_field"]["passed"] is False
+
+
+@pytest.mark.asyncio
 async def test_live_eval_allows_numbers_from_recent_messages():
     llm = CountingLLM("Можно собрать в пределах 3000 ₽. Какие оттенки нравятся?")
 

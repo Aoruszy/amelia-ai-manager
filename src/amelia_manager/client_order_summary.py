@@ -11,12 +11,13 @@ def format_client_order_summary(card: OrderCard, *, company_profile: CompanyProf
         return _format_generic_client_summary(card, profile=profile)
     product_label = "Букет" if profile.business_type == "florist" else "Заказ"
     budget_display = format_budget_display(card)
+    when = _fmt_when(card, profile=profile)
     if card.fulfillment_type == "pickup":
         pickup_address = profile.pickup_address or "адрес самовывоза не указан"
         lines = [
             "Итог заказа:",
             f"• Формат: Самовывоз с {pickup_address}",
-            f"• Время: {format_human_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip(),
+            f"• Время: {when}",
             f"• Бюджет: {budget_display}" if budget_display else "• Бюджет: не указан",
             f"• {product_label}: {_fmt_list(card.colors)}",
             f"• Имя: {card.sender_name or 'не указано'}",
@@ -29,19 +30,30 @@ def format_client_order_summary(card: OrderCard, *, company_profile: CompanyProf
         else:
             lines.append("Передаю заказ менеджеру: он подтвердит детали заказа 🌸")
         return "\n".join(lines)
-    lines = [
-        "Итог заказа:",
-        "• Формат: Доставка",
-        f"• Время: {format_human_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip(),
-        f"• Адрес: {card.address or 'не указан'}",
-        f"• Бюджет: {budget_display}" if budget_display else "• Бюджет: не указан",
-        f"• {product_label}: {_fmt_list(card.colors)}",
-        f"• Получатель: {card.recipient_name or 'не указан'}, {card.recipient_phone or 'телефон не указан'}",
-        f"• Отправитель: {card.sender_name or 'не указан'}, {card.sender_phone or 'телефон не указан'}",
-        f"• Оплата: {_fmt_payment(card.payment_method)}",
-        "Передаю заказ менеджеру: он подтвердит детали и пришлёт реквизиты/ссылку для оплаты 🌸",
-    ]
+    lines = ["Итог заказа:"]
+    if card.fulfillment_type == "delivery":
+        lines.append("• Формат: Доставка")
+    lines.extend(
+        [
+            f"• Время: {when}",
+            f"• Адрес: {card.address or 'не указан'}",
+            f"• Бюджет: {budget_display}" if budget_display else "• Бюджет: не указан",
+            f"• {product_label}: {_fmt_list(card.colors)}",
+            f"• Получатель: {card.recipient_name or 'не указан'}, {card.recipient_phone or 'телефон не указан'}",
+            f"• Отправитель: {card.sender_name or 'не указан'}, {card.sender_phone or 'телефон не указан'}",
+            f"• Оплата: {_fmt_payment(card.payment_method)}",
+            "Передаю заказ менеджеру: он подтвердит детали и пришлёт реквизиты/ссылку для оплаты 🌸",
+        ]
+    )
     return "\n".join(lines)
+
+
+def _fmt_when(card: OrderCard, *, profile: CompanyProfile) -> str:
+    date_text = format_human_date(card.delivery_date, timezone_name=profile.timezone_name) if card.delivery_date else ""
+    time_text = card.delivery_time or ""
+    if date_text and time_text and date_text == time_text:
+        return date_text
+    return f"{date_text} {time_text}".strip() or "не указано"
 
 
 def _fmt_payment(value: str | None) -> str:
@@ -59,7 +71,7 @@ def _format_generic_client_summary(card: OrderCard, *, profile: CompanyProfile) 
     elif card.fulfillment_type == "delivery":
         lines.append("• Формат: Доставка")
     if card.delivery_date or card.delivery_time:
-        lines.append(f"• Время: {format_human_date(card.delivery_date, timezone_name=profile.timezone_name)} {card.delivery_time or ''}".strip())
+        lines.append(f"• Время: {_fmt_when(card, profile=profile)}")
     if card.address:
         lines.append(f"• Адрес: {card.address}")
     budget_display = format_budget_display(card)

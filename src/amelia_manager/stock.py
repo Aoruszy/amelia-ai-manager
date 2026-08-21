@@ -24,6 +24,28 @@ class StockItem:
     unit: str | None = None
 
 
+@dataclass(frozen=True)
+class BudgetOption:
+    name: str
+    price: int
+    unit: str | None = None
+
+
+@dataclass(frozen=True)
+class BudgetOptions:
+    items: list[BudgetOption]
+    hide_names: bool = False
+
+
+_BUDGET_UNKNOWN_RE = re.compile(
+    r"\b(?:не\s+знаю|не\s+понимаю|затрудняюсь|сколько\s+нужно|какой\s+бюджет|на\s+ваше\s+усмотрение)\b"
+)
+
+
+def is_budget_unknown_answer(text: str) -> bool:
+    return bool(_BUDGET_UNKNOWN_RE.search(text.lower().replace("ё", "е")))
+
+
 def parse_stock_text(text: str) -> list[StockItem]:
     items: list[StockItem] = []
     for raw_line in text.splitlines():
@@ -82,6 +104,7 @@ def build_stock_context(
     composition_units: tuple[str, ...] = ("букет", "композиция", "корзина"),
     sensitive_occasion: bool = False,
     sensitive_forbidden_words: tuple[str, ...] = (),
+    latest_client_text: str | None = None,
 ) -> str:
     today = today or _today_in_timezone(timezone_name)
     if not stock_date or not items:
@@ -89,17 +112,18 @@ def build_stock_context(
     if stock_date != today:
         return "Наличие цветов устарело. Не обещай конкретные цветы; попроси уточнить актуальное наличие по смене."
 
-    budget_options = _budget_option_items(
+    budget_options = select_budget_options(
         items,
-        desired_text=desired_text,
+        desired_text=latest_client_text if latest_client_text is not None else desired_text,
         composition_units=composition_units,
         sensitive_occasion=sensitive_occasion,
         sensitive_forbidden_words=sensitive_forbidden_words,
     )
-    if budget_options:
+    if budget_options.items:
         lines = ["Варианты композиций из каталога для выбора бюджета:"]
-        for item in budget_options:
-            lines.append(f"- {item.name} — {item.quantity_text}, {item.price} ₽/{item.unit or 'шт'}")
+        for option in budget_options.items:
+            name = "вариант" if budget_options.hide_names else option.name
+            lines.append(f"- {name} — {option.price} ₽/{option.unit or 'шт'}")
         return "\n".join(lines)
 
     matches = _match_items(items, colors=colors, desired_text=desired_text)
@@ -148,17 +172,16 @@ def _match_items(items: list[StockItem], *, colors: list[str], desired_text: str
     return [item for _, item in scored]
 
 
-def _budget_option_items(
+def select_budget_options(
     items: list[StockItem],
     *,
     desired_text: str,
     composition_units: tuple[str, ...],
-    sensitive_occasion: bool,
-    sensitive_forbidden_words: tuple[str, ...],
-) -> list[StockItem]:
-    normalized = desired_text.lower().replace("ё", "е")
-    if not re.search(r"\b(?:не\s+знаю|не\s+понимаю|затрудняюсь|подскажите|сколько\s+нужно|какой\s+бюджет)\b", normalized):
-        return []
+    sensitive_occasion: bool = False,
+    sensitive_forbidden_words: tuple[str, ...] = (),
+) -> BudgetOptions:
+    if not is_budget_unknown_answer(desired_text):
+        return BudgetOptions([])
     unit_set = {unit.lower().replace("ё", "е") for unit in composition_units}
     forbidden = [word.lower().replace("ё", "е") for word in sensitive_forbidden_words] if sensitive_occasion else []
     raw_candidates: list[StockItem] = []
@@ -184,8 +207,12 @@ def _budget_option_items(
         if len(candidates) < 2 and len(raw_candidates) >= 2:
             # For sensitive occasions, do not leak forbidden names. Keep safe price levels
             # from real catalog compositions so the reply can offer a choice without names.
-            return [StockItem(name="ценовой уровень", status=item.status, quantity_text=item.quantity_text, quantity_number=item.quantity_number, price=item.price, unit=item.unit) for item in _select_three(raw_candidates)]
-    return _select_three(candidates)
+            return BudgetOptions(_to_budget_options(_select_three(raw_candidates)), hide_names=True)
+    return BudgetOptions(_to_budget_options(_select_three(candidates)))
+
+
+def _to_budget_options(items: list[StockItem]) -> list[BudgetOption]:
+    return [BudgetOption(name=item.name, price=item.price or 0, unit=item.unit) for item in items if item.price is not None]
 
 
 def _select_three(candidates: list[StockItem]) -> list[StockItem]:

@@ -265,10 +265,12 @@ def _extract_fulfillment_type(text: str) -> str | None:
     last_pickup = pickup_matches[-1].start() if pickup_matches else -1
     last_delivery = delivery_matches[-1].start() if delivery_matches else -1
     if last_pickup < 0 and last_delivery < 0:
-        if _DEFERRED_FORMAT_RE.search(text):
-            return DEFERRED_STEP_VALUE
         return None
     return "delivery" if last_delivery > last_pickup else "pickup"
+
+
+def is_deferred_fulfillment_choice(text: str) -> bool:
+    return bool(_DEFERRED_FORMAT_RE.search(text.lower().replace("ё", "е")))
 
 
 def _is_negated_match(text: str, start: int) -> bool:

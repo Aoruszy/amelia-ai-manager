@@ -34,7 +34,7 @@ from amelia_manager.outbound import (
     process_outbound_tick,
     schedule_followups_after_reply,
 )
-from amelia_manager.stock import build_stock_context, format_stock_ack, parse_stock_text
+from amelia_manager.stock import build_stock_context, format_stock_ack, parse_stock_text, select_budget_options
 from amelia_manager.stock_source import DbCatalogStockSource, ManualStockSource, SheetsStockSource, StockSnapshot, StockSource
 from amelia_manager.observability import EventRecorder, configure_logging
 from amelia_manager.stats_report import format_stats_report, parse_stats_days
@@ -1109,10 +1109,19 @@ async def run_listener(settings: Settings) -> None:
                 client_id=db_client.id,
                 payload={"source_name": stock_snapshot.source_name},
             )
+        latest_client_for_stock = _last_client_text(recent_messages)
+        budget_options = select_budget_options(
+            stock_snapshot.items,
+            desired_text=latest_client_for_stock,
+            composition_units=company_profile.composition_units,
+            sensitive_occasion=bool(order_card.custom_fields.get("occasion_sensitive") is True),
+            sensitive_forbidden_words=company_profile.sensitive_occasion_forbidden_words,
+        )
         stock_context = build_stock_context(
             items=stock_snapshot.items,
             colors=order_card.colors,
             desired_text="\n".join(recent_messages),
+            latest_client_text=latest_client_for_stock,
             stock_date=stock_snapshot.fetched_at.date() if stock_snapshot.items else None,
             timezone_name=company_profile.timezone_name,
             composition_units=company_profile.composition_units,
@@ -1130,6 +1139,7 @@ async def run_listener(settings: Settings) -> None:
             stage=current_stage,
             stock_context=stock_context,
             order_card=order_card,
+            budget_options=budget_options,
         )
 
         active_order = repo.get_active_order(client_id=db_client.id)

@@ -15,10 +15,11 @@ from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
 from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch
 from amelia_manager.order_policy import NextStep, get_next_step
-from amelia_manager.order_state import extract_order_state
+from amelia_manager.order_state import extract_order_state, is_deferred_fulfillment_choice
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 from amelia_manager.safety import SafetyResult, check_reply_safety, safety_retry_guidance_for_reasons
+from amelia_manager.stock import BudgetOption, BudgetOptions, is_budget_unknown_answer
 from amelia_manager.structured_generation import generate_with_optional_schema
 
 
@@ -61,6 +62,7 @@ class ConversationEngine:
         stage: str,
         stock_context: str | None = None,
         order_card: OrderCard | None = None,
+        budget_options: BudgetOptions | list[BudgetOption] | None = None,
     ) -> ConversationAction:
         last_client_text = _last_client_text(recent_messages)
         risk = assess_risk(last_client_text, company_profile=self.company_profile)
@@ -146,7 +148,14 @@ class ConversationEngine:
 
         if order_card and order_card.custom_fields.get("upsell_offered") is True and _is_upsell_decline(last_client_text):
             next_step = NextStep("ask_sender_contacts", "Попроси имя и телефон отправителя для связи по заказу.")
-            reply = deterministic_order_reply(next_step, order_card, recent_messages=recent_messages, stock_context=stock_context, company_profile=self.company_profile)
+            reply = deterministic_order_reply(
+                next_step,
+                order_card,
+                recent_messages=recent_messages,
+                stock_context=stock_context or "",
+                company_profile=self.company_profile,
+                budget_options=budget_options,
+            )
             return ConversationAction(
                 kind="send",
                 messages=[reply or "Подскажите ваше имя и номер телефона для связи по заказу."],
@@ -162,13 +171,23 @@ class ConversationEngine:
             order_card=order_card,
             company_profile=self.company_profile,
         )
-        if next_step.code == "ask_budget" and _is_budget_unknown_answer(last_client_text):
+        if next_step.code == "ask_fulfillment_type" and is_deferred_fulfillment_choice(last_client_text):
+            pickup_address = self.company_profile.pickup_address or "адреса самовывоза"
+            reply = self.company_profile.default_fulfillment_choice_reply_template.format(pickup_address=pickup_address)
+            return ConversationAction(
+                kind="send",
+                messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                risk_level=risk_level,
+                next_step=next_step.code,
+            )
+        if next_step.code == "ask_budget" and is_budget_unknown_answer(last_client_text):
             reply = deterministic_order_reply(
                 next_step,
                 order_card if isinstance(order_card, OrderCard) else None,
                 recent_messages=recent_messages,
-                stock_context=stock_context,
+                stock_context=stock_context or "",
                 company_profile=self.company_profile,
+                budget_options=budget_options,
             )
             if reply:
                 return ConversationAction(
@@ -183,8 +202,9 @@ class ConversationEngine:
                 next_step,
                 order_card if isinstance(order_card, OrderCard) else None,
                 recent_messages=recent_messages,
-                stock_context=stock_context,
+                stock_context=stock_context or "",
                 company_profile=self.company_profile,
+                budget_options=budget_options,
             )
             if reply:
                 return ConversationAction(
@@ -198,8 +218,9 @@ class ConversationEngine:
                 next_step,
                 order_card if isinstance(order_card, OrderCard) else None,
                 recent_messages=recent_messages,
-                stock_context=stock_context,
+                stock_context=stock_context or "",
                 company_profile=self.company_profile,
+                budget_options=budget_options,
             )
             if reply:
                 return ConversationAction(
@@ -232,8 +253,9 @@ class ConversationEngine:
                 next_step,
                 order_card if isinstance(order_card, OrderCard) else None,
                 recent_messages=recent_messages,
-                stock_context=stock_context,
+                stock_context=stock_context or "",
                 company_profile=self.company_profile,
+                budget_options=budget_options,
             )
             if fallback:
                 return ConversationAction(
@@ -268,8 +290,9 @@ class ConversationEngine:
                 next_step,
                 order_card if isinstance(order_card, OrderCard) else None,
                 recent_messages=recent_messages,
-                stock_context=stock_context,
+                stock_context=stock_context or "",
                 company_profile=self.company_profile,
+                budget_options=budget_options,
             ) or "Передам менеджеру, чтобы вам ответили корректно."
             return ConversationAction(
                 kind="send",
@@ -413,6 +436,7 @@ class ConversationEngine:
                 company_profile=self.company_profile,
                 risk_category=risk.category,
                 latest_text=last_client_text,
+                budget_options=budget_options,
             )
             if fallback:
                 return ConversationAction(
@@ -519,6 +543,7 @@ def _fallback_after_safety_failure(
     company_profile: CompanyProfile,
     risk_category: RiskCategory,
     latest_text: str,
+    budget_options: BudgetOptions | list[BudgetOption] | None = None,
 ) -> str | None:
     cautious = _cautious_reply_for_medium_risk(
         risk_category,
@@ -532,14 +557,14 @@ def _fallback_after_safety_failure(
         next_step,
         order_card,
         recent_messages=recent_messages,
-        stock_context=stock_context,
+        stock_context=stock_context or "",
         company_profile=company_profile,
+        budget_options=budget_options,
     )
 
 
 def _is_budget_unknown_answer(text: str) -> bool:
-    normalized = text.lower().replace("ё", "е")
-    return bool(re.search(r"\b(?:не\s+знаю|не\s+понимаю|затрудняюсь|подскажите|сколько\s+нужно|какой\s+бюджет)\b", normalized))
+    return is_budget_unknown_answer(text)
 
 def _is_upsell_decline(text: str) -> bool:
     normalized = text.lower().replace("ё", "е")
