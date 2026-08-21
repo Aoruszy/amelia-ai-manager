@@ -103,6 +103,11 @@ class CompanyProfile:
     budget_options_reply_template: str = "Могу показать три варианта: {options}. Что ближе?"
     budget_levels_reply_template: str = "Могу предложить уровни по бюджету: {options}. Что ближе?"
     default_fulfillment_choice_reply_template: str = "Самовывоз с {pickup_address} — самый простой вариант. Если удобнее доставка, тоже оформим."
+    default_date_offset_days: int = 1
+    default_time_value: str = "14:00"
+    default_date_choice_reply_template: str = "Могу записать на {date_label} — подойдёт?"
+    default_time_choice_reply_template: str = "Давайте к {time}, удобно?"
+    workload_warning_template: str = "Перегруз на {date}: заказов: {total}, доставка: {delivery}, самовывоз: {pickup}. Проверьте экран «Загрузка»."
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]

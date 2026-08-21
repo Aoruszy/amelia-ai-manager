@@ -61,7 +61,7 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
         forbidden_flowers=_extract_forbidden_flowers(text),
         fulfillment_type=_extract_fulfillment_type(text),
         delivery_date=_extract_delivery_date(text, manager_schedule_text, today=reference_date),
-        delivery_time=_extract_delivery_time(text),
+        delivery_time=_extract_delivery_time(text, manager_schedule_text),
         address=_extract_address(original),
         sender_name=sender_name,
         sender_phone=sender_phone,
@@ -208,7 +208,7 @@ DEFERRED_CHOICE_VALUE = "без особых пожеланий"
 _DEFERRED_DATE_RE = re.compile(r"\b(?:не\s+важно|когда\s+получится|в\s+ближайшие\s+дни|на\s+ваше\s+усмотрение)\b")
 _DEFERRED_TIME_RE = re.compile(r"\b(?:в\s+любое|когда\s+(?:вам\s+)?удобно|побыстрее|не\s+принципиально)\b")
 _DEFERRED_FORMAT_RE = re.compile(r"\b(?:как\s+удобнее|все\s+равно|как\s+вам\s+проще)\b")
-DEFERRED_STEP_VALUE = "по согласованию"
+_AFFIRMATIVE_RE = re.compile(r"\b(?:да|давайте|подойдет|подойдёт|ок|окей|хорошо|устраивает|можно)\b")
 
 
 def _extract_colors(text: str) -> list[str]:
@@ -273,6 +273,14 @@ def is_deferred_fulfillment_choice(text: str) -> bool:
     return bool(_DEFERRED_FORMAT_RE.search(text.lower().replace("ё", "е")))
 
 
+def is_deferred_date_choice(text: str) -> bool:
+    return bool(_DEFERRED_DATE_RE.search(text.lower().replace("ё", "е")))
+
+
+def is_deferred_time_choice(text: str) -> bool:
+    return bool(_DEFERRED_TIME_RE.search(text.lower().replace("ё", "е")))
+
+
 def _is_negated_match(text: str, start: int) -> bool:
     before = text[max(0, start - 24):start]
     return bool(re.search(r"(?:\bне\s+(?:надо\s+|нужн\w*\s+)?|\bбез\s+)$", before))
@@ -296,7 +304,7 @@ _MONTHS = {
 
 _SCHEDULING_MARKERS = re.compile(
     r"\b(?:забра\w*|заберет\w*|заберут\w*|доставк\w*|достав\w*|привез\w*|планиру\w*|"
-    r"записал\w*|оформ\w*|во\s+сколько|к\s+какому|к\s+которому|на\s+какое|время|времени|срок\w*)\b"
+    r"запис\w*|оформ\w*|давайте|удобно|во\s+сколько|к\s+какому|к\s+которому|на\s+какое|время|времени|срок\w*)\b"
 )
 
 
@@ -325,6 +333,12 @@ def _extract_delivery_date(client_text: str, context_text: str, *, today: date) 
     Разделение источников важно: бот написал «на сегодня гортензии нет», и это
     читалось как дата заказа, перебивая явное «20 августа» от клиента.
     """
+    if is_deferred_date_choice(client_text):
+        return None
+    if _AFFIRMATIVE_RE.search(client_text) and context_text:
+        candidates = [item for item in (_explicit_date_in(context_text, today=today), _relative_date_in(context_text, today=today)) if item]
+        if candidates:
+            return max(candidates, key=lambda item: item[0])[1]
     for text in (client_text, context_text):
         candidates = [item for item in (_explicit_date_in(text, today=today), _relative_date_in(text, today=today)) if item]
         if candidates:
@@ -335,7 +349,7 @@ def _extract_delivery_date(client_text: str, context_text: str, *, today: date) 
 def _relative_date_in(text: str, *, today: date) -> tuple[int, str, str] | None:
     deferred = _DEFERRED_DATE_RE.search(text)
     if deferred:
-        return (deferred.start(), DEFERRED_STEP_VALUE, "deferred")
+        return None
     today_index = text.rfind("сегодня")
     tomorrow_index = text.rfind("завтра")
     if today_index < 0 and tomorrow_index < 0:
@@ -364,11 +378,15 @@ def _explicit_date_in(text: str, *, today: date) -> tuple[int, str, str] | None:
     return (month_match.start(), candidate.isoformat(), "explicit")
 
 
-def _extract_delivery_time(text: str) -> str | None:
+def _extract_delivery_time(text: str, context_text: str = "") -> str | None:
     match = re.search(r"\b([01]?\d|2[0-3])[:.](\d{2})\b", text)
     if not match:
         if _DEFERRED_TIME_RE.search(text):
-            return DEFERRED_STEP_VALUE
+            return None
+        if _AFFIRMATIVE_RE.search(text) and context_text:
+            context_match = re.search(r"\b([01]?\d|2[0-3])[:.](\d{2})\b", context_text)
+            if context_match:
+                return f"{int(context_match.group(1)):02d}:{context_match.group(2)}"
         return None
     return f"{int(match.group(1)):02d}:{match.group(2)}"
 

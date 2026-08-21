@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -41,6 +42,12 @@ class ExtractedOrderState(BaseModel):
         return OrderState(**self.model_dump())
 
 
+@dataclass(frozen=True)
+class ExtractionResult:
+    state: OrderState
+    ignored_field_codes: list[str]
+
+
 async def extract_order_state_with_llm(
     llm: LLM,
     recent_messages: list[str],
@@ -49,6 +56,25 @@ async def extract_order_state_with_llm(
     today=None,
     timezone_name: str = "Europe/Kaliningrad",
 ) -> OrderState:
+    return (
+        await extract_order_state_with_llm_result(
+            llm,
+            recent_messages,
+            company_profile=company_profile,
+            today=today,
+            timezone_name=timezone_name,
+        )
+    ).state
+
+
+async def extract_order_state_with_llm_result(
+    llm: LLM,
+    recent_messages: list[str],
+    *,
+    company_profile: CompanyProfile | None = None,
+    today=None,
+    timezone_name: str = "Europe/Kaliningrad",
+) -> ExtractionResult:
     regex_state = extract_order_state(recent_messages, today=today, timezone_name=timezone_name)
     try:
         raw = await generate_with_optional_schema(
@@ -58,13 +84,11 @@ async def extract_order_state_with_llm(
         )
         llm_state = ExtractedOrderState.model_validate(_parse_json_object(raw)).to_state()
         ignored_field_codes = invalid_order_state_field_codes(llm_state) if (company_profile is None or company_profile.business_type == "florist") else []
-        if ignored_field_codes:
-            llm_state = OrderState(**{**llm_state.__dict__, "custom_fields": {**llm_state.custom_fields, "_ignored_field_codes": ignored_field_codes}})
         if llm_state.address and not looks_like_address(llm_state.address):
             llm_state = OrderState(**{**llm_state.__dict__, "address": None})
     except Exception:
-        return regex_state
-    return _merge_states(regex_state, llm_state)
+        return ExtractionResult(regex_state, [])
+    return ExtractionResult(_merge_states(regex_state, llm_state), ignored_field_codes)
 
 
 def looks_like_address(value: str | None) -> bool:

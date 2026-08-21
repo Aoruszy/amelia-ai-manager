@@ -23,7 +23,7 @@ from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
 from amelia_manager.llm_client import LLMClient, build_llm_client
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, invalid_order_state_field_codes, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
-from amelia_manager.order_extractor import extract_order_state_with_llm
+from amelia_manager.order_extractor import extract_order_state_with_llm_result
 from amelia_manager.order_request import format_admin_order_request
 from amelia_manager.order_sheet import SheetsOrderAppender, append_order_to_sheet_if_needed, send_pending_sheet_rows
 from amelia_manager.order_state import extract_order_state
@@ -181,14 +181,16 @@ async def update_active_order_from_messages_with_llm(
     order = active or repo.get_or_create_active_order(client_id=client_id)
     messages_for_extraction = _messages_for_order_extraction(order.card, recent_messages)
     profile = company_profile or load_company_profile("amelia_flowers")
-    extracted = await extract_order_state_with_llm(
+    extraction = await extract_order_state_with_llm_result(
         llm,
         messages_for_extraction,
         company_profile=profile,
         today=today,
         timezone_name=profile.timezone_name,
     )
+    extracted = extraction.state
     ignored_field_codes, extracted = _pop_ignored_extracted_fields(extracted)
+    ignored_field_codes = list(dict.fromkeys([*ignored_field_codes, *extraction.ignored_field_codes]))
     card = merge_order_state(order.card, extracted)
     repo.update_order_card(order_id=order.id, card=card)
     _record_ignored_extracted_fields(repo, client_id=client_id, order_id=order.id, field_codes=ignored_field_codes)

@@ -694,7 +694,11 @@ def _workload_days(*, start: date, horizon_days: int, orders: list, settings: Se
 
 def _workload_day(*, day: date, orders: list, settings: Settings) -> dict[str, object]:
     no_time = [row for row in orders if not row.order.card.delivery_time]
-    outside_hours = [row for row in orders if row.order.card.delivery_time and not _time_within_delivery_hours(row.order.card.delivery_time, settings=settings)]
+    outside_hours = [
+        row
+        for row in orders
+        if row.order.card.delivery_time and not _time_within_workload_hours(row.order.card.delivery_time, fulfillment_type=row.order.card.fulfillment_type, settings=settings)
+    ]
     return {
         "date": day,
         "orders": orders,
@@ -706,11 +710,24 @@ def _workload_day(*, day: date, orders: list, settings: Settings) -> dict[str, o
     }
 
 
-def _time_within_delivery_hours(value: str, *, settings: Settings) -> bool:
+def _time_within_workload_hours(value: str, *, fulfillment_type: str | None, settings: Settings) -> bool:
     try:
         current = datetime.strptime(value, "%H:%M").time()
-        start = datetime.strptime(settings.delivery_hours_start, "%H:%M").time()
-        end = datetime.strptime(settings.delivery_hours_end, "%H:%M").time()
+        if fulfillment_type == "pickup":
+            start = datetime.strptime(settings.work_hours_start, "%H:%M").time()
+            end = datetime.strptime(settings.work_hours_end, "%H:%M").time()
+        elif fulfillment_type == "delivery":
+            start = datetime.strptime(settings.delivery_hours_start, "%H:%M").time()
+            end = datetime.strptime(settings.delivery_hours_end, "%H:%M").time()
+        else:
+            start = min(
+                datetime.strptime(settings.work_hours_start, "%H:%M").time(),
+                datetime.strptime(settings.delivery_hours_start, "%H:%M").time(),
+            )
+            end = max(
+                datetime.strptime(settings.work_hours_end, "%H:%M").time(),
+                datetime.strptime(settings.delivery_hours_end, "%H:%M").time(),
+            )
     except ValueError:
         return False
     return start <= current <= end

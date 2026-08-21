@@ -7,7 +7,7 @@ from datetime import datetime, time, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
-from amelia_manager.company_profile import CompanyProfile
+from amelia_manager.company_profile import CompanyProfile, load_company_profile
 from amelia_manager.config import Settings
 from amelia_manager.date_formatting import format_human_date
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository
@@ -134,7 +134,8 @@ async def send_workload_warnings(telegram_client, *, repo: SQLiteRepository, set
             continue
         delivery = sum(1 for order in orders if order.card.fulfillment_type == "delivery")
         pickup = sum(1 for order in orders if order.card.fulfillment_type == "pickup")
-        text = f"Перегруз на {day}: {total} заказа, доставка: {delivery}, самовывоз: {pickup}. Проверьте экран «Загрузка»."
+        profile = load_company_profile(settings.company_profile_name)
+        text = profile.workload_warning_template.format(date=day, total=total, delivery=delivery, pickup=pickup)
         try:
             await telegram_client.send_message(settings.admin_chat_id, text)
         except Exception:  # noqa: BLE001 - scheduler tick must survive Telegram failures

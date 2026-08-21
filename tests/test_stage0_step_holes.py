@@ -4,17 +4,17 @@ import pytest
 
 from amelia_manager.company_profile import load_company_profile
 from amelia_manager.conversation_engine import ConversationEngine
-from amelia_manager.order_card import OrderCard
+from amelia_manager.order_card import OrderCard, merge_order_state
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.safety import check_reply_safety
 from amelia_manager.stock import BudgetOption, StockItem, StockStatus, build_stock_context, select_budget_options
 
 
-def test_deferred_date_answers_close_date_step_with_placeholder():
+def test_deferred_date_answers_do_not_write_placeholder_to_card():
     for answer in ("не важно", "когда получится", "в ближайшие дни", "на ваше усмотрение"):
         state = extract_order_state([f"Клиент: {answer}"], today=date(2026, 8, 19))
-        assert state.delivery_date == "по согласованию", answer
+        assert state.delivery_date is None, answer
 
 
 def test_non_answers_do_not_close_date_step():
@@ -23,10 +23,28 @@ def test_non_answers_do_not_close_date_step():
         assert state.delivery_date is None, answer
 
 
-def test_deferred_time_answers_close_time_step_with_placeholder():
+def test_deferred_time_answers_do_not_write_placeholder_to_card():
     for answer in ("в любое", "когда удобно", "когда вам удобно", "побыстрее", "не принципиально"):
         state = extract_order_state([f"Клиент: {answer}"], today=date(2026, 8, 19))
-        assert state.delivery_time == "по согласованию", answer
+        assert state.delivery_time is None, answer
+
+
+def test_deferred_date_and_time_confirmations_use_manager_suggestion():
+    date_state = extract_order_state(
+        ["Менеджер: Могу записать на завтра — подойдёт?", "Клиент: да"],
+        today=date(2026, 8, 19),
+    )
+    time_state = extract_order_state(["Менеджер: Давайте к 14:00, удобно?", "Клиент: да"], today=date(2026, 8, 19))
+
+    assert date_state.delivery_date == "2026-08-20"
+    assert time_state.delivery_time == "14:00"
+
+
+def test_no_deferred_placeholder_is_written_to_any_order_card_field():
+    state = extract_order_state(["Клиент: не важно, когда удобно, как удобнее"], today=date(2026, 8, 19))
+    card = merge_order_state(OrderCard(), state)
+
+    assert "по согласованию" not in str(card.to_dict())
 
 
 def test_deferred_format_answers_do_not_close_fulfillment_step():

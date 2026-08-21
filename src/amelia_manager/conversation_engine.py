@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 import re
 from typing import Protocol
+from zoneinfo import ZoneInfo
 
 from amelia_manager.client_order_summary import format_client_order_summary
 from amelia_manager.company_profile import CompanyProfile, load_company_profile
@@ -15,7 +17,7 @@ from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
 from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch
 from amelia_manager.order_policy import NextStep, get_next_step
-from amelia_manager.order_state import extract_order_state, is_deferred_fulfillment_choice
+from amelia_manager.order_state import extract_order_state, is_deferred_date_choice, is_deferred_fulfillment_choice, is_deferred_time_choice
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 from amelia_manager.safety import SafetyResult, check_reply_safety, safety_retry_guidance_for_reasons
@@ -174,6 +176,22 @@ class ConversationEngine:
         if next_step.code == "ask_fulfillment_type" and is_deferred_fulfillment_choice(last_client_text):
             pickup_address = self.company_profile.pickup_address or "адреса самовывоза"
             reply = self.company_profile.default_fulfillment_choice_reply_template.format(pickup_address=pickup_address)
+            return ConversationAction(
+                kind="send",
+                messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                risk_level=risk_level,
+                next_step=next_step.code,
+            )
+        if next_step.code == "ask_date" and is_deferred_date_choice(last_client_text):
+            reply = _default_date_choice_reply(self.company_profile)
+            return ConversationAction(
+                kind="send",
+                messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                risk_level=risk_level,
+                next_step=next_step.code,
+            )
+        if next_step.code in {"ask_pickup_time", "ask_delivery_time"} and is_deferred_time_choice(last_client_text):
+            reply = self.company_profile.default_time_choice_reply_template.format(time=self.company_profile.default_time_value)
             return ConversationAction(
                 kind="send",
                 messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
@@ -692,6 +710,16 @@ def _tokens_overlap(left: set[str], right: set[str]) -> bool:
     return False
 
 
+def _default_date_choice_reply(profile: CompanyProfile) -> str:
+    today = datetime.now(ZoneInfo(profile.timezone_name)).date()
+    suggested = today + timedelta(days=profile.default_date_offset_days)
+    if profile.default_date_offset_days == 1:
+        date_label = "завтра"
+    else:
+        date_label = suggested.isoformat()
+    return profile.default_date_choice_reply_template.format(date=date_label, date_label=date_label)
+
+
 def _format_order_card_context(
     card: OrderCard,
     *,
@@ -722,6 +750,8 @@ def _format_order_card_context(
     if card.payment_method:
         lines.append(f"- Оплата: {card.payment_method}")
     for key, value in card.custom_fields.items():
+        if key.startswith("_"):
+            continue
         if value not in (None, "", [], {}):
             lines.append(f"- {key}: {value}")
     return "\n".join(lines) if lines else "- пока пусто"
