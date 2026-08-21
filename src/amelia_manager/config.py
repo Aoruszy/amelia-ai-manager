@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     media_storage_dir: str = "media"
     catalog_image_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1, le=20 * 1024 * 1024)
     client_photo_max_bytes: int = Field(default=8 * 1024 * 1024, ge=1, le=20 * 1024 * 1024)
+    llm_image_max_side_px: int = Field(default=1024, ge=128, le=2048)
     admin_trusted_proxy_ips: str = ""
     admin_allowed_hosts: str = ""
 

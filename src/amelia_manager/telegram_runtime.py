@@ -21,7 +21,7 @@ from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
-from amelia_manager.media_storage import media_root_for_db, resolve_media_path
+from amelia_manager.media_storage import media_root_for_db, resolve_media_path, image_data_url_for_llm
 from amelia_manager.media_storage import store_image_bytes, MediaValidationError
 from amelia_manager.llm_client import LLMClient, build_llm_client
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, invalid_order_state_field_codes, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
@@ -630,6 +630,16 @@ def client_photo_paths(card: OrderCard) -> list[str]:
     return [str(path) for path in paths] if isinstance(paths, list) else []
 
 
+def latest_client_photo_data_url(card: OrderCard, *, media_root, max_side_px: int) -> str | None:
+    paths = client_photo_paths(card)
+    if not paths:
+        return None
+    path = resolve_media_path(media_root, paths[-1])
+    if not path.exists():
+        return None
+    return image_data_url_for_llm(path, max_side_px=max_side_px)
+
+
 @dataclass(frozen=True)
 class IncomingMessage:
     sender_id: int
@@ -1208,6 +1218,17 @@ async def run_listener(settings: Settings) -> None:
             sensitive_occasion=bool(order_card.custom_fields.get("occasion_sensitive") is True),
             sensitive_forbidden_words=company_profile.sensitive_occasion_forbidden_words,
         )
+        image_data_urls = None
+        if "[photo]" in _last_client_text(recent_messages).lower() and isinstance(order_card, OrderCard):
+            try:
+                data_url = latest_client_photo_data_url(
+                    order_card,
+                    media_root=media_root_for_db(path_from_sqlite_url(settings.database_url), settings.media_storage_dir),
+                    max_side_px=settings.llm_image_max_side_px,
+                )
+                image_data_urls = [data_url] if data_url else None
+            except Exception:
+                LOGGER.exception("client_photo_prepare_for_llm_failed", extra={"event": "client_photo_prepare_for_llm_failed", "payload": {}})
 
         # summary хранится на клиенте, а не на заказе, и в промпт уходило значение
         # с прошлого хода — по карточке уже закрытого заказа. Считаем по текущей.
@@ -1220,6 +1241,7 @@ async def run_listener(settings: Settings) -> None:
             stock_context=stock_context,
             order_card=order_card,
             budget_options=budget_options,
+            image_data_urls=image_data_urls,
         )
 
         active_order = repo.get_active_order(client_id=db_client.id)

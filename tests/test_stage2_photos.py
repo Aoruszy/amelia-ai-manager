@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 import base64
+import io
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from amelia_manager.admin import create_app
 from amelia_manager.config import Settings
 from amelia_manager.db.repository import SQLiteRepository
-from amelia_manager.media_storage import store_image_bytes
+from amelia_manager.media_storage import image_data_url_for_llm, store_image_bytes
 from amelia_manager.order_card import OrderCard
 from amelia_manager.stock import BudgetOption, BudgetOptions, StockItem, StockStatus, select_budget_options
-from amelia_manager.telegram_runtime import add_client_photo_to_order, send_admin_order_request_if_ready, send_budget_options_album
+from amelia_manager.telegram_runtime import add_client_photo_to_order, latest_client_photo_data_url, send_admin_order_request_if_ready, send_budget_options_album
 from amelia_manager.conversation_engine import ConversationEngine
 
 
@@ -20,8 +22,25 @@ class StaticLLM:
     async def generate(self, prompt: str) -> str:
         return '{"reply":"ok"}'
 
+
+class CapturingVisionLLM:
+    def __init__(self, response: str) -> None:
+        self.response = response
+        self.calls: list[dict[str, object]] = []
+
+    async def generate(self, prompt: str, **kwargs) -> str:
+        self.calls.append({"prompt": prompt, "kwargs": kwargs})
+        return self.response
+
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 JPEG_BYTES = b"\xff\xd8\xff" + b"\x00" * 32
+
+
+def _valid_png_bytes(color: tuple[int, int, int] = (255, 0, 0), *, size: tuple[int, int] = (16, 16)) -> bytes:
+    image = Image.new("RGB", size, color)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
 
 
 def _auth(username: str = "admin", password: str = "secret") -> dict[str, str]:
@@ -235,3 +254,73 @@ async def test_photo_only_reply_uses_profile_and_budget_state():
 
     assert no_budget.messages == ["Вижу фото, буду ориентироваться на этот стиль. Подскажите, на какой бюджет ориентируемся?"]
     assert with_budget.messages == ["Вижу фото, буду ориентироваться на этот стиль. Подскажите, какие оттенки или цветы особенно нравятся?"]
+
+
+def test_latest_client_photo_data_url_uses_latest_image_and_resizes(tmp_path):
+    media_root = tmp_path / "media"
+    first = store_image_bytes(_valid_png_bytes((255, 0, 0), size=(2048, 1024)), media_root=media_root, namespace="orders/1", max_bytes=20_000)
+    latest = store_image_bytes(_valid_png_bytes((0, 0, 255), size=(32, 32)), media_root=media_root, namespace="orders/1", max_bytes=20_000)
+    card = OrderCard(custom_fields={"client_photo_paths": [first.relative_path, latest.relative_path]})
+
+    data_url = latest_client_photo_data_url(card, media_root=media_root, max_side_px=128)
+
+    assert data_url is not None
+    assert data_url.startswith("data:image/jpeg;base64,")
+    decoded = base64.b64decode(data_url.removeprefix("data:image/jpeg;base64,"))
+    with Image.open(io.BytesIO(decoded)) as image:
+        assert max(image.size) <= 128
+        assert image.getpixel((0, 0))[2] > image.getpixel((0, 0))[0]
+
+
+def test_image_data_url_for_llm_converts_valid_image_to_jpeg(tmp_path):
+    source = tmp_path / "source.png"
+    source.write_bytes(_valid_png_bytes(size=(4096, 1024)))
+
+    data_url = image_data_url_for_llm(source, max_side_px=512)
+
+    assert data_url.startswith("data:image/jpeg;base64,")
+    decoded = base64.b64decode(data_url.removeprefix("data:image/jpeg;base64,"))
+    with Image.open(io.BytesIO(decoded)) as image:
+        assert image.format == "JPEG"
+        assert max(image.size) <= 512
+
+
+@pytest.mark.asyncio
+async def test_photo_turn_sends_image_to_model_and_drops_forbidden_card_patch():
+    llm = CapturingVisionLLM(
+        '{"reply":"Вижу компактный красный букет, ориентируюсь на такой стиль.",'
+        '"case_patch":{"budget":9999,"delivery_date":"2026-09-01","delivery_time":"12:00",'
+        '"address":"с фото","payment_method":"transfer","colors":["красный"]},'
+        '"next_step":"ask_budget","confidence":0.9}'
+    )
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: хочу как здесь\n[photo]"],
+        stage="order",
+        order_card=OrderCard(),
+        image_data_urls=["data:image/jpeg;base64,abc"],
+    )
+
+    assert llm.calls
+    assert llm.calls[0]["kwargs"]["image_data_urls"] == ["data:image/jpeg;base64,abc"]
+    assert "Бюджет, дату, адрес" in llm.calls[0]["prompt"]
+    assert action.order_patch == {"colors": ["красный"]}
+    assert action.messages == ["Вижу компактный красный букет, ориентируюсь на такой стиль."]
+
+
+@pytest.mark.asyncio
+async def test_regular_text_turn_does_not_send_previous_image_to_model():
+    llm = CapturingVisionLLM('{"reply":"Подскажите бюджет, пожалуйста.","case_patch":{},"next_step":"ask_budget","confidence":0.9}')
+    engine = ConversationEngine(llm)
+
+    await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: бюджет 5000"],
+        stage="order",
+        order_card=OrderCard(custom_fields={"client_photo_paths": ["orders/1/photo.jpg"]}),
+    )
+
+    assert "image_data_urls" not in llm.calls[0]["kwargs"]
+    assert "Клиент приложил фото" not in llm.calls[0]["prompt"]

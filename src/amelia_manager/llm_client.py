@@ -15,6 +15,7 @@ class LLMClient(Protocol):
         *,
         response_mime_type: str | None = None,
         response_schema: dict[str, Any] | None = None,
+        image_data_urls: list[str] | None = None,
     ) -> str: ...
 
 
@@ -40,6 +41,7 @@ class GeminiClient:
         *,
         response_mime_type: str | None = None,
         response_schema: dict[str, Any] | None = None,
+        image_data_urls: list[str] | None = None,
     ) -> str:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -102,10 +104,16 @@ class OpenAIResponsesClient:
         *,
         response_mime_type: str | None = None,
         response_schema: dict[str, Any] | None = None,
+        image_data_urls: list[str] | None = None,
     ) -> str:
+        input_payload: Any = prompt
+        if image_data_urls:
+            content: list[dict[str, str]] = [{"type": "input_text", "text": prompt}]
+            content.extend({"type": "input_image", "image_url": image_url} for image_url in image_data_urls)
+            input_payload = [{"role": "user", "content": content}]
         payload: dict[str, Any] = {
             "model": self.model,
-            "input": prompt,
+            "input": input_payload,
             "max_output_tokens": self.max_output_tokens,
         }
         if response_mime_type == "application/json":

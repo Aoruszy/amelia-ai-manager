@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
+import io
 from pathlib import Path
 from uuid import uuid4
+
+from PIL import Image
 
 
 class MediaValidationError(ValueError):
@@ -80,3 +84,15 @@ def delete_media_file(media_root: str | Path, relative_path: str | None) -> None
         return
     if path.exists() and path.is_file():
         path.unlink()
+
+
+def image_data_url_for_llm(path: str | Path, *, max_side_px: int) -> str:
+    image_path = Path(path)
+    with Image.open(image_path) as image:
+        image.thumbnail((max_side_px, max_side_px))
+        if image.mode not in {"RGB", "L"}:
+            image = image.convert("RGB")
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=85, optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
