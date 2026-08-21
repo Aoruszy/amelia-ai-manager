@@ -457,14 +457,20 @@ def _extract_budget_by_dialog_context(messages: list[str]) -> list[tuple[int, in
 def _extract_contacts_by_dialog_context(messages: list[str]) -> dict[str, str]:
     result: dict[str, str] = {}
     pending_role: str | None = None
+    pending_both_roles = False
     for message in messages:
         stripped = _strip_role(message)
         lowered = stripped.lower().replace("ё", "е")
         if message.lower().startswith(("менеджер:", "алина:")):
-            if "отправител" in lowered or re.search(r"\bвас\b.*\b(номер|телефон)", lowered):
+            asks_sender = "отправител" in lowered or re.search(r"\b(?:вас|ваше|ваш)\b.*\b(номер|телефон)", lowered)
+            asks_recipient = "получател" in lowered
+            pending_both_roles = bool(asks_sender and asks_recipient)
+            if asks_sender and not asks_recipient:
                 pending_role = "sender"
-            elif "получател" in lowered:
+            elif asks_recipient and not asks_sender:
                 pending_role = "recipient"
+            elif pending_both_roles:
+                pending_role = None
             continue
         if not _is_client_message(message):
             continue
@@ -481,6 +487,13 @@ def _extract_contacts_by_dialog_context(messages: list[str]) -> dict[str, str]:
             assigned_any = True
         if assigned_any:
             pending_role = None
+            pending_both_roles = False
+            continue
+        if pending_both_roles and len(pairs) == 1:
+            match = pairs[0]
+            result["sender_name"] = match.group(1)
+            result["sender_phone"] = match.group(2)
+            pending_both_roles = False
             continue
         if pending_role is not None and len(pairs) == 1:
             match = pairs[0]

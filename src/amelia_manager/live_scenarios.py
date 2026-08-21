@@ -326,7 +326,11 @@ def build_live_scenarios() -> list[DialogueScenario]:
             ["Клиент: Букет до 5000, нежный, самовывоз завтра к 15:00, я Анна 89990000001"],
             expected_next_step="confirm_pickup_order",
             must_not_contain=("адрес", "получател"),
-            notes="Самовывоз одной фразой не требует адрес и контакты получателя.",
+            notes=(
+                "Самовывоз одной фразой не требует адрес и контакты получателя. "
+                "Детерминированная runtime-ветка: при confirm_pickup_order без сохранённой OrderCard "
+                "собираем итог из извлечённого состояния, чтобы all-in-one заявка не уходила в LLM без карточки."
+            ),
         ),
         DialogueScenario(
             "real-identity-question",

@@ -21,14 +21,15 @@ def test_deterministic_when_where_reply_uses_missing_fields_not_full_question():
     assert "доставка или самовывоз" not in lowered
 
 
-def test_deterministic_when_where_pickup_missing_time_does_not_ask_address():
+def test_deterministic_when_where_pickup_missing_time_includes_pickup_address_not_delivery_address():
     reply = deterministic_order_reply(
         NextStep("ask_when_where", "Уточни время самовывоза.", missing=("delivery_time",)),
         OrderCard(fulfillment_type="pickup", delivery_date="2026-08-22"),
     )
 
     assert reply is not None
-    assert "адрес" not in reply.lower()
+    assert "Сергеева, 61" in reply
+    assert "адрес доставки" not in reply.lower()
     assert "время" in reply.lower() or "к какому" in reply.lower()
 
 

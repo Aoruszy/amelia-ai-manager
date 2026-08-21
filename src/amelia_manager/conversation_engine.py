@@ -261,7 +261,7 @@ class ConversationEngine:
                     messages=[reply],
                     risk_level=risk_level,
                     next_step=next_step.code,
-                    order_patch=_action_patch_for_next_step(next_step.code),
+                    order_patch=_action_patch_for_next_step(next_step),
                 )
 
         prompt = build_manager_prompt(
@@ -306,7 +306,7 @@ class ConversationEngine:
                     risk_level=risk_level,
                     safety_reasons=["llm_error_fallback"],
                     next_step=next_step.code,
-                    order_patch=_action_patch_for_next_step(next_step.code),
+                    order_patch=_action_patch_for_next_step(next_step),
                 )
             return ConversationAction(
                 kind="human_review",
@@ -356,10 +356,10 @@ class ConversationEngine:
                 "confidence": decision.confidence,
                 "order_scope": decision.order_scope,
             }
-            if decision.next_step == "ask_upsell":
+            if decision.next_step in {"ask_upsell", "ask_when_where", "ask_contacts"}:
                 action_metadata["order_patch"] = _merge_action_patch(
                     action_metadata["order_patch"],
-                    _action_patch_for_next_step(decision.next_step),
+                    _action_patch_for_next_step(decision.next_step, missing=next_step.missing if decision.next_step == next_step.code else ()),
                 )
             reply = _ensure_pickup_address_for_pickup_time(
                 reply,
@@ -491,7 +491,7 @@ class ConversationEngine:
                     safety_triggered_reasons=triggered_reasons,
                     safety_retry_succeeded=False,
                     next_step=next_step.code,
-                    order_patch=_action_patch_for_next_step(next_step.code),
+                    order_patch=_action_patch_for_next_step(next_step),
                 )
             return ConversationAction(
                 kind="human_review",
@@ -617,11 +617,13 @@ def _is_upsell_decline(text: str) -> bool:
     return bool(re.search(r"\b(?:нет|не\s+нужно|не\s+надо|без\s+этого|ничего\s+не\s+добавляйте|только\s+букет)\b", normalized))
 
 
-def _action_patch_for_next_step(next_step: str | None) -> dict[str, object]:
-    if next_step == "ask_upsell":
+def _action_patch_for_next_step(next_step: str | NextStep | None, *, missing: tuple[str, ...] = ()) -> dict[str, object]:
+    next_step_code = next_step.code if isinstance(next_step, NextStep) else next_step
+    missing_fields = next_step.missing if isinstance(next_step, NextStep) else missing
+    if next_step_code == "ask_upsell":
         return {"custom_fields": {"upsell_offered": True}}
-    if next_step in {"ask_when_where", "ask_contacts"}:
-        return {"custom_fields": {"_asked_groups": {next_step: True}}}
+    if next_step_code in {"ask_when_where", "ask_contacts"}:
+        return {"custom_fields": {"_asked_groups": {next_step_code: tuple(missing_fields) or True}}}
     return {}
 
 
@@ -629,11 +631,22 @@ def _merge_action_patch(left: object, right: dict[str, object]) -> dict[str, obj
     base = dict(left) if isinstance(left, dict) else {}
     result = {**base, **right}
     if isinstance(base.get("custom_fields"), dict) or isinstance(right.get("custom_fields"), dict):
-        result["custom_fields"] = {
-            **(base.get("custom_fields") if isinstance(base.get("custom_fields"), dict) else {}),
-            **(right.get("custom_fields") if isinstance(right.get("custom_fields"), dict) else {}),
-        }
+        result["custom_fields"] = _deep_merge_dicts(
+            base.get("custom_fields") if isinstance(base.get("custom_fields"), dict) else {},
+            right.get("custom_fields") if isinstance(right.get("custom_fields"), dict) else {},
+        )
     return result
+
+
+def _deep_merge_dicts(left: dict[str, object], right: dict[str, object]) -> dict[str, object]:
+    merged = dict(left)
+    for key, value in right.items():
+        existing = merged.get(key)
+        if isinstance(existing, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge_dicts(existing, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _looks_like_model_decision_payload(text: str) -> bool:

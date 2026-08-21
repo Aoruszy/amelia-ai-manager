@@ -49,6 +49,73 @@ def test_when_where_second_empty_attempt_narrows_to_one_field_without_human_revi
     assert "адрес" not in step.instruction.lower()
 
 
+def test_when_where_repeated_partial_pickup_time_gets_direct_reworded_prompt():
+    state = OrderState(
+        budget=7000,
+        colors=["синий"],
+        fulfillment_type="pickup",
+        delivery_date="2026-08-22",
+        custom_fields={"_asked_groups": {"ask_when_where": ("delivery_time",)}},
+    )
+
+    step = get_next_step(state)
+
+    assert step.code == "ask_when_where"
+    assert step.missing == ("delivery_time",)
+    assert "прямо" in step.instruction.lower()
+    assert "другими словами" in step.instruction.lower()
+
+
+def test_when_where_partial_progress_does_not_trigger_repeat_guard():
+    state = OrderState(
+        budget=7000,
+        colors=["синий"],
+        fulfillment_type="delivery",
+        delivery_date="2026-08-22",
+        custom_fields={"_asked_groups": {"ask_when_where": ("fulfillment_type", "delivery_date", "delivery_time", "address")}},
+    )
+
+    step = get_next_step(state)
+
+    assert step.missing == ("delivery_time", "address")
+    assert "другими словами" not in step.instruction.lower()
+
+
+def test_contacts_repeated_partial_group_gets_direct_sender_prompt():
+    state = OrderState(
+        budget=7000,
+        colors=["синий"],
+        fulfillment_type="delivery",
+        delivery_date="2026-08-22",
+        delivery_time="14:00",
+        address="Ленина 5",
+        sender_phone="89990000001",
+        recipient_name="Мария",
+        recipient_phone="89990000002",
+        custom_fields={"upsell_offered": True, "_asked_groups": {"ask_contacts": ("sender_name",)}},
+    )
+
+    step = get_next_step(state)
+
+    assert step.code == "ask_contacts"
+    assert step.missing == ("sender_name",)
+    assert "прямо" in step.instruction.lower()
+
+
+def test_action_patch_merges_nested_asked_groups_without_erasing_previous_group():
+    from amelia_manager.conversation_engine import _merge_action_patch
+
+    merged = _merge_action_patch(
+        {"custom_fields": {"_asked_groups": {"ask_when_where": ("delivery_time",)}}},
+        {"custom_fields": {"_asked_groups": {"ask_contacts": ("sender_name",)}}},
+    )
+
+    assert merged["custom_fields"]["_asked_groups"] == {
+        "ask_when_where": ("delivery_time",),
+        "ask_contacts": ("sender_name",),
+    }
+
+
 def test_pickup_when_where_group_does_not_require_address():
     state = OrderState(budget=7000, colors=["синий"], fulfillment_type="pickup", delivery_date="2026-08-22")
 

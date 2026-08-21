@@ -47,3 +47,4 @@ def test_pickup_time_instruction_includes_profile_pickup_address():
 
     assert step.code == "ask_when_where"
     assert step.missing == ("delivery_time",)
+    assert "Сергеева" in step.instruction
