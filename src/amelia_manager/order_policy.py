@@ -11,6 +11,7 @@ from amelia_manager.order_state import OrderState
 FLORIST_NEXT_STEP_CODES = (
     "ask_budget",
     "ask_bouquet_preferences",
+    "ask_when_where",
     "ask_fulfillment_type",
     "ask_date",
     "ask_pickup_time",
@@ -18,6 +19,7 @@ FLORIST_NEXT_STEP_CODES = (
     "ask_pickup_time_within_shop_hours",
     "ask_delivery_address",
     "ask_upsell",
+    "ask_contacts",
     "ask_sender_contacts",
     "ask_recipient_contacts",
     "confirm_pickup_order",
@@ -30,6 +32,7 @@ FLORIST_NEXT_STEP_CODES = (
 class NextStep:
     code: str
     instruction: str
+    missing: tuple[str, ...] = ()
 
 
 def next_step_codes_for_profile(profile: CompanyProfile) -> list[str]:
@@ -62,16 +65,9 @@ def get_next_step(
             "ask_bouquet_preferences",
             "Уточни пожелания к букету одним вопросом: оттенки, стиль или любимые цветы. Не задавай второй вопрос и не спрашивай доставку или самовывоз на этом шаге.",
         )
-    if not state.fulfillment_type:
-        return NextStep("ask_fulfillment_type", "Уточни, клиенту нужна доставка или самовывоз.")
-    if not state.delivery_date:
-        return NextStep("ask_date", "Уточни, на какое число нужен букет.")
-    if not state.delivery_time:
-        if state.fulfillment_type == "pickup":
-            profile = company_profile or load_company_profile("amelia_flowers")
-            pickup_address = f" на {profile.pickup_address}" if profile.pickup_address else " самовывозом"
-            return NextStep("ask_pickup_time", f"Уточни, к какому времени клиенту удобно забрать букет{pickup_address}.")
-        return NextStep("ask_delivery_time", "Уточни удобное время или интервал доставки.")
+    when_where_missing = _missing_when_where_fields(state)
+    if when_where_missing:
+        return NextStep("ask_when_where", _when_where_instruction(when_where_missing, state), missing=when_where_missing)
     if state.fulfillment_type == "pickup" and not _is_pickup_time_within_shop_hours(
         state.delivery_time,
         company_profile=company_profile,
@@ -82,8 +78,6 @@ def get_next_step(
             "ask_pickup_time_within_shop_hours",
             f"Самовывоз возможен в часы работы магазина {shop_hours}. Попроси выбрать другое время в этом интервале.",
         )
-    if state.fulfillment_type == "delivery" and not state.address:
-        return NextStep("ask_delivery_address", "Попроси адрес доставки и не передавай диалог человеку.")
     if _should_offer_upsell(state, company_profile):
         profile = company_profile or load_company_profile("amelia_flowers")
         offers = format_upsell_offers(profile)
@@ -91,10 +85,9 @@ def get_next_step(
             "ask_upsell",
             f"Один раз до сбора контактов мягко предложи допродажу: {offers}. Задай один вопрос, нужно ли что-то добавить. Если клиент откажется или повод чувствительный — больше не предлагай.",
         )
-    if not state.sender_name or not state.sender_phone:
-        return NextStep("ask_sender_contacts", "Попроси имя и телефон отправителя для связи по заказу.")
-    if state.fulfillment_type == "delivery" and (not state.recipient_name or not state.recipient_phone):
-        return NextStep("ask_recipient_contacts", "Попроси имя и телефон получателя.")
+    contacts_missing = _missing_contact_fields(state)
+    if contacts_missing:
+        return NextStep("ask_contacts", _contacts_instruction(contacts_missing, state), missing=contacts_missing)
     if state.fulfillment_type == "pickup":
         return NextStep(
             "confirm_pickup_order",
@@ -121,7 +114,74 @@ def _should_offer_upsell(state: OrderState, company_profile: CompanyProfile | No
         return False
     if state.sender_name or state.sender_phone:
         return False
-    return bool(state.budget and state.colors and state.fulfillment_type and state.delivery_date and state.delivery_time)
+    if not (state.budget and state.colors and state.fulfillment_type and state.delivery_date and state.delivery_time):
+        return False
+    if state.fulfillment_type == "delivery" and not state.address:
+        return False
+    return True
+
+
+def _missing_when_where_fields(state: OrderState) -> tuple[str, ...]:
+    missing: list[str] = []
+    if not state.fulfillment_type:
+        missing.append("fulfillment_type")
+    if not state.delivery_date:
+        missing.append("delivery_date")
+    if not state.delivery_time:
+        missing.append("delivery_time")
+    if state.fulfillment_type != "pickup" and not state.address:
+        missing.append("address")
+    if len(missing) == 4 and _group_was_asked(state, "ask_when_where"):
+        return ("fulfillment_type",)
+    return tuple(missing)
+
+
+def _missing_contact_fields(state: OrderState) -> tuple[str, ...]:
+    missing = [field for field in ("sender_name", "sender_phone") if not getattr(state, field)]
+    if state.fulfillment_type == "delivery":
+        missing.extend(field for field in ("recipient_name", "recipient_phone") if not getattr(state, field))
+    if len(missing) >= 4 and _group_was_asked(state, "ask_contacts"):
+        return ("sender_name",)
+    return tuple(missing)
+
+
+def _group_was_asked(state: OrderState, group_code: str) -> bool:
+    asked = state.custom_fields.get("_asked_groups")
+    return isinstance(asked, dict) and asked.get(group_code) is True
+
+
+def _when_where_instruction(missing: tuple[str, ...], state: OrderState) -> str:
+    if missing == ("fulfillment_type",):
+        return "Уточни прямо одним вопросом: доставка или самовывоз."
+    if set(missing) == {"fulfillment_type", "address"}:
+        return "Уточни только формат заказа: доставка с адресом, куда везти, или самовывоз."
+    if set(missing) == {"fulfillment_type", "delivery_date", "delivery_time", "address"}:
+        return "Уточни одним вопросом, когда нужен букет и куда его везти; если клиент заберёт сам, адрес не нужен."
+    parts: list[str] = []
+    if "delivery_date" in missing:
+        parts.append("число")
+    if "delivery_time" in missing:
+        parts.append("время")
+    if "address" in missing:
+        parts.append("адрес доставки")
+    if "fulfillment_type" in missing:
+        parts.append("доставка или самовывоз")
+    joined = " и ".join(parts)
+    if state.fulfillment_type == "pickup":
+        return f"Уточни только {joined} для самовывоза."
+    return f"Уточни только {joined}. Не повторяй уже заполненные поля группы."
+
+
+def _contacts_instruction(missing: tuple[str, ...], state: OrderState) -> str:
+    need_sender = any(field.startswith("sender_") for field in missing)
+    need_recipient = any(field.startswith("recipient_") for field in missing)
+    if need_sender and need_recipient:
+        return "Попроси имя и телефон отправителя, и имя с телефоном получателя."
+    if need_sender:
+        return "Попроси только недостающие имя или телефон отправителя для связи по заказу."
+    if need_recipient:
+        return "Попроси только недостающие имя или телефон получателя."
+    return "Попроси недостающие контакты по заказу."
 
 
 def format_upsell_offers(profile: CompanyProfile) -> str:

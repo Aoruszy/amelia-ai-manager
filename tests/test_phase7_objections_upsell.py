@@ -88,8 +88,8 @@ def test_next_step_skips_upsell_when_already_offered_or_sensitive():
     already_offered = get_next_step(_ready_without_contacts(upsell_offered=True), company_profile=profile)
     sensitive = get_next_step(_ready_without_contacts(occasion_sensitive=True), company_profile=profile)
 
-    assert already_offered.code == "ask_sender_contacts"
-    assert sensitive.code == "ask_sender_contacts"
+    assert already_offered.code == "ask_contacts"
+    assert sensitive.code == "ask_contacts"
 
 
 @pytest.mark.asyncio

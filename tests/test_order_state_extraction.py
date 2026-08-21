@@ -110,3 +110,38 @@ def test_deferred_choice_does_not_override_a_real_preference():
 
     assert "без особых пожеланий" not in state.colors
     assert state.colors == ["белый", "розы"]
+
+
+def test_grouped_contact_answer_assigns_roles_by_nearby_words_not_question_text():
+    forward = extract_order_state(
+        [
+            "Менеджер: Подскажите ваше имя и телефон, и имя с телефоном получателя.",
+            "Клиент: Я Анна 89990000001, получатель Мария 89990000002",
+        ]
+    )
+    reverse = extract_order_state(
+        [
+            "Менеджер: Подскажите ваше имя и телефон, и имя с телефоном получателя.",
+            "Клиент: получатель Мария 89990000002, я Анна 89990000001",
+        ]
+    )
+
+    for state in (forward, reverse):
+        assert state.sender_name == "Анна"
+        assert state.sender_phone == "89990000001"
+        assert state.recipient_name == "Мария"
+        assert state.recipient_phone == "89990000002"
+
+
+def test_single_contact_in_grouped_question_goes_to_sender_and_does_not_invent_recipient():
+    state = extract_order_state(
+        [
+            "Менеджер: Подскажите ваше имя и телефон, и имя с телефоном получателя.",
+            "Клиент: Я Анна 89990000001",
+        ]
+    )
+
+    assert state.sender_name == "Анна"
+    assert state.sender_phone == "89990000001"
+    assert state.recipient_name is None
+    assert state.recipient_phone is None

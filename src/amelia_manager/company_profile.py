@@ -110,6 +110,10 @@ class CompanyProfile:
     client_photo_with_budget_reply_template: str = "Вижу фото, буду ориентироваться на этот стиль. Подскажите, какие оттенки или цветы особенно нравятся?"
     client_photo_without_budget_reply_template: str = "Вижу фото, буду ориентироваться на этот стиль. Подскажите, на какой бюджет ориентируемся?"
     workload_warning_template: str = "Перегруз на {date}: заказов: {total}, доставка: {delivery}, самовывоз: {pickup}. Проверьте экран «Загрузка»."
+    ask_when_where_full_reply_template: str = "Когда нужен букет и куда его везти? Если заберёте самовывозом, адрес не нужен."
+    ask_when_where_parts_reply_template: str = "Подскажите, пожалуйста, {parts}."
+    ask_contacts_sender_recipient_reply_template: str = "Подскажите ваше имя и телефон, и имя с телефоном получателя."
+    ask_contacts_parts_reply_template: str = "Подскажите, пожалуйста, {parts}."
 
     def required_field_codes(self, case_type: str) -> list[str]:
         return [field.code for field in self.required_fields.get(case_type, []) if field.required]

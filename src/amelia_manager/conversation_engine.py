@@ -16,7 +16,7 @@ from amelia_manager.intent import is_greeting_only
 from amelia_manager.llm_client import LLMError
 from amelia_manager.model_decision import ModelDecision, parse_model_decision
 from amelia_manager.order_fields import normalize_order_patch_keys
-from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch
+from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch, merge_order_state
 from amelia_manager.order_policy import NextStep, get_next_step
 from amelia_manager.order_state import extract_order_state, is_deferred_date_choice, is_deferred_fulfillment_choice, is_deferred_time_choice
 from amelia_manager.prompts import build_manager_prompt
@@ -180,7 +180,15 @@ class ConversationEngine:
             order_card=order_card,
             company_profile=self.company_profile,
         )
-        if next_step.code == "ask_fulfillment_type" and is_deferred_fulfillment_choice(last_client_text):
+        if next_step.code in {"confirm_pickup_order", "confirm_delivery_order"} and not isinstance(order_card, OrderCard):
+            extracted_card = merge_order_state(OrderCard(), order_state)
+            return ConversationAction(
+                kind="send",
+                messages=[format_client_order_summary(extracted_card, company_profile=self.company_profile)],
+                risk_level=risk_level,
+                next_step=next_step.code,
+            )
+        if next_step.code in {"ask_fulfillment_type", "ask_when_where"} and "fulfillment_type" in next_step.missing and is_deferred_fulfillment_choice(last_client_text):
             pickup_address = self.company_profile.pickup_address or "адреса самовывоза"
             reply = self.company_profile.default_fulfillment_choice_reply_template.format(pickup_address=pickup_address)
             return ConversationAction(
@@ -189,7 +197,7 @@ class ConversationEngine:
                 risk_level=risk_level,
                 next_step=next_step.code,
             )
-        if next_step.code == "ask_date" and is_deferred_date_choice(last_client_text):
+        if next_step.code in {"ask_date", "ask_when_where"} and "delivery_date" in next_step.missing and is_deferred_date_choice(last_client_text):
             reply = _default_date_choice_reply(self.company_profile)
             return ConversationAction(
                 kind="send",
@@ -197,7 +205,7 @@ class ConversationEngine:
                 risk_level=risk_level,
                 next_step=next_step.code,
             )
-        if next_step.code in {"ask_pickup_time", "ask_delivery_time"} and is_deferred_time_choice(last_client_text):
+        if next_step.code in {"ask_pickup_time", "ask_delivery_time", "ask_when_where"} and "delivery_time" in next_step.missing and is_deferred_time_choice(last_client_text):
             reply = self.company_profile.default_time_choice_reply_template.format(time=self.company_profile.default_time_value)
             return ConversationAction(
                 kind="send",
@@ -612,6 +620,8 @@ def _is_upsell_decline(text: str) -> bool:
 def _action_patch_for_next_step(next_step: str | None) -> dict[str, object]:
     if next_step == "ask_upsell":
         return {"custom_fields": {"upsell_offered": True}}
+    if next_step in {"ask_when_where", "ask_contacts"}:
+        return {"custom_fields": {"_asked_groups": {next_step: True}}}
     return {}
 
 

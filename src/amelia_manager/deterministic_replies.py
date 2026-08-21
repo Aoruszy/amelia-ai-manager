@@ -31,6 +31,7 @@ def deterministic_order_reply(
     replies = {
         "ask_budget": budget_options_reply or "Подскажите, на какой бюджет ориентируемся? 🌸",
         "ask_bouquet_preferences": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
+        "ask_when_where": _when_where_reply(next_step, profile),
         "ask_fulfillment_type": "Хорошо, по букету поняла. Это будет доставка или самовывоз?",
         "ask_date": "На какое число нужен букет?",
         "ask_pickup_time": f"К какому времени удобно забрать букет самовывозом с {pickup_address}?",
@@ -38,12 +39,51 @@ def deterministic_order_reply(
         "ask_delivery_time": "К какому времени или в какой интервал доставить букет?",
         "ask_delivery_address": "Подскажите адрес доставки, пожалуйста.",
         "ask_upsell": profile.upsell_reply_template.format(offers=format_upsell_offers(profile)),
+        "ask_contacts": _contacts_reply(next_step, profile),
         "ask_sender_contacts": "Подскажите ваше имя и номер телефона для связи по заказу.",
         "ask_recipient_contacts": "Подскажите имя и номер телефона получателя.",
         "ask_payment_or_confirm_pickup": "Данные по самовывозу записала. Как удобнее оплатить: переводом/картой или на месте?",
         "ask_anonymous_or_payment": "Подскажите, доставка будет анонимной или можно сказать от кого букет? И какой способ оплаты удобен?",
     }
     return replies.get(next_step.code)
+
+
+def _when_where_reply(next_step: NextStep, profile: CompanyProfile) -> str:
+    missing = set(next_step.missing)
+    if missing == {"fulfillment_type", "delivery_date", "delivery_time", "address"}:
+        return profile.ask_when_where_full_reply_template
+    parts: list[str] = []
+    if "fulfillment_type" in missing:
+        parts.append("доставка или самовывоз")
+    if "delivery_date" in missing:
+        parts.append("число")
+    if "delivery_time" in missing:
+        parts.append("время")
+    if "address" in missing:
+        parts.append("адрес доставки")
+    if not parts:
+        return profile.ask_when_where_full_reply_template
+    return profile.ask_when_where_parts_reply_template.format(parts=" и ".join(parts))
+
+
+def _contacts_reply(next_step: NextStep, profile: CompanyProfile) -> str:
+    missing = set(next_step.missing)
+    if {"sender_name", "sender_phone", "recipient_name", "recipient_phone"}.issubset(missing):
+        return profile.ask_contacts_sender_recipient_reply_template
+    parts: list[str] = []
+    if "sender_name" in missing and "sender_phone" in missing:
+        parts.append("ваше имя и телефон")
+    elif "sender_name" in missing:
+        parts.append("ваше имя")
+    elif "sender_phone" in missing:
+        parts.append("ваш телефон")
+    if "recipient_name" in missing and "recipient_phone" in missing:
+        parts.append("имя и телефон получателя")
+    elif "recipient_name" in missing:
+        parts.append("имя получателя")
+    elif "recipient_phone" in missing:
+        parts.append("телефон получателя")
+    return profile.ask_contacts_parts_reply_template.format(parts=" и ".join(parts or ["контакты по заказу"]))
 
 
 def _pickup_time_outside_hours_reply(recent_messages: list[str], profile: CompanyProfile) -> str:

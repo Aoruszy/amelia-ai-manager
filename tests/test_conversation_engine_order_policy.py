@@ -29,4 +29,6 @@ async def test_engine_passes_next_step_instruction_to_prompt():
 
     assert action.kind == "send"
     assert "Следующий обязательный шаг" in llm.prompt
-    assert "доставка или самовывоз" in llm.prompt
+    assert "доставка" in llm.prompt
+    assert "самовывоз" in llm.prompt
+    assert "куда" in llm.prompt

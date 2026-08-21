@@ -466,15 +466,39 @@ def _extract_contacts_by_dialog_context(messages: list[str]) -> dict[str, str]:
             elif "получател" in lowered:
                 pending_role = "recipient"
             continue
-        if not _is_client_message(message) or pending_role is None:
+        if not _is_client_message(message):
             continue
-        match = re.search(r"([А-ЯЁ][а-яё]+)\s+((?:\+7|8)\d{10})", stripped)
-        if not match:
+        pairs = list(re.finditer(r"([А-ЯЁ][а-яё]+)\s+((?:\+7|8)\d{10})", stripped))
+        if not pairs:
             continue
-        result[f"{pending_role}_name"] = match.group(1)
-        result[f"{pending_role}_phone"] = match.group(2)
-        pending_role = None
+        assigned_any = False
+        for match in pairs:
+            role = _contact_role_near_match(stripped, match.start())
+            if role is None:
+                continue
+            result[f"{role}_name"] = match.group(1)
+            result[f"{role}_phone"] = match.group(2)
+            assigned_any = True
+        if assigned_any:
+            pending_role = None
+            continue
+        if pending_role is not None and len(pairs) == 1:
+            match = pairs[0]
+            result[f"{pending_role}_name"] = match.group(1)
+            result[f"{pending_role}_phone"] = match.group(2)
+            pending_role = None
     return result
+
+
+def _contact_role_near_match(text: str, start: int) -> str | None:
+    context = " " + text[max(0, start - 45):start].lower().replace("ё", "е") + " "
+    recipient_markers = ("получател", " имя получателя", " ей ", " ее ", " для нее ")
+    sender_markers = (" я ", " меня ", " мне ", " мой ", " моя ", " отправител")
+    recipient_pos = max((context.rfind(marker) for marker in recipient_markers), default=-1)
+    sender_pos = max((context.rfind(marker) for marker in sender_markers), default=-1)
+    if recipient_pos == -1 and sender_pos == -1:
+        return None
+    return "recipient" if recipient_pos > sender_pos else "sender"
 
 
 def _extract_sender_phone(text: str, *, exclude_phone: str | None = None) -> str | None:

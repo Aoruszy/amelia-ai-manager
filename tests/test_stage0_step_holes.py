@@ -67,7 +67,7 @@ async def test_deferred_format_answer_offers_default_choice_without_filling_fiel
     )
 
     assert action.kind == "send"
-    assert action.next_step == "ask_fulfillment_type"
+    assert action.next_step == "ask_when_where"
     assert "Самовывоз" in action.messages[0]
     assert "Сергеева, 61" in action.messages[0]
     assert "доставка" in action.messages[0].lower()

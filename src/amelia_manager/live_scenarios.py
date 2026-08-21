@@ -88,7 +88,7 @@ def build_live_scenarios() -> list[DialogueScenario]:
                 "Клиент: да, подходит",
             ],
             order_card=deferred_date_confirmed,
-            expected_next_step="ask_sender_contacts",
+            expected_next_step="ask_contacts",
             must_not_contain=("какое число", "на какое число", "дату", "число нужен"),
             notes="Deferred date + confirmation should move past ask_date; extraction itself is covered by unit tests.",
         ),
@@ -238,7 +238,7 @@ def build_live_scenarios() -> list[DialogueScenario]:
                 "Клиент: До 6000",
             ],
             expected_risk=RiskLevel.LOW,
-            expected_next_step="ask_fulfillment_type",
+            expected_next_step="ask_when_where",
             must_not_contain=("нежн", "ярк", "порадов", "сюрприз", "🌸", "💐", "✨", "🌷"),
             notes=(
                 "risk=LOW осознанно: assess_risk смотрит только последнюю реплику, а флаг "
@@ -251,7 +251,7 @@ def build_live_scenarios() -> list[DialogueScenario]:
             "real_sensitive",
             ["Клиент: Хорошо, давайте так"],
             order_card=sensitive_card,
-            expected_next_step="ask_sender_contacts",
+            expected_next_step="ask_contacts",
             must_not_contain=("открытк", "ваз", "шар", "🌸", "💐", "нежн", "ярк"),
             notes="При occasion_sensitive допродажа отключена полностью.",
         ),
@@ -260,7 +260,7 @@ def build_live_scenarios() -> list[DialogueScenario]:
             "real_upsell",
             ["Клиент: Нет, ничего не надо"],
             order_card=upsell_already_offered,
-            expected_next_step="ask_sender_contacts",
+            expected_next_step="ask_contacts",
             must_not_contain=("открытк", "ваз", "шар"),
             notes="Допродажа предлагается один раз; после отказа сразу контакты.",
         ),
@@ -291,6 +291,42 @@ def build_live_scenarios() -> list[DialogueScenario]:
             expected_next_step="ask_bouquet_preferences",
             must_not_contain=("адрес", "на какое число", "ваш телефон", "ваш номер"),
             notes="Клиент выдал всё одним сообщением — ничего из этого переспрашивать нельзя.",
+        ),
+        DialogueScenario(
+            "real-grouped-when-where-complete",
+            "real_stage3_groups",
+            ["Клиент: Букет до 5000, нежный, доставка завтра к 14:00 на ул. Ленина 5"],
+            expected_next_step="ask_upsell",
+            must_not_contain=("какое число", "к какому времени", "адрес"),
+            notes="Полный ответ на группу когда/куда закрывает группу за один ход.",
+        ),
+        DialogueScenario(
+            "real-grouped-when-where-partial-date",
+            "real_stage3_groups",
+            ["Клиент: Букет до 5000, нежный, доставка завтра"],
+            expected_next_step="ask_when_where",
+            must_not_contain=("когда", "какое число", "на какое число"),
+            notes="Частичный ответ на группу когда/куда сужает вопрос до времени и адреса.",
+        ),
+        DialogueScenario(
+            "real-grouped-contacts-both-roles",
+            "real_stage3_groups",
+            [
+                "Клиент: Букет до 5000, нежный, доставка завтра к 14:00 на ул. Ленина 5, "
+                "я Анна 89990000001, получатель Мария 89990000002"
+            ],
+            expected_next_step="ask_anonymous_or_payment",
+            must_not_contain=("ваше имя", "телефон получателя"),
+            allow_multiple_questions=True,
+            notes="Контакты отправителя и получателя закрываются одной фразой.",
+        ),
+        DialogueScenario(
+            "real-grouped-pickup-one-phrase",
+            "real_stage3_groups",
+            ["Клиент: Букет до 5000, нежный, самовывоз завтра к 15:00, я Анна 89990000001"],
+            expected_next_step="confirm_pickup_order",
+            must_not_contain=("адрес", "получател"),
+            notes="Самовывоз одной фразой не требует адрес и контакты получателя.",
         ),
         DialogueScenario(
             "real-identity-question",

@@ -30,8 +30,9 @@ def test_pickup_without_time_asks_pickup_time_not_delivery_time():
 
     step = get_next_step(state)
 
-    assert step.code == "ask_pickup_time"
-    assert "забрать" in step.instruction.lower()
+    assert step.code == "ask_when_where"
+    assert step.missing == ("delivery_time",)
+    assert "самовывоз" in step.instruction.lower()
 
 
 def test_pickup_time_instruction_includes_profile_pickup_address():
@@ -44,5 +45,5 @@ def test_pickup_time_instruction_includes_profile_pickup_address():
 
     step = get_next_step(state)
 
-    assert step.code == "ask_pickup_time"
-    assert "Сергеева" in step.instruction
+    assert step.code == "ask_when_where"
+    assert step.missing == ("delivery_time",)
