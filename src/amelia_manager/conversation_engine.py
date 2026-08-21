@@ -317,6 +317,7 @@ class ConversationEngine:
                 stock_context=stock_context,
                 risk_level=risk_level,
                 sensitive_occasion=sensitive_occasion,
+                image_data_urls=image_data_urls,
             )
             if retry_result is not None:
                 return retry_result
@@ -511,6 +512,7 @@ class ConversationEngine:
         stock_context: str | None,
         risk_level: RiskLevel,
         sensitive_occasion: bool,
+        image_data_urls: list[str] | None = None,
     ) -> ConversationAction | None:
         retry_prompt = (
             prompt
@@ -522,6 +524,7 @@ class ConversationEngine:
                 self.llm,
                 retry_prompt,
                 response_schema=ModelDecision.model_json_schema(),
+                image_data_urls=image_data_urls,
             )
         except LLMError:
             return None
@@ -542,13 +545,14 @@ class ConversationEngine:
                 safety_triggered_reasons=safety.reasons,
                 safety_retry_succeeded=False,
             )
+        retry_order_patch = _sanitize_image_order_patch(dict(retry_decision.case_patch)) if image_data_urls else dict(retry_decision.case_patch)
         if retry_decision.needs_human:
             return ConversationAction(
                 kind="human_review",
                 messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                 risk_level=risk_level,
                 safety_reasons=["parse_failed", "model_decision_needs_human"],
-                order_patch=dict(retry_decision.case_patch),
+                order_patch=retry_order_patch,
                 intent=retry_decision.intent,
                 next_step=retry_decision.next_step,
                 confidence=retry_decision.confidence,
@@ -559,7 +563,7 @@ class ConversationEngine:
             messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
             risk_level=risk_level,
             safety_reasons=["parse_failed"],
-            order_patch=dict(retry_decision.case_patch),
+            order_patch=retry_order_patch,
             intent=retry_decision.intent,
             next_step=retry_decision.next_step,
             confidence=retry_decision.confidence,

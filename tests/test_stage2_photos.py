@@ -32,6 +32,16 @@ class CapturingVisionLLM:
         self.calls.append({"prompt": prompt, "kwargs": kwargs})
         return self.response
 
+
+class SequencedVisionLLM:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = responses
+        self.calls: list[dict[str, object]] = []
+
+    async def generate(self, prompt: str, **kwargs) -> str:
+        self.calls.append({"prompt": prompt, "kwargs": kwargs})
+        return self.responses[len(self.calls) - 1]
+
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 JPEG_BYTES = b"\xff\xd8\xff" + b"\x00" * 32
 
@@ -445,3 +455,95 @@ async def test_regular_text_turn_does_not_send_previous_image_to_model():
 
     assert "image_data_urls" not in llm.calls[0]["kwargs"]
     assert "Клиент приложил фото" not in llm.calls[0]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_retry_after_photo_parse_failure_sanitizes_profile_codes_and_keeps_style_fields():
+    llm = SequencedVisionLLM([
+        '{"reply":"broken","case_patch":',
+        '{"reply":"Вижу пастельный букет с пионами.",'
+        '"case_patch":{"date":"2026-09-01","time":"12:00","delivery_address":"Ленина 5",'
+        '"customer_phone":"89990000001","budget":30000,"product_preferences":["пионы"],"colors":["пастельный"]},'
+        '"next_step":"ask_budget","confidence":0.9}',
+    ])
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: хочу такой букет [photo]"],
+        stage="order",
+        order_card=OrderCard(budget=5000),
+        image_data_urls=["data:image/jpeg;base64,abc"],
+    )
+    merged = OrderCard.from_dict({**OrderCard(budget=5000).to_dict(), **action.order_patch})
+
+    assert len(llm.calls) == 2
+    assert action.safety_retry_succeeded is True
+    assert action.order_patch == {"colors": ["пионы"]}
+    assert merged.budget == 5000
+    assert merged.delivery_date is None
+    assert merged.delivery_time is None
+    assert merged.address is None
+    assert merged.sender_phone is None
+
+
+@pytest.mark.asyncio
+async def test_retry_after_photo_parse_failure_sanitizes_card_field_names():
+    llm = SequencedVisionLLM([
+        '{"reply":"broken","case_patch":',
+        '{"reply":"Вижу кремовую гамму.",'
+        '"case_patch":{"delivery_date":"2026-09-01","delivery_time":"12:00","address":"Ленина 5",'
+        '"sender_phone":"89990000001","payment_method":"transfer","colors":["кремовый"]},'
+        '"next_step":"ask_budget","confidence":0.9}',
+    ])
+    engine = ConversationEngine(llm)
+
+    action = await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: хочу такой букет [photo]"],
+        stage="order",
+        order_card=OrderCard(),
+        image_data_urls=["data:image/jpeg;base64,abc"],
+    )
+
+    assert action.order_patch == {"colors": ["кремовый"]}
+
+
+@pytest.mark.asyncio
+async def test_retry_with_photo_sends_image_to_both_model_calls():
+    llm = SequencedVisionLLM([
+        '{"reply":"broken","case_patch":',
+        '{"reply":"Вижу розовый букет.","case_patch":{"colors":["розовый"]},"next_step":"ask_budget","confidence":0.9}',
+    ])
+    engine = ConversationEngine(llm)
+
+    await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: хочу такой букет [photo]"],
+        stage="order",
+        order_card=OrderCard(),
+        image_data_urls=["data:image/jpeg;base64,abc"],
+    )
+
+    assert [call["kwargs"].get("image_data_urls") for call in llm.calls] == [
+        ["data:image/jpeg;base64,abc"],
+        ["data:image/jpeg;base64,abc"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_retry_without_photo_keeps_both_model_calls_text_only():
+    llm = SequencedVisionLLM([
+        '{"reply":"broken","case_patch":',
+        '{"reply":"Подскажите бюджет.","case_patch":{},"next_step":"ask_budget","confidence":0.9}',
+    ])
+    engine = ConversationEngine(llm)
+
+    await engine.handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: хочу букет"],
+        stage="order",
+        order_card=OrderCard(),
+    )
+
+    assert [call["kwargs"].get("image_data_urls") for call in llm.calls] == [None, None]
