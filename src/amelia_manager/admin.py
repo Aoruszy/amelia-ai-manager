@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import parse_qs, quote_plus, urlparse
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -24,6 +24,7 @@ from amelia_manager.config import Settings
 from amelia_manager.date_formatting import _today_in_timezone, format_human_date
 from amelia_manager.db.repository import CatalogItemRecord, ORDER_STATUSES, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.events import EventName
+from amelia_manager.media_storage import MediaValidationError, delete_media_file, media_root_for_db, resolve_media_path, store_image_bytes
 from amelia_manager.metrics import calculate_metrics
 from amelia_manager.order_card import OrderCard
 
@@ -259,6 +260,50 @@ def create_app(*, settings: Settings | None = None) -> FastAPI:
         if item is None:
             raise HTTPException(status_code=404)
         return render("catalog_item.html", nav_active="catalog", title=item.name, item=item)
+
+    @app.get("/catalog/media/{relative_path:path}")
+    def catalog_media(relative_path: str, _auth=Depends(require_auth)):
+        try:
+            path = resolve_media_path(media_root_for_db(path_from_sqlite_url(settings.database_url), settings.media_storage_dir), relative_path)
+        except MediaValidationError:
+            raise HTTPException(status_code=404) from None
+        if not path.exists() or not path.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(path)
+
+    @app.post("/catalog/items/{item_id}/photo")
+    async def upload_catalog_photo(
+        item_id: int,
+        photo: UploadFile = File(...),
+        _auth=Depends(require_auth),
+        _csrf=Depends(require_same_origin),
+    ):
+        item = repo.get_catalog_item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404)
+        data = await photo.read()
+        media_root = media_root_for_db(path_from_sqlite_url(settings.database_url), settings.media_storage_dir)
+        try:
+            stored = store_image_bytes(data, media_root=media_root, namespace="catalog", max_bytes=settings.catalog_image_max_bytes)
+        except MediaValidationError as exc:
+            return render("catalog_item.html", status_code=400, nav_active="catalog", title=item.name, item=item, error=str(exc))
+        old_path = item.image_path
+        updated = repo.update_catalog_item(item_id, image_path=stored.relative_path, updated_by=0)
+        delete_media_file(media_root, old_path)
+        _record_catalog_update(repo, item_name=updated.name, field="image_path", updated_by="admin")
+        return RedirectResponse(f"/catalog/items/{updated.id}", status_code=303)
+
+    @app.post("/catalog/items/{item_id}/photo/delete")
+    def delete_catalog_photo(item_id: int, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):
+        item = repo.get_catalog_item(item_id)
+        if item is None:
+            raise HTTPException(status_code=404)
+        media_root = media_root_for_db(path_from_sqlite_url(settings.database_url), settings.media_storage_dir)
+        old_path = item.image_path
+        updated = repo.update_catalog_item(item_id, image_path=None, updated_by=0)
+        delete_media_file(media_root, old_path)
+        _record_catalog_update(repo, item_name=updated.name, field="image_path", updated_by="admin")
+        return RedirectResponse(f"/catalog/items/{updated.id}", status_code=303)
 
     @app.post("/catalog/items/{item_id}")
     async def edit_catalog_item(item_id: int, request: Request, _auth=Depends(require_auth), _csrf=Depends(require_same_origin)):

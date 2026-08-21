@@ -28,6 +28,7 @@ class CatalogItemRecord:
     price: int | None
     unit: str | None
     is_active: bool
+    image_path: str | None
     sort_order: int
     updated_by: int | None
     updated_at: str
@@ -187,6 +188,7 @@ class SQLiteRepository:
                     price INTEGER,
                     unit TEXT,
                     is_active INTEGER NOT NULL DEFAULT 1,
+                    image_path TEXT,
                     sort_order INTEGER NOT NULL DEFAULT 0,
                     updated_by INTEGER,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -242,6 +244,7 @@ class SQLiteRepository:
             _ensure_column(conn, "clients", "paused_by", "TEXT")
             _ensure_column(conn, "daily_stock", "price", "INTEGER")
             _ensure_column(conn, "daily_stock", "unit", "TEXT")
+            _ensure_column(conn, "catalog_items", "image_path", "TEXT")
             self._migrate_latest_daily_stock_to_catalog(conn)
 
     def upsert_client(self, *, telegram_id: int, username: str | None) -> ClientRecord:
@@ -583,10 +586,10 @@ class SQLiteRepository:
             conn.execute(
                 """
                 UPDATE catalog_items
-                SET name = ?, name_key = ?, status = ?, quantity_number = ?, quantity_text = ?, price = ?, unit = ?, is_active = ?, sort_order = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                SET name = ?, name_key = ?, status = ?, quantity_number = ?, quantity_text = ?, price = ?, unit = ?, is_active = ?, image_path = ?, sort_order = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (name, _catalog_name_key(name), status.value, quantity_number, str(quantity_text), price, unit, int(is_active), sort_order, updated_by, item_id),
+                (name, _catalog_name_key(name), status.value, quantity_number, str(quantity_text), price, unit, int(is_active), changes.get("image_path", existing.image_path), sort_order, updated_by, item_id),
             )
         updated = self.get_catalog_item(item_id)
         if updated is None:
@@ -597,7 +600,7 @@ class SQLiteRepository:
     def get_catalog_item(self, item_id: int) -> CatalogItemRecord | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, sort_order, updated_by, updated_at, created_at FROM catalog_items WHERE id = ?",
+                "SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, image_path, sort_order, updated_by, updated_at, created_at FROM catalog_items WHERE id = ?",
                 (item_id,),
             ).fetchone()
         return self._catalog_item_from_row(row) if row else None
@@ -605,7 +608,7 @@ class SQLiteRepository:
     def get_catalog_item_by_name(self, name: str) -> CatalogItemRecord | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, sort_order, updated_by, updated_at, created_at FROM catalog_items WHERE name_key = ?",
+                "SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, image_path, sort_order, updated_by, updated_at, created_at FROM catalog_items WHERE name_key = ?",
                 (_catalog_name_key(name),),
             ).fetchone()
         return self._catalog_item_from_row(row) if row else None
@@ -620,7 +623,7 @@ class SQLiteRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
-                SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, sort_order, updated_by, updated_at, created_at
+                SELECT id, name, status, quantity_text, quantity_number, price, unit, is_active, image_path, sort_order, updated_by, updated_at, created_at
                 FROM catalog_items
                 {where}
                 ORDER BY CASE status WHEN 'unavailable' THEN 0 WHEN 'low' THEN 1 ELSE 2 END, sort_order ASC, name COLLATE NOCASE ASC
@@ -1197,6 +1200,7 @@ class SQLiteRepository:
             price=row["price"],
             unit=row["unit"],
             is_active=bool(row["is_active"]),
+            image_path=row["image_path"] if "image_path" in row.keys() else None,
             sort_order=int(row["sort_order"]),
             updated_by=row["updated_by"],
             updated_at=row["updated_at"],

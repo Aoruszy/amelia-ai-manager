@@ -25,6 +25,24 @@
 </section>
 
 <section class="panel" style="margin-top:1rem">
+  <h2>Фото позиции</h2>
+  {% if item.image_path %}
+  <p><img src="/catalog/media/{{ item.image_path }}" alt="Фото {{ item.name }}" style="max-width:100%;border-radius:12px"></p>
+  <form method="post" action="/catalog/items/{{ item.id }}/photo/delete">
+    <button type="submit" class="secondary touch-target">Удалить фото</button>
+  </form>
+  {% else %}
+  <p class="muted-text">Фото пока не загружено.</p>
+  {% endif %}
+  <form method="post" action="/catalog/items/{{ item.id }}/photo" enctype="multipart/form-data" style="margin-top:1rem">
+    <label>Загрузить JPEG или PNG
+      <input class="touch-target" type="file" name="photo" accept="image/jpeg,image/png" required>
+    </label>
+    <button type="submit" class="touch-target">{% if item.image_path %}Заменить фото{% else %}Загрузить фото{% endif %}</button>
+  </form>
+</section>
+
+<section class="panel" style="margin-top:1rem">
   <h2>Убрать из выдачи</h2>
   <p class="muted-text">Позиция останется в базе, но бот перестанет её предлагать.</p>
   <form method="post" action="/catalog/items/{{ item.id }}/hide">

@@ -22,6 +22,7 @@ class StockItem:
     quantity_number: int | None = None
     price: int | None = None
     unit: str | None = None
+    image_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class BudgetOption:
     name: str
     price: int
     unit: str | None = None
+    image_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -212,7 +214,7 @@ def select_budget_options(
 
 
 def _to_budget_options(items: list[StockItem]) -> list[BudgetOption]:
-    return [BudgetOption(name=item.name, price=item.price or 0, unit=item.unit) for item in items if item.price is not None]
+    return [BudgetOption(name=item.name, price=item.price or 0, unit=item.unit, image_path=item.image_path) for item in items if item.price is not None]
 
 
 def _select_three(candidates: list[StockItem]) -> list[StockItem]:

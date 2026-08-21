@@ -21,6 +21,7 @@ from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.db.repository import ClientRecord, OrderRecord, SQLiteRepository, path_from_sqlite_url
 from amelia_manager.date_formatting import _today_in_timezone
 from amelia_manager.events import EventName
+from amelia_manager.media_storage import media_root_for_db, resolve_media_path
 from amelia_manager.llm_client import LLMClient, build_llm_client
 from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes, format_budget_display, invalid_order_state_field_codes, merge_order_patch, merge_order_state, unapplied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm_result
@@ -34,7 +35,7 @@ from amelia_manager.outbound import (
     process_outbound_tick,
     schedule_followups_after_reply,
 )
-from amelia_manager.stock import build_stock_context, format_stock_ack, parse_stock_text, select_budget_options
+from amelia_manager.stock import BudgetOptions, build_stock_context, format_stock_ack, parse_stock_text, select_budget_options
 from amelia_manager.stock_source import DbCatalogStockSource, ManualStockSource, SheetsStockSource, StockSnapshot, StockSource
 from amelia_manager.observability import EventRecorder, configure_logging
 from amelia_manager.stats_report import format_stats_report, parse_stats_days
@@ -802,6 +803,34 @@ def persist_incoming_message(
     return client
 
 
+async def send_budget_options_album(
+    client,
+    *,
+    sender_id: int,
+    budget_options: BudgetOptions | None,
+    media_root,
+    caption: str,
+) -> bool:
+    if budget_options is None or budget_options.hide_names:
+        return False
+    photo_paths = []
+    for option in budget_options.items[:3]:
+        if not option.image_path:
+            return False
+        path = resolve_media_path(media_root, option.image_path)
+        if not path.exists():
+            return False
+        photo_paths.append(path)
+    if len(photo_paths) < 2:
+        return False
+    try:
+        await client.send_file(sender_id, photo_paths, caption=caption)
+    except Exception:
+        LOGGER.exception("budget_options_album_failed", extra={"event": "budget_options_album_failed", "payload": {"count": len(photo_paths)}})
+        return False
+    return True
+
+
 async def send_typing_and_messages(
     client,
     *,
@@ -1274,10 +1303,20 @@ async def run_listener(settings: Settings) -> None:
             )
 
         if settings.auto_reply_enabled:
+            messages_to_send = action.messages
+            if action.next_step == "ask_budget" and action.messages and isinstance(budget_options, BudgetOptions):
+                if await send_budget_options_album(
+                    client,
+                    sender_id=sender_id,
+                    budget_options=budget_options,
+                    media_root=media_root_for_db(path_from_sqlite_url(settings.database_url), settings.media_storage_dir),
+                    caption=_limit_reply_chars(action.messages[0], max_chars=settings.max_reply_chars),
+                ):
+                    messages_to_send = action.messages[1:]
             await send_typing_and_messages(
                 client,
                 sender_id=sender_id,
-                messages=action.messages,
+                messages=messages_to_send,
                 initial_delay=settings.min_reply_delay_seconds,
                 max_initial_delay=settings.max_reply_delay_seconds,
                 max_chars=settings.max_reply_chars,

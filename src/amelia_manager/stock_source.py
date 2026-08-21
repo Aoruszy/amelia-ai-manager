@@ -46,6 +46,7 @@ class DbCatalogStockSource:
                 quantity_number=item.quantity_number,
                 price=item.price,
                 unit=item.unit,
+                image_path=item.image_path,
             )
             for item in self.repo.list_catalog_items()
         ]
