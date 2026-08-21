@@ -195,8 +195,10 @@ async def test_guarantee_request_gets_cautious_reply_without_promise():
 
 @pytest.mark.asyncio
 async def test_engine_hands_off_unsafe_llm_reply():
+    """Unsafe model text must not reach the client, but a safe step fallback should."""
+
     class UnsafeLLM:
-        async def generate(self, prompt: str) -> str:
+        async def generate(self, prompt: str, **kwargs) -> str:
             return "Я AI-бот, точно есть эти розы"
 
     engine = ConversationEngine(UnsafeLLM())
@@ -207,5 +209,67 @@ async def test_engine_hands_off_unsafe_llm_reply():
         stage="bouquet_selection",
     )
 
-    assert action.kind == "human_review"
-    assert action.safety_reasons
+    text = action.messages[0].lower()
+    assert action.kind == "send"
+    assert "ai" not in text
+    assert "бот" not in text
+    assert "точно есть" not in text
+    assert "бюджет" in text
+    assert action.safety_triggered_reasons
+    assert action.safety_retry_succeeded is False
+
+
+@pytest.mark.asyncio
+async def test_safety_failure_fallback_removes_sensitive_tone_violations():
+    class UnsafeSensitiveLLM:
+        async def generate(self, prompt: str, **kwargs) -> str:
+            return '{"intent":"order","emotion":"grief","reply":"Соберу нежный и яркий вариант 🌸 На какой бюджет?","case_patch":{},"next_step":"ask_budget","needs_human":false,"confidence":0.9}'
+
+    action = await ConversationEngine(UnsafeSensitiveLLM()).handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: Хорошо"],
+        stage="new",
+        order_card=OrderCard(occasion="похороны", custom_fields={"occasion_sensitive": True}),
+    )
+
+    text = action.messages[0].lower()
+    assert action.kind == "send"
+    assert "🌸" not in text
+    assert "нежн" not in text
+    assert "ярк" not in text
+    assert action.safety_triggered_reasons
+    assert action.safety_retry_succeeded is False
+
+
+@pytest.mark.asyncio
+async def test_high_risk_still_hands_off_before_safety_retry():
+    class ShouldNotCallLLM:
+        async def generate(self, prompt: str, **kwargs) -> str:
+            raise AssertionError("HIGH risk must not reach the LLM/safety path")
+
+    action = await ConversationEngine(ShouldNotCallLLM()).handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: Позовите живого менеджера, вопрос по оплате"],
+        stage="new",
+    )
+
+    assert action.kind == "human_takeover"
+
+
+def test_safety_failure_helper_returns_none_when_no_cautious_or_step_fallback():
+    from amelia_manager.company_profile import load_company_profile
+    from amelia_manager.conversation_engine import _fallback_after_safety_failure
+    from amelia_manager.order_policy import NextStep
+    from amelia_manager.risk import RiskCategory
+
+    fallback = _fallback_after_safety_failure(
+        NextStep("unknown_step", "Нет детерминированного ответа"),
+        order_card=None,
+        recent_messages=["Клиент: расскажите о компании"],
+        stock_context=None,
+        company_profile=load_company_profile(),
+        risk_category=RiskCategory.NONE,
+        latest_text="расскажите о компании",
+    )
+
+    assert fallback is None

@@ -81,7 +81,7 @@ async def test_live_eval_structural_checks_do_not_require_exact_wording():
 
 
 @pytest.mark.asyncio
-async def test_live_eval_structural_checks_catch_reasking_known_fields_and_invented_numbers():
+async def test_live_eval_safety_fallback_records_invented_numbers_without_leaking_them():
     card = OrderCard(budget=5000, colors=["розы"], fulfillment_type="delivery", address="ул. Тестовая 1")
     llm = CountingLLM("Какой бюджет? Доставка будет 9999 рублей?")
 
@@ -97,9 +97,12 @@ async def test_live_eval_structural_checks_catch_reasking_known_fields_and_inven
         llm=llm,
     )
 
-    checks = {check["name"]: check for check in report["results"][0]["checks"]}
-    assert checks["no_repeat_known_field"]["passed"] is False
-    assert checks["no_invented_numbers"]["passed"] is False
+    result = report["results"][0]
+    checks = {check["name"]: check for check in result["checks"]}
+    assert "9999" not in result["output"]
+    assert result["safety_triggered_reasons"]
+    assert result["safety_retry_succeeded"] is False
+    assert checks["no_invented_numbers"]["passed"] is True
 
 
 @pytest.mark.asyncio

@@ -78,12 +78,29 @@ def build_stock_context(
     desired_text: str,
     stock_date: date | None,
     timezone_name: str = "Europe/Kaliningrad",
+    today: date | None = None,
+    composition_units: tuple[str, ...] = ("букет", "композиция", "корзина"),
+    sensitive_occasion: bool = False,
+    sensitive_forbidden_words: tuple[str, ...] = (),
 ) -> str:
-    today = _today_in_timezone(timezone_name)
+    today = today or _today_in_timezone(timezone_name)
     if not stock_date or not items:
         return "наличие на сегодня не внесено. Не обещай конкретные цветы; при необходимости скажи, что наличие нужно уточнить по смене."
     if stock_date != today:
         return "Наличие цветов устарело. Не обещай конкретные цветы; попроси уточнить актуальное наличие по смене."
+
+    budget_options = _budget_option_items(
+        items,
+        desired_text=desired_text,
+        composition_units=composition_units,
+        sensitive_occasion=sensitive_occasion,
+        sensitive_forbidden_words=sensitive_forbidden_words,
+    )
+    if budget_options:
+        lines = ["Варианты композиций из каталога для выбора бюджета:"]
+        for item in budget_options:
+            lines.append(f"- {item.name} — {item.quantity_text}, {item.price} ₽/{item.unit or 'шт'}")
+        return "\n".join(lines)
 
     matches = _match_items(items, colors=colors, desired_text=desired_text)
     if not matches:
@@ -129,3 +146,49 @@ def _match_items(items: list[StockItem], *, colors: list[str], desired_text: str
             scored.append((score, item))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return [item for _, item in scored]
+
+
+def _budget_option_items(
+    items: list[StockItem],
+    *,
+    desired_text: str,
+    composition_units: tuple[str, ...],
+    sensitive_occasion: bool,
+    sensitive_forbidden_words: tuple[str, ...],
+) -> list[StockItem]:
+    normalized = desired_text.lower().replace("ё", "е")
+    if not re.search(r"\b(?:не\s+знаю|не\s+понимаю|затрудняюсь|подскажите|сколько\s+нужно|какой\s+бюджет)\b", normalized):
+        return []
+    unit_set = {unit.lower().replace("ё", "е") for unit in composition_units}
+    forbidden = [word.lower().replace("ё", "е") for word in sensitive_forbidden_words] if sensitive_occasion else []
+    raw_candidates: list[StockItem] = []
+    for item in items:
+        unit = (item.unit or "").lower().replace("ё", "е")
+        if unit not in unit_set:
+            continue
+        if item.status == StockStatus.UNAVAILABLE or item.quantity_number == 0:
+            continue
+        if item.price is None:
+            continue
+        raw_candidates.append(item)
+    raw_candidates.sort(key=lambda item: item.price or 0)
+    if not forbidden:
+        candidates = raw_candidates
+    else:
+        candidates = []
+        for item in raw_candidates:
+            name = item.name.lower().replace("ё", "е")
+            if any(re.search(rf"\b{re.escape(word)}\w*\b", name) for word in forbidden):
+                continue
+            candidates.append(item)
+        if len(candidates) < 2 and len(raw_candidates) >= 2:
+            # For sensitive occasions, do not leak forbidden names. Keep safe price levels
+            # from real catalog compositions so the reply can offer a choice without names.
+            return [StockItem(name="ценовой уровень", status=item.status, quantity_text=item.quantity_text, quantity_number=item.quantity_number, price=item.price, unit=item.unit) for item in _select_three(raw_candidates)]
+    return _select_three(candidates)
+
+
+def _select_three(candidates: list[StockItem]) -> list[StockItem]:
+    if len(candidates) <= 3:
+        return candidates
+    return [candidates[0], candidates[(len(candidates)-1)//2], candidates[-1]]

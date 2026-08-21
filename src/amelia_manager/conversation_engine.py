@@ -18,7 +18,7 @@ from amelia_manager.order_policy import NextStep, get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
-from amelia_manager.safety import SafetyResult, check_reply_safety
+from amelia_manager.safety import SafetyResult, check_reply_safety, safety_retry_guidance_for_reasons
 from amelia_manager.structured_generation import generate_with_optional_schema
 
 
@@ -157,6 +157,27 @@ class ConversationEngine:
 
         order_state = order_card or extract_order_state(recent_messages)
         next_step = get_next_step(order_state, company_profile=self.company_profile)
+        sensitive_occasion = _has_sensitive_occasion_context(
+            recent_messages,
+            order_card=order_card,
+            company_profile=self.company_profile,
+        )
+        if next_step.code == "ask_budget" and _is_budget_unknown_answer(last_client_text):
+            reply = deterministic_order_reply(
+                next_step,
+                order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context,
+                company_profile=self.company_profile,
+            )
+            if reply:
+                return ConversationAction(
+                    kind="send",
+                    messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                    risk_level=risk_level,
+                    next_step=next_step.code,
+                )
+
         if next_step.code == "ask_pickup_time_within_shop_hours":
             reply = deterministic_order_reply(
                 next_step,
@@ -188,12 +209,6 @@ class ConversationEngine:
                     next_step=next_step.code,
                     order_patch=_action_patch_for_next_step(next_step.code),
                 )
-
-        sensitive_occasion = _has_sensitive_occasion_context(
-            recent_messages,
-            order_card=order_card,
-            company_profile=self.company_profile,
-        )
 
         prompt = build_manager_prompt(
             client_summary=client_summary,
@@ -265,7 +280,7 @@ class ConversationEngine:
             )
 
         if decision is None:
-            safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
+            safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile, order_card=order_card)
         if decision is not None:
             reply = decision.reply
             action_metadata = {
@@ -306,16 +321,19 @@ class ConversationEngine:
                     risk_category=risk.category,
                     **action_metadata,
                 )
-            safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
+            safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile, order_card=order_card)
         sensitive_tone_reasons = _sensitive_tone_violations(reply, self.company_profile) if sensitive_occasion else []
         if sensitive_tone_reasons:
             safety = SafetyResult(is_safe=False, reasons=[*safety.reasons, *sensitive_tone_reasons])
         if not safety.is_safe:
+            triggered_reasons = list(safety.reasons)
             try:
+                guidance = safety_retry_guidance_for_reasons(safety.reasons)
                 rewrite_prompt = (
                     prompt
                     + "\n\nТвой прошлый ответ нарушил правило безопасности: "
                     + ", ".join(safety.reasons)
+                    + ("\nРазрешённая безопасная альтернатива:\n" + guidance if guidance else "")
                     + "\nПерепиши ответ коротко, естественно и без нарушения. Не объясняй правила."
                 )
                 retry_reply = await generate_with_optional_schema(
@@ -366,6 +384,7 @@ class ConversationEngine:
                     retry_reply,
                     stock_context=stock_context,
                     company_profile=self.company_profile,
+                    order_card=order_card,
                 )
                 retry_sensitive_reasons = (
                     _sensitive_tone_violations(retry_reply, self.company_profile) if sensitive_occasion else []
@@ -380,19 +399,40 @@ class ConversationEngine:
                         kind="send",
                         messages=_finalize_messages(retry_reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                         risk_level=risk_level,
-                        safety_triggered_reasons=safety.reasons,
+                        safety_triggered_reasons=triggered_reasons,
                         safety_retry_succeeded=True,
                     )
                 safety = retry_safety
             except LLMError:
                 pass
+            fallback = _fallback_after_safety_failure(
+                next_step,
+                order_card=order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context,
+                company_profile=self.company_profile,
+                risk_category=risk.category,
+                latest_text=last_client_text,
+            )
+            if fallback:
+                return ConversationAction(
+                    kind="send",
+                    messages=_finalize_messages(fallback, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                    risk_level=risk_level,
+                    safety_reasons=safety.reasons,
+                    risk_category=risk.category,
+                    safety_triggered_reasons=triggered_reasons,
+                    safety_retry_succeeded=False,
+                    next_step=next_step.code,
+                    order_patch=_action_patch_for_next_step(next_step.code),
+                )
             return ConversationAction(
                 kind="human_review",
                 messages=["Передам менеджеру, чтобы точно проверить и ответить вам корректно."],
                 risk_level=risk_level,
                 safety_reasons=safety.reasons,
                 risk_category=risk.category,
-                safety_triggered_reasons=safety.reasons,
+                safety_triggered_reasons=triggered_reasons,
                 safety_retry_succeeded=False,
             )
 
@@ -431,7 +471,7 @@ class ConversationEngine:
         if retry_decision is None:
             return None
         reply = retry_decision.reply
-        safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile)
+        safety = check_reply_safety(reply, stock_context=stock_context, company_profile=self.company_profile, order_card=order_card)
         sensitive_tone_reasons = _sensitive_tone_violations(reply, self.company_profile) if sensitive_occasion else []
         if sensitive_tone_reasons:
             safety = SafetyResult(is_safe=False, reasons=[*safety.reasons, *sensitive_tone_reasons])
@@ -468,6 +508,38 @@ class ConversationEngine:
             safety_retry_succeeded=True,
         )
 
+
+
+def _fallback_after_safety_failure(
+    next_step: NextStep,
+    *,
+    order_card: OrderCard | None,
+    recent_messages: list[str],
+    stock_context: str | None,
+    company_profile: CompanyProfile,
+    risk_category: RiskCategory,
+    latest_text: str,
+) -> str | None:
+    cautious = _cautious_reply_for_medium_risk(
+        risk_category,
+        stock_context=stock_context,
+        latest_text=latest_text,
+        company_profile=company_profile,
+    )
+    if cautious:
+        return cautious
+    return deterministic_order_reply(
+        next_step,
+        order_card,
+        recent_messages=recent_messages,
+        stock_context=stock_context,
+        company_profile=company_profile,
+    )
+
+
+def _is_budget_unknown_answer(text: str) -> bool:
+    normalized = text.lower().replace("ё", "е")
+    return bool(re.search(r"\b(?:не\s+знаю|не\s+понимаю|затрудняюсь|подскажите|сколько\s+нужно|какой\s+бюджет)\b", normalized))
 
 def _is_upsell_decline(text: str) -> bool:
     normalized = text.lower().replace("ё", "е")

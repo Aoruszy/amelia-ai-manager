@@ -24,10 +24,11 @@ def deterministic_order_reply(
     if stock_reply:
         return stock_reply
 
+    budget_options_reply = _budget_options_reply(recent_messages or [], stock_context or "", profile)
     pickup_address = profile.pickup_address or "адреса самовывоза"
     pickup_hours_reply = _pickup_time_outside_hours_reply(recent_messages or [], profile)
     replies = {
-        "ask_budget": "Подскажите, на какой бюджет ориентируемся? 🌸",
+        "ask_budget": budget_options_reply or "Подскажите, на какой бюджет ориентируемся? 🌸",
         "ask_bouquet_preferences": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
         "ask_fulfillment_type": "Хорошо, по букету поняла. Это будет доставка или самовывоз?",
         "ask_date": "На какое число нужен букет?",
@@ -78,3 +79,27 @@ def _stock_fallback(recent_messages: list[str], stock_context: str) -> str | Non
         if stem and stem in last:
             return f"{name} на сегодня нет. Могу подобрать похожий нежный вариант — подскажите, на какой бюджет ориентируемся?"
     return None
+
+
+def _budget_options_reply(recent_messages: list[str], stock_context: str, profile: CompanyProfile) -> str | None:
+    latest = recent_messages[-1].lower().replace("ё", "е") if recent_messages else ""
+    if not re.search(r"\b(?:не\s+знаю|не\s+понимаю|затрудняюсь|подскажите|сколько\s+нужно|какой\s+бюджет)\b", latest):
+        return None
+    options = []
+    for line in stock_context.splitlines():
+        match = re.search(r"-\s*(?P<name>[^—-]+)\s*[—-].*?\b(?P<price>\d[\d ]{2,})\s*₽/(?P<unit>\S+)", line)
+        if not match:
+            continue
+        unit = match.group("unit").lower().replace("ё", "е")
+        if unit not in {item.lower().replace("ё", "е") for item in profile.composition_units}:
+            continue
+        options.append((int(match.group("price").replace(" ", "")), match.group("name").strip()))
+    options = sorted(dict.fromkeys(options))
+    if len(options) < 2:
+        return None
+    selected = options if len(options) <= 3 else [options[0], options[(len(options)-1)//2], options[-1]]
+    if all(name == "ценовой уровень" for _, name in selected):
+        level_text = ", ".join(f"{price} ₽" for price, _ in selected)
+        return profile.budget_levels_reply_template.format(options=level_text)
+    option_text = ", ".join(f"{name} — {price} ₽" for price, name in selected)
+    return profile.budget_options_reply_template.format(options=option_text)

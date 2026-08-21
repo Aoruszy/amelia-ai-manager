@@ -205,6 +205,10 @@ _DEFERRED_CHOICE_RE = re.compile(
     r"что\s*-?\s*нибудь\s+на\s+ваш|как\s+считаете\s+нужным|решайте\s+сами)\b"
 )
 DEFERRED_CHOICE_VALUE = "без особых пожеланий"
+_DEFERRED_DATE_RE = re.compile(r"\b(?:не\s+важно|когда\s+получится|в\s+ближайшие\s+дни|на\s+ваше\s+усмотрение)\b")
+_DEFERRED_TIME_RE = re.compile(r"\b(?:в\s+любое|когда\s+(?:вам\s+)?удобно|побыстрее|не\s+принципиально)\b")
+_DEFERRED_FORMAT_RE = re.compile(r"\b(?:как\s+удобнее|все\s+равно|как\s+вам\s+проще)\b")
+DEFERRED_STEP_VALUE = "по согласованию"
 
 
 def _extract_colors(text: str) -> list[str]:
@@ -261,6 +265,8 @@ def _extract_fulfillment_type(text: str) -> str | None:
     last_pickup = pickup_matches[-1].start() if pickup_matches else -1
     last_delivery = delivery_matches[-1].start() if delivery_matches else -1
     if last_pickup < 0 and last_delivery < 0:
+        if _DEFERRED_FORMAT_RE.search(text):
+            return DEFERRED_STEP_VALUE
         return None
     return "delivery" if last_delivery > last_pickup else "pickup"
 
@@ -325,6 +331,9 @@ def _extract_delivery_date(client_text: str, context_text: str, *, today: date) 
 
 
 def _relative_date_in(text: str, *, today: date) -> tuple[int, str, str] | None:
+    deferred = _DEFERRED_DATE_RE.search(text)
+    if deferred:
+        return (deferred.start(), DEFERRED_STEP_VALUE, "deferred")
     today_index = text.rfind("сегодня")
     tomorrow_index = text.rfind("завтра")
     if today_index < 0 and tomorrow_index < 0:
@@ -356,6 +365,8 @@ def _explicit_date_in(text: str, *, today: date) -> tuple[int, str, str] | None:
 def _extract_delivery_time(text: str) -> str | None:
     match = re.search(r"\b([01]?\d|2[0-3])[:.](\d{2})\b", text)
     if not match:
+        if _DEFERRED_TIME_RE.search(text):
+            return DEFERRED_STEP_VALUE
         return None
     return f"{int(match.group(1)):02d}:{match.group(2)}"
 

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import re
 
 from amelia_manager.company_profile import CompanyProfile
+from amelia_manager.order_card import OrderCard
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ def check_reply_safety(
     *,
     stock_context: str | None = None,
     company_profile: CompanyProfile | None = None,
+    order_card: OrderCard | None = None,
 ) -> SafetyResult:
     normalized = reply.lower().replace("ё", "е")
     reasons: list[str] = []
@@ -89,7 +91,7 @@ def check_reply_safety(
         reasons.append("shop_address_as_delivery")
     if "самовывоз" in normalized and "получател" in normalized and ("телефон" in normalized or "номер" in normalized):
         reasons.append("pickup_recipient_question")
-    if _has_unsupported_price_quote(normalized, stock_context, company_profile=company_profile):
+    if _has_unsupported_price_quote(normalized, stock_context, company_profile=company_profile, order_card=order_card):
         reasons.append("unsupported_price_quote")
 
     return SafetyResult(is_safe=not reasons, reasons=reasons)
@@ -138,19 +140,25 @@ def _has_unsupported_price_quote(
     stock_context: str | None,
     *,
     company_profile: CompanyProfile | None = None,
+    order_card: OrderCard | None = None,
 ) -> bool:
-    price_quotes = []
+    unsupported: list[str] = []
     for match in re.finditer(r"\b(\d[\d ]{2,})\s*(?:₽|руб|р\b)", reply):
-        window = reply[max(0, match.start() - 48): match.end() + 48]
+        amount = int(match.group(1).replace(" ", ""))
+        amount_text = str(amount)
+        window = reply[max(0, match.start() - 64): match.end() + 64]
         has_price_context = bool(
-            re.search(r"\b(?:сто\w*|цен\w*|ценой|за\s+штук\w*|за\s+букет|обойд\w*|выйд\w*)\b", window)
-            or re.search(r"\b(?:за|по)\s+\d[\d ]{2,}\s*(?:₽|руб|р\b)", window)
+            re.search(r"\b(?:сто\w*|цен\w*|ценой|за\s+штук\w*|за\s+букет|обойд\w*|выйд\w*|бюджет\w*|предел\w*|рамк\w*|ориентир\w*)\b", window)
+            or re.search(r"\b(?:за|по|до)\s+\d[\d ]{2,}\s*(?:₽|руб|р\b)", window)
         )
-        if has_price_context:
-            if _is_approximate_bouquet_estimate(reply, window, amount=int(match.group(1).replace(" ", "")), company_profile=company_profile):
-                continue
-            price_quotes.append(match.group(1).replace(" ", ""))
-    if not price_quotes:
+        if not has_price_context:
+            continue
+        if _is_approximate_bouquet_estimate(reply, window, amount=amount, company_profile=company_profile):
+            continue
+        if _is_client_budget_frame(window, amount=amount, order_card=order_card):
+            continue
+        unsupported.append(amount_text)
+    if not unsupported:
         return False
     allowed_prices = set()
     if stock_context:
@@ -167,7 +175,7 @@ def _has_unsupported_price_quote(
             )
             if value is not None
         )
-    return any(price not in allowed_prices for price in price_quotes)
+    return any(price not in allowed_prices for price in unsupported)
 
 
 def _looks_like_raw_model_output(normalized: str) -> bool:
@@ -198,3 +206,44 @@ def _is_approximate_bouquet_estimate(
         return False
     max_estimate = company_profile.max_bouquet_estimate if company_profile is not None else None
     return max_estimate is None or amount <= max_estimate
+
+
+_SAFETY_RETRY_GUIDANCE = {
+    "unsupported_price_quote": "точную стоимость нельзя; допустима вилка с маркером «примерно» и оговорка, что итог подтвердит менеджер",
+    "unverified_stock_promise": "наличие обещать нельзя; скажи, что уточнишь, или предложи близкий вариант",
+    "stock_context_contradiction": "позиции нет; прямо скажи об этом и предложи близкий вариант",
+    "exact_delivery_guarantee": "точное время не гарантируется; говори про интервал",
+    "unsupported_photo_promise": "фото отправить нельзя; отметь пожелание в заказе",
+    "unsupported_handoff_promise": "отойти и вернуться нельзя; отвечай сразу тем, что известно",
+    "payment_confirmation_without_manager": "оплату подтверждает менеджер; скажи, что передаёшь детали",
+    "shop_address_as_delivery": "это адрес самовывоза; спроси адрес клиента",
+    "pickup_recipient_question": "при самовывозе контакты получателя не нужны",
+    "identity_disclosure": "не упоминать, что ты программа",
+}
+_SENSITIVE_REASON_PREFIX = "запрещённые слова для чувствительного повода:"
+
+def safety_retry_guidance_for_reasons(reasons: list[str]) -> str:
+    lines: list[str] = []
+    for reason in reasons:
+        if reason.startswith(_SENSITIVE_REASON_PREFIX):
+            forbidden = reason.split(":", 1)[1].strip()
+            suffix = f" и без слова «{forbidden}»" if forbidden else ""
+            lines.append(f"- {reason}: перепиши сдержанно, без эмодзи{suffix}")
+            continue
+        guidance = _SAFETY_RETRY_GUIDANCE.get(reason)
+        if guidance:
+            lines.append(f"- {reason}: {guidance}")
+    return "\n".join(lines)
+
+def _is_client_budget_frame(window: str, *, amount: int, order_card: OrderCard | None) -> bool:
+    if order_card is None:
+        return False
+    allowed = {order_card.budget} if order_card.budget else set()
+    range_value = order_card.custom_fields.get("budget_range") if isinstance(order_card.custom_fields, dict) else None
+    if isinstance(range_value, str):
+        allowed.update(int(m.group(1).replace(" ", "")) for m in re.finditer(r"(?<!\d)([1-9]\d{3,5})(?!\d)", range_value))
+    if amount not in allowed:
+        return False
+    if re.search(r"\b(?:стоимост\w*|цен\w*|стоит|обойд\w*|выйд\w*)\b", window):
+        return False
+    return bool(re.search(r"\b(?:бюджет\w*|рамк\w*|предел\w*|ориентир\w*)\b", window))

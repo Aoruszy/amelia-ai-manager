@@ -1115,6 +1115,9 @@ async def run_listener(settings: Settings) -> None:
             desired_text="\n".join(recent_messages),
             stock_date=stock_snapshot.fetched_at.date() if stock_snapshot.items else None,
             timezone_name=company_profile.timezone_name,
+            composition_units=company_profile.composition_units,
+            sensitive_occasion=bool(order_card.custom_fields.get("occasion_sensitive") is True),
+            sensitive_forbidden_words=company_profile.sensitive_occasion_forbidden_words,
         )
 
         # summary хранится на клиенте, а не на заказе, и в промпт уходило значение
