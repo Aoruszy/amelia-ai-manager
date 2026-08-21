@@ -36,6 +36,15 @@ def build_live_scenarios() -> list[DialogueScenario]:
         sender_name="Олег",
         sender_phone="89990000007",
     )
+    deferred_date_confirmed = OrderCard(
+        budget=5000,
+        colors=["розовый"],
+        fulfillment_type="delivery",
+        delivery_date="2026-08-22",
+        delivery_time="14:00",
+        address="Гайдара 173",
+        custom_fields={"upsell_offered": True},
+    )
 
     return [
         DialogueScenario(
@@ -67,6 +76,21 @@ def build_live_scenarios() -> list[DialogueScenario]:
             "real_extraction",
             ["Клиент: Нужен букет тысяч на 10", "Клиент: Хотя нет, давайте до 5000"],
             expected_next_step="ask_bouquet_preferences",
+        ),
+        DialogueScenario(
+            "real-deferred-date-confirmed-moves-on",
+            "real_extraction",
+            [
+                "Клиент: Да, розовые до пяти тысяч",
+                "Менеджер: На какое число нужен букет?",
+                "Клиент: не важно",
+                "Менеджер: Могу записать на 22 августа — подойдёт?",
+                "Клиент: да, подходит",
+            ],
+            order_card=deferred_date_confirmed,
+            expected_next_step="ask_sender_contacts",
+            must_not_contain=("какое число", "на какое число", "дату", "число нужен"),
+            notes="Deferred date + confirmation should move past ask_date; extraction itself is covered by unit tests.",
         ),
         DialogueScenario(
             "real-pickup-to-delivery-reset",

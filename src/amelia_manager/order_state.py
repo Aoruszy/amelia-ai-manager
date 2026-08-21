@@ -43,6 +43,7 @@ class OrderState:
 def extract_order_state(messages: list[str], *, today: date | None = None, timezone_name: str = "Europe/Kaliningrad") -> OrderState:
     client_messages = [_strip_role(message) for message in messages if _is_client_message(message)]
     text = "\n".join(client_messages).lower().replace("ё", "е")
+    latest_client_text = (client_messages[-1] if client_messages else "").lower().replace("ё", "е")
     manager_schedule_text = _manager_scheduling_text(messages)
     original = "\n".join(client_messages)
     contacts = _extract_contacts_by_dialog_context(messages)
@@ -60,8 +61,8 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
         colors=_extract_colors(text),
         forbidden_flowers=_extract_forbidden_flowers(text),
         fulfillment_type=_extract_fulfillment_type(text),
-        delivery_date=_extract_delivery_date(text, manager_schedule_text, today=reference_date),
-        delivery_time=_extract_delivery_time(text, manager_schedule_text),
+        delivery_date=_extract_delivery_date(text, latest_client_text, manager_schedule_text, today=reference_date),
+        delivery_time=_extract_delivery_time(text, latest_client_text, manager_schedule_text),
         address=_extract_address(original),
         sender_name=sender_name,
         sender_phone=sender_phone,
@@ -326,16 +327,19 @@ def _manager_scheduling_text(messages: list[str]) -> str:
     return "\n".join(parts)
 
 
-def _extract_delivery_date(client_text: str, context_text: str, *, today: date) -> str | None:
+def _extract_delivery_date(client_text: str, latest_client_text: str, context_text: str, *, today: date) -> str | None:
     """Дата заказа: сначала по словам клиента, и только потом по контексту диалога.
 
     Внутри источника побеждает сказанное позже — клиент может передумать.
     Разделение источников важно: бот написал «на сегодня гортензии нет», и это
     читалось как дата заказа, перебивая явное «20 августа» от клиента.
     """
-    if is_deferred_date_choice(client_text):
+    latest_candidates = [item for item in (_explicit_date_in(latest_client_text, today=today), _relative_date_in(latest_client_text, today=today)) if item]
+    if latest_candidates:
+        return max(latest_candidates, key=lambda item: item[0])[1]
+    if is_deferred_date_choice(latest_client_text):
         return None
-    if _AFFIRMATIVE_RE.search(client_text) and context_text:
+    if _AFFIRMATIVE_RE.search(latest_client_text) and context_text:
         candidates = [item for item in (_explicit_date_in(context_text, today=today), _relative_date_in(context_text, today=today)) if item]
         if candidates:
             return max(candidates, key=lambda item: item[0])[1]
@@ -378,15 +382,18 @@ def _explicit_date_in(text: str, *, today: date) -> tuple[int, str, str] | None:
     return (month_match.start(), candidate.isoformat(), "explicit")
 
 
-def _extract_delivery_time(text: str, context_text: str = "") -> str | None:
+def _extract_delivery_time(text: str, latest_client_text: str = "", context_text: str = "") -> str | None:
+    match = re.search(r"\b([01]?\d|2[0-3])[:.](\d{2})\b", latest_client_text)
+    if match:
+        return f"{int(match.group(1)):02d}:{match.group(2)}"
+    if _DEFERRED_TIME_RE.search(latest_client_text):
+        return None
+    if _AFFIRMATIVE_RE.search(latest_client_text) and context_text:
+        context_match = re.search(r"\b([01]?\d|2[0-3])[:.](\d{2})\b", context_text)
+        if context_match:
+            return f"{int(context_match.group(1)):02d}:{context_match.group(2)}"
     match = re.search(r"\b([01]?\d|2[0-3])[:.](\d{2})\b", text)
     if not match:
-        if _DEFERRED_TIME_RE.search(text):
-            return None
-        if _AFFIRMATIVE_RE.search(text) and context_text:
-            context_match = re.search(r"\b([01]?\d|2[0-3])[:.](\d{2})\b", context_text)
-            if context_match:
-                return f"{int(context_match.group(1)):02d}:{context_match.group(2)}"
         return None
     return f"{int(match.group(1)):02d}:{match.group(2)}"
 

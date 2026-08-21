@@ -102,6 +102,40 @@ def test_confirmed_deferred_date_and_time_allow_order_to_be_ready():
     assert card.is_ready_for_admin_request()
 
 
+def test_earlier_deferred_date_does_not_block_later_explicit_date():
+    state = extract_order_state(
+        [
+            "Клиент: не важно",
+            "Менеджер: На какое число записать?",
+            "Клиент: 25 августа",
+        ],
+        today=date(2026, 8, 19),
+    )
+
+    assert state.delivery_date == "2026-08-25"
+
+
+def test_client_date_correction_beats_affirming_manager_suggestion():
+    state = extract_order_state(
+        ["Менеджер: Могу записать на 22 августа?", "Клиент: да, но давайте лучше 25 августа"],
+        today=date(2026, 8, 19),
+    )
+
+    assert state.delivery_date == "2026-08-25"
+
+
+def test_client_time_correction_still_beats_affirming_manager_suggestion():
+    state = extract_order_state(["Менеджер: Давайте к 14:00, удобно?", "Клиент: да, но лучше к 18:00"], today=date(2026, 8, 19))
+
+    assert state.delivery_time == "18:00"
+
+
+def test_deferred_date_without_followup_confirmation_keeps_field_empty():
+    state = extract_order_state(["Клиент: не важно"], today=date(2026, 8, 19))
+
+    assert state.delivery_date is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("bad_date", ["tomorrow", "завтра", "23 августа", ""])
 async def test_llm_invalid_delivery_dates_are_rejected_and_observable(tmp_path, bad_date):
