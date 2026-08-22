@@ -3,6 +3,7 @@ import pytest
 from amelia_manager.conversation_engine import ConversationEngine
 from amelia_manager.order_card import OrderCard
 from amelia_manager.risk import RiskLevel
+from amelia_manager.stock import BudgetOption, BudgetOptions
 
 
 class FakeLLM:
@@ -62,6 +63,33 @@ async def test_sensitive_occasion_uses_calm_reply_without_emoji():
     assert "🌸" not in text
     assert "ярк" not in text
     assert "нежн" not in text
+    assert action.order_patch == {"custom_fields": {"occasion_sensitive": True}}
+
+
+@pytest.mark.asyncio
+async def test_sensitive_occasion_first_reply_ignores_catalog_options():
+    class ShouldNotCallLLM:
+        async def generate(self, prompt: str, **kwargs):
+            raise AssertionError("sensitive occasion should use cautious deterministic reply")
+
+    action = await ConversationEngine(ShouldNotCallLLM()).handle_messages(
+        client_summary="Клиент",
+        recent_messages=["Клиент: нужен букет на похороны мамы"],
+        stage="new",
+        stock_context="Варианты композиций из каталога для выбора бюджета:\n- Нежность — 3500 ₽/букет\n- Пионовидный микс — 5500 ₽/букет\n- Премиум — 9000 ₽/букет",
+        budget_options=BudgetOptions([
+            BudgetOption("Нежность", 3500, "букет"),
+            BudgetOption("Пионовидный микс", 5500, "букет"),
+            BudgetOption("Премиум", 9000, "букет"),
+        ]),
+    )
+
+    text = action.messages[0].lower()
+    assert action.kind == "send"
+    assert action.risk_level == RiskLevel.MEDIUM
+    assert "3500" not in text and "5500" not in text and "9000" not in text
+    assert "нежн" not in text and "пионовид" not in text and "премиум" not in text
+    assert "вариант" not in text
     assert action.order_patch == {"custom_fields": {"occasion_sensitive": True}}
 
 

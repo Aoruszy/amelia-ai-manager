@@ -48,6 +48,7 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
     original = "\n".join(client_messages)
     contacts = _extract_contacts_by_dialog_context(messages)
     catalog_choice = _extract_catalog_option_choice(messages)
+    preference_text = _client_text_after_catalog_choice(messages) if catalog_choice is not None else text
     budget_candidates = [*_extract_budget_candidates(text), *_extract_budget_by_dialog_context(messages)]
     if catalog_choice is not None:
         budget_candidates.append((catalog_choice[0], catalog_choice[1]))
@@ -61,8 +62,8 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
     return OrderState(
         occasion=_extract_occasion(text),
         budget=budget,
-        colors=[catalog_choice[2]] if catalog_choice is not None else _extract_colors(text),
-        forbidden_flowers=_extract_forbidden_flowers(text),
+        colors=_merge_unique([catalog_choice[2]] if catalog_choice is not None else [], _extract_colors(preference_text)),
+        forbidden_flowers=_extract_forbidden_flowers(preference_text),
         fulfillment_type=_extract_fulfillment_type(text),
         delivery_date=_extract_delivery_date(text, latest_client_text, manager_schedule_text, today=reference_date),
         delivery_time=_extract_delivery_time(text, latest_client_text, manager_schedule_text),
@@ -252,8 +253,13 @@ def _extract_colors(text: str) -> list[str]:
 
 def _extract_forbidden_flowers(text: str) -> list[str]:
     forbidden = []
-    if re.search(r"(без|не надо|никаких)\s+хризант", text):
-        forbidden.append("хризантемы")
+    patterns = [
+        (r"(без|не надо|никаких)\s+хризант", "хризантемы"),
+        (r"(без|не надо|никаких)\s+лил", "лилии"),
+    ]
+    for pattern, value in patterns:
+        if re.search(pattern, text) and value not in forbidden:
+            forbidden.append(value)
     return forbidden
 
 
@@ -496,25 +502,50 @@ def _parse_catalog_options_from_manager_text(text: str) -> list[tuple[str, int]]
     return options
 
 
+def _client_text_after_catalog_choice(messages: list[str]) -> str:
+    options: list[tuple[str, int]] = []
+    after_choice: list[str] = []
+    choice_seen = False
+    for message in messages:
+        stripped = _strip_role(message)
+        lowered = stripped.lower().replace("ё", "е")
+        if message.lower().startswith(("менеджер:", "алина:")):
+            parsed = _parse_catalog_options_from_manager_text(stripped)
+            if parsed:
+                options = parsed
+                after_choice = []
+                choice_seen = False
+            continue
+        if not _is_client_message(message):
+            continue
+        if choice_seen:
+            after_choice.append(lowered)
+        elif options and _match_catalog_option_choice(lowered, options) is not None:
+            choice_seen = True
+    return "\n".join(after_choice)
+
+
 def _match_catalog_option_choice(text: str, options: list[tuple[str, int]]) -> tuple[str, int] | None:
     if re.search(r"\b(?:ни\s+один|никак\w*|друго\w*|не\s+подход\w*|не\s+эти|подумаю)\b", text):
         return None
-    ordinal_indexes = {
+    word_ordinal_indexes = {
         "первый": 0,
         "первая": 0,
         "первое": 0,
-        "1": 0,
         "второй": 1,
         "вторая": 1,
         "второе": 1,
-        "2": 1,
         "третий": 2,
         "третья": 2,
         "третье": 2,
-        "3": 2,
     }
-    for word, index in ordinal_indexes.items():
+    for word, index in word_ordinal_indexes.items():
         if re.search(rf"(?<!\d)\b{re.escape(word)}\b(?!\d)", text) and index < len(options):
+            return options[index]
+    numeric_match = re.fullmatch(r"\s*(?:вариант\s*)?([123])\s*\)?\s*", text)
+    if numeric_match:
+        index = int(numeric_match.group(1)) - 1
+        if index < len(options):
             return options[index]
     if re.search(r"\b(?:средн\w*)\b", text):
         return options[(len(options) - 1) // 2]
@@ -529,6 +560,14 @@ def _match_catalog_option_choice(text: str, options: list[tuple[str, int]]) -> t
         if normalized_name != "вариант" and normalized_name in text:
             return (name, price)
     return None
+
+
+def _merge_unique(first: list[str], second: list[str]) -> list[str]:
+    merged: list[str] = []
+    for value in [*first, *second]:
+        if value and value not in merged:
+            merged.append(value)
+    return merged
 
 
 def _extract_contacts_by_dialog_context(messages: list[str]) -> dict[str, str]:

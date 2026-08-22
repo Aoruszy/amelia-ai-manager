@@ -192,3 +192,44 @@ def test_catalog_option_negative_answers_do_not_fill_budget_or_preferences():
         state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
         assert state.budget is None, answer
         assert state.colors == [], answer
+
+
+def test_catalog_option_numeric_choice_does_not_capture_dates_or_quantities():
+    cases = [
+        ("давайте 1 сентября", "2026-09-01"),
+        ("заберу 3 числа", None),
+        ("нужно 2 букета", None),
+    ]
+
+    for answer, expected_date in cases:
+        state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
+        assert state.budget is None, answer
+        assert state.colors == [], answer
+        assert state.delivery_date == expected_date, answer
+
+
+def test_catalog_option_numeric_choice_accepts_only_explicit_option_number():
+    for answer in ("2", "2)", "вариант 2"):
+        state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
+        assert state.budget == 5500, answer
+        assert state.colors == ["букет яркий микс"], answer
+
+
+def test_catalog_option_choice_preserves_later_client_preferences_and_forbidden_flowers():
+    with_choice = extract_order_state(
+        [
+            *_option_dialog("второй"),
+            "Клиент: только белые, без лилий, завтра к 15 на Ленина 5",
+        ],
+        today=date(2026, 8, 19),
+    )
+    without_choice = extract_order_state(
+        ["Клиент: только белые, без лилий, завтра к 15 на Ленина 5"],
+        today=date(2026, 8, 19),
+    )
+
+    assert "букет яркий микс" in with_choice.colors
+    assert "белый" in with_choice.colors
+    assert "лилии" in with_choice.forbidden_flowers
+    assert without_choice.colors == ["белый"]
+    assert "лилии" in without_choice.forbidden_flowers

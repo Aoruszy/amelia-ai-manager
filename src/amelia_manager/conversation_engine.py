@@ -18,7 +18,7 @@ from amelia_manager.model_decision import ModelDecision, parse_model_decision
 from amelia_manager.order_fields import normalize_order_patch_keys
 from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch, merge_order_state
 from amelia_manager.order_policy import NextStep, get_next_step
-from amelia_manager.order_state import extract_order_state, is_deferred_date_choice, is_deferred_fulfillment_choice, is_deferred_time_choice
+from amelia_manager.order_state import OrderState, extract_order_state, is_deferred_date_choice, is_deferred_fulfillment_choice, is_deferred_time_choice
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 from amelia_manager.safety import SafetyResult, check_reply_safety, safety_retry_guidance_for_reasons
@@ -117,25 +117,6 @@ class ConversationEngine:
         if catalog_price_reply:
             return ConversationAction(kind="send", messages=[catalog_price_reply], risk_level=risk_level)
 
-        if risk.category == RiskCategory.SENSITIVE_OCCASION and _has_budget_options(budget_options):
-            reply = deterministic_order_reply(
-                NextStep("ask_budget", "Предложи безопасные бюджетные уровни без названий."),
-                order_card if isinstance(order_card, OrderCard) else None,
-                recent_messages=recent_messages,
-                stock_context=stock_context or "",
-                company_profile=self.company_profile,
-                budget_options=budget_options,
-            )
-            if reply:
-                return ConversationAction(
-                    kind="send",
-                    messages=_finalize_messages(reply, sensitive_occasion=True, company_profile=self.company_profile),
-                    risk_level=risk_level,
-                    order_patch=_sensitive_occasion_patch(risk.category),
-                    next_step="ask_budget",
-                    risk_category=risk.category,
-                )
-
         cautious_reply = _cautious_reply_for_medium_risk(
             risk.category,
             stock_context=stock_context,
@@ -233,6 +214,23 @@ class ConversationEngine:
                 next_step=next_step.code,
             )
         if next_step.code in {"ask_budget", "ask_bouquet_preferences"} and _has_budget_options(budget_options):
+            reply = deterministic_order_reply(
+                next_step,
+                order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context or "",
+                company_profile=self.company_profile,
+                budget_options=budget_options,
+            )
+            if reply:
+                return ConversationAction(
+                    kind="send",
+                    messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                    risk_level=risk_level,
+                    next_step=next_step.code,
+                )
+
+        if next_step.code == "ask_when_where" and _has_prior_catalog_options_prompt(recent_messages) and isinstance(order_state, OrderState) and order_state.budget and order_state.colors:
             reply = deterministic_order_reply(
                 next_step,
                 order_card if isinstance(order_card, OrderCard) else None,
@@ -654,6 +652,14 @@ def _has_budget_options(budget_options: BudgetOptions | list[BudgetOption] | Non
         return bool(budget_options.items)
     if isinstance(budget_options, list):
         return bool(budget_options)
+    return False
+
+
+def _has_prior_catalog_options_prompt(messages: list[str]) -> bool:
+    for message in messages:
+        lowered = message.lower().replace("ё", "е")
+        if lowered.startswith(("менеджер:", "алина:")) and "что ближе" in lowered and "₽" in lowered:
+            return True
     return False
 
 

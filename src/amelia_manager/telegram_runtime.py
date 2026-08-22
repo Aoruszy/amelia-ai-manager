@@ -28,6 +28,7 @@ from amelia_manager.order_card import OrderCard, applied_order_patch_field_codes
 from amelia_manager.order_extractor import extract_order_state_with_llm_result
 from amelia_manager.order_request import format_admin_order_request
 from amelia_manager.order_sheet import SheetsOrderAppender, append_order_to_sheet_if_needed, send_pending_sheet_rows
+from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.outbound import (
     build_order_status_reply,
@@ -36,6 +37,7 @@ from amelia_manager.outbound import (
     process_outbound_tick,
     schedule_followups_after_reply,
 )
+from amelia_manager.risk import RiskLevel, assess_risk
 from amelia_manager.stock import BudgetOptions, build_stock_context, format_stock_ack, parse_stock_text, select_budget_options
 from amelia_manager.stock_source import DbCatalogStockSource, ManualStockSource, SheetsStockSource, StockSnapshot, StockSource
 from amelia_manager.observability import EventRecorder, configure_logging
@@ -1202,8 +1204,16 @@ async def run_listener(settings: Settings) -> None:
         latest_client_for_stock = _last_client_text(recent_messages)
         stock_date = stock_snapshot.fetched_at.date() if stock_snapshot.items else None
         stock_is_current = stock_date == _today_in_timezone(company_profile.timezone_name) if stock_date else False
+        stock_risk = assess_risk(latest_client_for_stock, company_profile=company_profile)
+        option_state = merge_order_state(order_card, extract_order_state(recent_messages))
+        option_step = get_next_step(option_state, company_profile=company_profile)
+        include_budget_options = bool(
+            stock_is_current
+            and stock_risk.level == RiskLevel.LOW
+            and option_step.code in {"ask_budget", "ask_bouquet_preferences"}
+        )
         budget_options = BudgetOptions([])
-        if stock_is_current:
+        if include_budget_options:
             budget_options = select_budget_options(
                 stock_snapshot.items,
                 desired_text=latest_client_for_stock,
@@ -1223,6 +1233,7 @@ async def run_listener(settings: Settings) -> None:
             composition_units=company_profile.composition_units,
             sensitive_occasion=bool(order_card.custom_fields.get("occasion_sensitive") is True),
             sensitive_forbidden_words=company_profile.sensitive_occasion_forbidden_words,
+            include_budget_options=include_budget_options,
         )
         image_data_urls = None
         if "[photo]" in _last_client_text(recent_messages).lower() and isinstance(order_card, OrderCard):

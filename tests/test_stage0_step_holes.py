@@ -122,6 +122,7 @@ def _catalog_context(*, sensitive=False):
         composition_units=load_company_profile().composition_units,
         sensitive_occasion=sensitive,
         sensitive_forbidden_words=load_company_profile().sensitive_occasion_forbidden_words,
+        include_budget_options=True,
     )
 
 
@@ -313,9 +314,20 @@ async def test_budget_unknown_empty_catalog_falls_back_to_budget_question():
     assert "—" not in action.messages[0]
 
 
-def test_stock_questions_do_not_trigger_budget_options():
+def test_polite_questions_are_not_budget_unknown_answers():
     for text in ("подскажите, а пионы есть?", "подскажите адрес", "подскажите пожалуйста часы работы"):
-        assert select_budget_options(_catalog_items(), desired_text=text, composition_units=load_company_profile().composition_units).items == []
+        stock_context = build_stock_context(
+            items=_catalog_items(),
+            colors=[],
+            desired_text=text,
+            latest_client_text=text,
+            stock_date=date(2026, 8, 19),
+            today=date(2026, 8, 19),
+            composition_units=load_company_profile().composition_units,
+            include_budget_options=False,
+        )
+        assert "Варианты композиций" not in stock_context
+        assert "4200" not in stock_context and "5500" not in stock_context and "9000" not in stock_context
 
 
 def test_previous_bot_budget_question_does_not_turn_stock_context_into_budget_options():

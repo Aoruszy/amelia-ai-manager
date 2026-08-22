@@ -107,6 +107,7 @@ def build_stock_context(
     sensitive_occasion: bool = False,
     sensitive_forbidden_words: tuple[str, ...] = (),
     latest_client_text: str | None = None,
+    include_budget_options: bool = False,
 ) -> str:
     today = today or _today_in_timezone(timezone_name)
     if not stock_date or not items:
@@ -114,14 +115,16 @@ def build_stock_context(
     if stock_date != today:
         return "Наличие цветов устарело. Не обещай конкретные цветы; попроси уточнить актуальное наличие по смене."
 
-    budget_options = select_budget_options(
-        items,
-        desired_text=latest_client_text if latest_client_text is not None else desired_text,
-        composition_units=composition_units,
-        sensitive_occasion=sensitive_occasion,
-        sensitive_forbidden_words=sensitive_forbidden_words,
-    )
-    if budget_options.items:
+    budget_options = BudgetOptions([])
+    if include_budget_options:
+        budget_options = select_budget_options(
+            items,
+            desired_text=latest_client_text if latest_client_text is not None else desired_text,
+            composition_units=composition_units,
+            sensitive_occasion=sensitive_occasion,
+            sensitive_forbidden_words=sensitive_forbidden_words,
+        )
+    if include_budget_options and budget_options.items:
         lines = ["Варианты композиций из каталога для выбора бюджета:"]
         for option in budget_options.items:
             name = "вариант" if budget_options.hide_names else option.name
@@ -184,8 +187,6 @@ def select_budget_options(
     budget_ceiling: int | None = None,
     min_options: int = 2,
 ) -> BudgetOptions:
-    if _looks_like_stock_or_business_question(desired_text):
-        return BudgetOptions([])
     unit_set = {unit.lower().replace("ё", "е") for unit in composition_units}
     forbidden = [word.lower().replace("ё", "е") for word in sensitive_forbidden_words] if sensitive_occasion else []
     raw_candidates: list[StockItem] = []
@@ -218,18 +219,6 @@ def select_budget_options(
         return BudgetOptions([])
     selected = candidates[-3:] if budget_ceiling is not None else _select_three(candidates)
     return BudgetOptions(_to_budget_options(selected))
-
-
-def _looks_like_stock_or_business_question(text: str) -> bool:
-    normalized = text.lower().replace("ё", "е")
-    if is_budget_unknown_answer(normalized):
-        return False
-    return bool(
-        re.search(r"\b(?:есть|налич\w*|в\s+наличии|адрес|где\s+вы|часы|работа\w*|открыт\w*)\b", normalized)
-        and "букет" not in normalized
-    )
-
-
 def _to_budget_options(items: list[StockItem]) -> list[BudgetOption]:
     return [BudgetOption(name=item.name, price=item.price or 0, unit=item.unit, image_path=item.image_path) for item in items if item.price is not None]
 

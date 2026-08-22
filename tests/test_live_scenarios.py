@@ -14,7 +14,7 @@ class StaticLLM:
 def test_build_live_scenarios_contains_real_case_catalog():
     scenarios = build_live_scenarios()
 
-    assert len(scenarios) == 41
+    assert len(scenarios) == 42
     ids = [scenario.id for scenario in scenarios]
     assert len(ids) == len(set(ids))
     assert {
@@ -58,7 +58,8 @@ def test_build_live_scenarios_contains_real_case_catalog():
         "real-stage3-2-offer-budget-options-by-default",
         "real-stage3-2-client-chooses-middle-option",
         "real-stage3-2-client-rejects-all-options",
-        "real-stage3-2-sensitive-offer-without-names",
+        "real-stage3-2-date-after-options-is-not-option-choice",
+        "real-stage3-2-sensitive-with-catalog-keeps-cautious-reply",
     } == set(ids)
     assert any(s.expected_risk == RiskLevel.HIGH for s in scenarios)
     assert any(s.expected_risk == RiskLevel.MEDIUM for s in scenarios)
@@ -112,7 +113,7 @@ def test_live_mode_appends_real_scenarios_to_default_set(monkeypatch, tmp_path):
 async def test_live_scenarios_run_through_deterministic_pipeline_without_errors():
     report = await dialogue_eval.run_dialogue_eval(build_live_scenarios(), llm=StaticLLM(), use_cache=False)
 
-    assert report["summary"]["total"] == 41
+    assert report["summary"]["total"] == 42
     assert all("llm_called" in result for result in report["results"])
 
 

@@ -57,11 +57,6 @@ def build_live_scenarios() -> list[DialogueScenario]:
         "- букет яркий микс — 5500 ₽/букет\n"
         "- премиум яркий букет — 9000 ₽/букет"
     )
-    sensitive_catalog_options = BudgetOptions([
-        BudgetOption("букет нежный пастельный", 4200, "букет"),
-        BudgetOption("букет яркий микс", 5500, "букет"),
-        BudgetOption("премиум яркий букет", 9000, "букет"),
-    ], hide_names=True)
 
     return [
         DialogueScenario(
@@ -415,14 +410,24 @@ def build_live_scenarios() -> list[DialogueScenario]:
             notes="Негативный выбор не должен заполнять бюджет или пожелания из вариантов.",
         ),
         DialogueScenario(
-            "real-stage3-2-sensitive-offer-without-names",
+            "real-stage3-2-date-after-options-is-not-option-choice",
+            "real_stage3_2_offers",
+            [
+                "Менеджер: Могу показать три варианта: букет нежный пастельный — 4200 ₽, букет яркий микс — 5500 ₽, премиум яркий букет — 9000 ₽. Что ближе?",
+                "Клиент: давайте 1 сентября",
+            ],
+            expected_next_step="ask_budget",
+            must_not_contain=("нежн", "ярк", "премиум"),
+            notes="Дата с цифрой после показа вариантов не должна выбираться как вариант 1/2/3.",
+        ),
+        DialogueScenario(
+            "real-stage3-2-sensitive-with-catalog-keeps-cautious-reply",
             "real_stage3_2_offers",
             ["Клиент: Нужен букет на похороны"],
             stock_context=catalog_stock_context,
-            budget_options=sensitive_catalog_options,
+            budget_options=catalog_options,
             expected_risk=RiskLevel.MEDIUM,
-            must_contain=("4200", "5500"),
-            must_not_contain=("нежн", "ярк", "открытк", "ваз", "шар", "🌸", "💐", "✨"),
-            notes="Скорбный повод: показываем уровни цены без названий и без допродажи.",
+            must_not_contain=("4200", "5500", "9000", "вариант", "нежн", "ярк", "премиум", "открытк", "ваз", "шар", "🌸", "💐", "✨"),
+            notes="Скорбный повод с непустым каталогом всё равно идёт через осторожный ответ без прайс-листа.",
         ),
     ]
