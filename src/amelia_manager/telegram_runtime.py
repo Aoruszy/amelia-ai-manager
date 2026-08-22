@@ -1200,19 +1200,25 @@ async def run_listener(settings: Settings) -> None:
                 payload={"source_name": stock_snapshot.source_name},
             )
         latest_client_for_stock = _last_client_text(recent_messages)
-        budget_options = select_budget_options(
-            stock_snapshot.items,
-            desired_text=latest_client_for_stock,
-            composition_units=company_profile.composition_units,
-            sensitive_occasion=bool(order_card.custom_fields.get("occasion_sensitive") is True),
-            sensitive_forbidden_words=company_profile.sensitive_occasion_forbidden_words,
-        )
+        stock_date = stock_snapshot.fetched_at.date() if stock_snapshot.items else None
+        stock_is_current = stock_date == _today_in_timezone(company_profile.timezone_name) if stock_date else False
+        budget_options = BudgetOptions([])
+        if stock_is_current:
+            budget_options = select_budget_options(
+                stock_snapshot.items,
+                desired_text=latest_client_for_stock,
+                composition_units=company_profile.composition_units,
+                sensitive_occasion=bool(order_card.custom_fields.get("occasion_sensitive") is True),
+                sensitive_forbidden_words=company_profile.sensitive_occasion_forbidden_words,
+                budget_ceiling=order_card.budget if order_card.budget and not order_card.colors else None,
+                min_options=company_profile.catalog_recommendation_min_options,
+            )
         stock_context = build_stock_context(
             items=stock_snapshot.items,
             colors=order_card.colors,
             desired_text="\n".join(recent_messages),
             latest_client_text=latest_client_for_stock,
-            stock_date=stock_snapshot.fetched_at.date() if stock_snapshot.items else None,
+            stock_date=stock_date,
             timezone_name=company_profile.timezone_name,
             composition_units=company_profile.composition_units,
             sensitive_occasion=bool(order_card.custom_fields.get("occasion_sensitive") is True),

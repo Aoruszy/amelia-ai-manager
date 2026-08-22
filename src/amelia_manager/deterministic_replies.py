@@ -30,7 +30,7 @@ def deterministic_order_reply(
     pickup_hours_reply = _pickup_time_outside_hours_reply(recent_messages or [], profile)
     replies = {
         "ask_budget": budget_options_reply or "Подскажите, на какой бюджет ориентируемся? 🌸",
-        "ask_bouquet_preferences": "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
+        "ask_bouquet_preferences": budget_options_reply or "Поняла. Какие оттенки, стиль или цветы больше нравятся?",
         "ask_when_where": _when_where_reply(next_step, profile),
         "ask_fulfillment_type": "Хорошо, по букету поняла. Это будет доставка или самовывоз?",
         "ask_date": "На какое число нужен букет?",
@@ -129,9 +129,11 @@ def _budget_options_reply(
     recent_messages: list[str],
     budget_options: BudgetOptions | list[BudgetOption] | None,
     profile: CompanyProfile,
+    *,
+    require_unknown: bool = False,
 ) -> str | None:
     latest = recent_messages[-1].lower().replace("ё", "е") if recent_messages else ""
-    if not is_budget_unknown_answer(latest):
+    if require_unknown and not is_budget_unknown_answer(latest):
         return None
     if budget_options is None:
         return None

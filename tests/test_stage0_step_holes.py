@@ -8,7 +8,7 @@ from amelia_manager.order_card import OrderCard, merge_order_state
 from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import extract_order_state
 from amelia_manager.safety import check_reply_safety
-from amelia_manager.stock import BudgetOption, StockItem, StockStatus, build_stock_context, select_budget_options
+from amelia_manager.stock import BudgetOption, BudgetOptions, StockItem, StockStatus, build_stock_context, select_budget_options
 
 
 def test_deferred_date_answers_do_not_write_placeholder_to_card():
@@ -136,8 +136,29 @@ def _catalog_options(*, sensitive=False, text="не знаю бюджет"):
     )
 
 
+def _catalog_options_for_budget(budget: int, *, sensitive=False):
+    profile = load_company_profile()
+    return select_budget_options(
+        _catalog_items(),
+        desired_text="Клиент: букет",
+        composition_units=profile.composition_units,
+        sensitive_occasion=sensitive,
+        sensitive_forbidden_words=profile.sensitive_occasion_forbidden_words,
+        budget_ceiling=budget,
+        min_options=profile.catalog_recommendation_min_options,
+    )
+
+
 async def _no_llm_reply(prompt: str, **kwargs):
     raise AssertionError("budget unknown with catalog options should be deterministic")
+
+
+async def _plain_budget_reply(prompt: str, **kwargs):
+    return '{"intent":"order","emotion":"neutral","reply":"Подскажите, на какой бюджет ориентируемся? 🌸","case_patch":{},"next_step":"ask_budget","needs_human":false,"confidence":0.9}'
+
+
+async def _plain_preferences_reply(prompt: str, **kwargs):
+    return '{"intent":"order","emotion":"neutral","reply":"Поняла. Какие оттенки, стиль или цветы больше нравятся?","case_patch":{},"next_step":"ask_bouquet_preferences","needs_human":false,"confidence":0.9}'
 
 
 @pytest.mark.asyncio
@@ -167,6 +188,51 @@ async def test_budget_unknown_gets_three_catalog_compositions_in_ascending_price
 
 
 @pytest.mark.asyncio
+async def test_budget_step_gets_catalog_options_without_unknown_answer():
+    class NoLLM:
+        generate = staticmethod(_no_llm_reply)
+
+    action = await ConversationEngine(NoLLM()).handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: Нужен букет маме"],
+        stage="new",
+        stock_context=_catalog_context(),
+        order_card=OrderCard(),
+        budget_options=_catalog_options(text="Нужен букет маме"),
+    )
+
+    text = action.messages[0]
+    assert action.kind == "send"
+    assert action.next_step == "ask_budget"
+    assert "букет нежный пастельный — 4200 ₽" in text
+    assert "букет яркий микс — 5500 ₽" in text
+
+
+@pytest.mark.asyncio
+async def test_budget_step_without_two_priced_catalog_items_falls_back_to_plain_question():
+    class NoLLM:
+        generate = staticmethod(_plain_budget_reply)
+
+    options = select_budget_options(
+        [StockItem("один букет", StockStatus.AVAILABLE, "1", 1, 4200, "букет")],
+        desired_text="Нужен букет",
+        composition_units=load_company_profile().composition_units,
+    )
+    action = await ConversationEngine(NoLLM()).handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: Нужен букет"],
+        stage="new",
+        stock_context="По наличию на сегодня релевантно:\n- один букет — 1, 4200 ₽/букет",
+        order_card=OrderCard(),
+        budget_options=options,
+    )
+
+    assert action.kind == "send"
+    assert "бюджет" in action.messages[0].lower()
+    assert "один букет" not in action.messages[0].lower()
+
+
+@pytest.mark.asyncio
 async def test_budget_unknown_sensitive_filters_forbidden_names_and_uses_levels_when_too_few_left():
     class NoLLM:
         generate = staticmethod(_no_llm_reply)
@@ -189,6 +255,47 @@ async def test_budget_unknown_sensitive_filters_forbidden_names_and_uses_levels_
 
 
 @pytest.mark.asyncio
+async def test_preferences_step_suggests_catalog_options_within_known_budget():
+    class NoLLM:
+        generate = staticmethod(_no_llm_reply)
+
+    action = await ConversationEngine(NoLLM()).handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: до 6000"],
+        stage="new",
+        stock_context=_catalog_context(),
+        order_card=OrderCard(budget=6000),
+        budget_options=_catalog_options_for_budget(6000),
+    )
+
+    text = action.messages[0]
+    assert action.kind == "send"
+    assert action.next_step == "ask_bouquet_preferences"
+    assert "букет нежный пастельный — 4200 ₽" in text
+    assert "букет яркий микс — 5500 ₽" in text
+    assert "9000" not in text
+
+
+@pytest.mark.asyncio
+async def test_preferences_step_without_catalog_options_falls_back_to_plain_question():
+    class NoLLM:
+        generate = staticmethod(_plain_preferences_reply)
+
+    action = await ConversationEngine(NoLLM()).handle_messages(
+        client_summary="",
+        recent_messages=["Клиент: до 6000"],
+        stage="new",
+        stock_context="Наличие цветов устарело. Не обещай конкретные цветы.",
+        order_card=OrderCard(budget=6000),
+        budget_options=BudgetOptions([]),
+    )
+
+    assert action.kind == "send"
+    assert "какие оттенки" in action.messages[0].lower() or "цветы" in action.messages[0].lower()
+    assert "—" not in action.messages[0]
+
+
+@pytest.mark.asyncio
 async def test_budget_unknown_empty_catalog_falls_back_to_budget_question():
     class NoLLM:
         generate = staticmethod(_no_llm_reply)
@@ -206,7 +313,7 @@ async def test_budget_unknown_empty_catalog_falls_back_to_budget_question():
     assert "—" not in action.messages[0]
 
 
-def test_polite_questions_are_not_budget_unknown_answers():
+def test_stock_questions_do_not_trigger_budget_options():
     for text in ("подскажите, а пионы есть?", "подскажите адрес", "подскажите пожалуйста часы работы"):
         assert select_budget_options(_catalog_items(), desired_text=text, composition_units=load_company_profile().composition_units).items == []
 
@@ -228,9 +335,24 @@ def test_previous_bot_budget_question_does_not_turn_stock_context_into_budget_op
 
 
 def test_budget_unknown_positive_triggers_budget_options():
-    for text in ("не знаю", "затрудняюсь"):
+    for text in ("не знаю", "затрудняюсь", "нужен букет маме"):
         options = select_budget_options(_catalog_items(), desired_text=text, composition_units=load_company_profile().composition_units)
         assert [item.price for item in options.items] == [4200, 5500, 9000]
+
+
+def test_budget_known_options_are_closest_catalog_compositions_below_budget():
+    options = select_budget_options(
+        _catalog_items(),
+        desired_text="до 6000",
+        composition_units=load_company_profile().composition_units,
+        budget_ceiling=6000,
+        min_options=load_company_profile().catalog_recommendation_min_options,
+    )
+
+    assert [(item.name, item.price) for item in options.items] == [
+        ("букет нежный пастельный", 4200),
+        ("букет яркий микс", 5500),
+    ]
 
 
 def test_budget_options_reply_uses_object_not_stock_context_string_format():

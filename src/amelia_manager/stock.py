@@ -181,8 +181,10 @@ def select_budget_options(
     composition_units: tuple[str, ...],
     sensitive_occasion: bool = False,
     sensitive_forbidden_words: tuple[str, ...] = (),
+    budget_ceiling: int | None = None,
+    min_options: int = 2,
 ) -> BudgetOptions:
-    if not is_budget_unknown_answer(desired_text):
+    if _looks_like_stock_or_business_question(desired_text):
         return BudgetOptions([])
     unit_set = {unit.lower().replace("ё", "е") for unit in composition_units}
     forbidden = [word.lower().replace("ё", "е") for word in sensitive_forbidden_words] if sensitive_occasion else []
@@ -196,6 +198,8 @@ def select_budget_options(
         if item.price is None:
             continue
         raw_candidates.append(item)
+    if budget_ceiling is not None:
+        raw_candidates = [item for item in raw_candidates if item.price is not None and item.price <= budget_ceiling]
     raw_candidates.sort(key=lambda item: item.price or 0)
     if not forbidden:
         candidates = raw_candidates
@@ -206,11 +210,24 @@ def select_budget_options(
             if any(re.search(rf"\b{re.escape(word)}\w*\b", name) for word in forbidden):
                 continue
             candidates.append(item)
-        if len(candidates) < 2 and len(raw_candidates) >= 2:
+        if len(candidates) < min_options and len(raw_candidates) >= min_options:
             # For sensitive occasions, do not leak forbidden names. Keep safe price levels
             # from real catalog compositions so the reply can offer a choice without names.
             return BudgetOptions(_to_budget_options(_select_three(raw_candidates)), hide_names=True)
-    return BudgetOptions(_to_budget_options(_select_three(candidates)))
+    if len(candidates) < min_options:
+        return BudgetOptions([])
+    selected = candidates[-3:] if budget_ceiling is not None else _select_three(candidates)
+    return BudgetOptions(_to_budget_options(selected))
+
+
+def _looks_like_stock_or_business_question(text: str) -> bool:
+    normalized = text.lower().replace("ё", "е")
+    if is_budget_unknown_answer(normalized):
+        return False
+    return bool(
+        re.search(r"\b(?:есть|налич\w*|в\s+наличии|адрес|где\s+вы|часы|работа\w*|открыт\w*)\b", normalized)
+        and "букет" not in normalized
+    )
 
 
 def _to_budget_options(items: list[StockItem]) -> list[BudgetOption]:

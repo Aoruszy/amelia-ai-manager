@@ -18,6 +18,7 @@ from amelia_manager.order_policy import get_next_step
 from amelia_manager.order_state import OrderState, extract_order_state
 from amelia_manager.risk import RiskLevel
 from amelia_manager.safety import check_reply_safety
+from amelia_manager.stock import BudgetOptions
 
 
 class DeterministicEvalLLM:
@@ -56,6 +57,7 @@ class DialogueScenario:
     expected_risk: RiskLevel = RiskLevel.LOW
     order_card: OrderCard | None = None
     stock_context: str | None = None
+    budget_options: BudgetOptions | None = None
     must_contain: tuple[str, ...] = ()
     must_not_contain: tuple[str, ...] = ()
     expect_admin_ready: bool | None = None
@@ -88,6 +90,7 @@ async def run_dialogue_eval(
             stage="eval",
             stock_context=scenario.stock_context,
             order_card=scenario.order_card,
+            budget_options=scenario.budget_options,
         )
         output = "\n".join(action.messages)
         checks = _evaluate_checks(

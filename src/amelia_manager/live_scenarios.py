@@ -3,6 +3,7 @@ from __future__ import annotations
 from amelia_manager.dialogue_eval import DialogueScenario
 from amelia_manager.order_card import OrderCard
 from amelia_manager.risk import RiskLevel
+from amelia_manager.stock import BudgetOption, BudgetOptions
 
 
 def build_live_scenarios() -> list[DialogueScenario]:
@@ -45,6 +46,22 @@ def build_live_scenarios() -> list[DialogueScenario]:
         address="Гайдара 173",
         custom_fields={"upsell_offered": True},
     )
+    catalog_options = BudgetOptions([
+        BudgetOption("букет нежный пастельный", 4200, "букет"),
+        BudgetOption("букет яркий микс", 5500, "букет"),
+        BudgetOption("премиум яркий букет", 9000, "букет"),
+    ])
+    catalog_stock_context = (
+        "Варианты композиций из каталога для выбора бюджета:\n"
+        "- букет нежный пастельный — 4200 ₽/букет\n"
+        "- букет яркий микс — 5500 ₽/букет\n"
+        "- премиум яркий букет — 9000 ₽/букет"
+    )
+    sensitive_catalog_options = BudgetOptions([
+        BudgetOption("букет нежный пастельный", 4200, "букет"),
+        BudgetOption("букет яркий микс", 5500, "букет"),
+        BudgetOption("премиум яркий букет", 9000, "букет"),
+    ], hide_names=True)
 
     return [
         DialogueScenario(
@@ -365,5 +382,47 @@ def build_live_scenarios() -> list[DialogueScenario]:
                 "Цена доставки есть в профиле (delivery_city_price=400, free_delivery_from=5000), "
                 "значит на этот вопрос можно ответить точно."
             ),
+        ),
+        DialogueScenario(
+            "real-stage3-2-offer-budget-options-by-default",
+            "real_stage3_2_offers",
+            ["Клиент: Нужен букет маме"],
+            stock_context=catalog_stock_context,
+            budget_options=catalog_options,
+            expected_next_step="ask_budget",
+            must_contain=("4200", "5500"),
+            notes="На ask_budget предложения из каталога показываются без фразы «не знаю». Сценарий детерминированный: dialogue_eval не меряет число ходов.",
+        ),
+        DialogueScenario(
+            "real-stage3-2-client-chooses-middle-option",
+            "real_stage3_2_offers",
+            [
+                "Менеджер: Могу показать три варианта: букет нежный пастельный — 4200 ₽, букет яркий микс — 5500 ₽, премиум яркий букет — 9000 ₽. Что ближе?",
+                "Клиент: средний",
+            ],
+            expected_next_step="ask_when_where",
+            must_not_contain=("какие оттенки", "какие цветы", "бюджет"),
+            notes="Выбор показанного варианта закрывает бюджет и пожелания, поэтому следующий шаг — когда/куда.",
+        ),
+        DialogueScenario(
+            "real-stage3-2-client-rejects-all-options",
+            "real_stage3_2_offers",
+            [
+                "Менеджер: Могу показать три варианта: букет нежный пастельный — 4200 ₽, букет яркий микс — 5500 ₽, премиум яркий букет — 9000 ₽. Что ближе?",
+                "Клиент: ни один не подходит",
+            ],
+            expected_next_step="ask_budget",
+            notes="Негативный выбор не должен заполнять бюджет или пожелания из вариантов.",
+        ),
+        DialogueScenario(
+            "real-stage3-2-sensitive-offer-without-names",
+            "real_stage3_2_offers",
+            ["Клиент: Нужен букет на похороны"],
+            stock_context=catalog_stock_context,
+            budget_options=sensitive_catalog_options,
+            expected_risk=RiskLevel.MEDIUM,
+            must_contain=("4200", "5500"),
+            must_not_contain=("нежн", "ярк", "открытк", "ваз", "шар", "🌸", "💐", "✨"),
+            notes="Скорбный повод: показываем уровни цены без названий и без допродажи.",
         ),
     ]

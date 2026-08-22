@@ -117,6 +117,25 @@ class ConversationEngine:
         if catalog_price_reply:
             return ConversationAction(kind="send", messages=[catalog_price_reply], risk_level=risk_level)
 
+        if risk.category == RiskCategory.SENSITIVE_OCCASION and _has_budget_options(budget_options):
+            reply = deterministic_order_reply(
+                NextStep("ask_budget", "Предложи безопасные бюджетные уровни без названий."),
+                order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context or "",
+                company_profile=self.company_profile,
+                budget_options=budget_options,
+            )
+            if reply:
+                return ConversationAction(
+                    kind="send",
+                    messages=_finalize_messages(reply, sensitive_occasion=True, company_profile=self.company_profile),
+                    risk_level=risk_level,
+                    order_patch=_sensitive_occasion_patch(risk.category),
+                    next_step="ask_budget",
+                    risk_category=risk.category,
+                )
+
         cautious_reply = _cautious_reply_for_medium_risk(
             risk.category,
             stock_context=stock_context,
@@ -213,6 +232,23 @@ class ConversationEngine:
                 risk_level=risk_level,
                 next_step=next_step.code,
             )
+        if next_step.code in {"ask_budget", "ask_bouquet_preferences"} and _has_budget_options(budget_options):
+            reply = deterministic_order_reply(
+                next_step,
+                order_card if isinstance(order_card, OrderCard) else None,
+                recent_messages=recent_messages,
+                stock_context=stock_context or "",
+                company_profile=self.company_profile,
+                budget_options=budget_options,
+            )
+            if reply:
+                return ConversationAction(
+                    kind="send",
+                    messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
+                    risk_level=risk_level,
+                    next_step=next_step.code,
+                )
+
         if next_step.code == "ask_budget" and is_budget_unknown_answer(last_client_text):
             reply = deterministic_order_reply(
                 next_step,
@@ -611,6 +647,15 @@ def _fallback_after_safety_failure(
 
 def _is_budget_unknown_answer(text: str) -> bool:
     return is_budget_unknown_answer(text)
+
+
+def _has_budget_options(budget_options: BudgetOptions | list[BudgetOption] | None) -> bool:
+    if isinstance(budget_options, BudgetOptions):
+        return bool(budget_options.items)
+    if isinstance(budget_options, list):
+        return bool(budget_options)
+    return False
+
 
 def _is_upsell_decline(text: str) -> bool:
     normalized = text.lower().replace("ё", "е")

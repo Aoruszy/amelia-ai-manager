@@ -145,3 +145,50 @@ def test_single_contact_in_grouped_question_goes_to_sender_and_does_not_invent_r
     assert state.sender_phone == "89990000001"
     assert state.recipient_name is None
     assert state.recipient_phone is None
+
+
+def _option_dialog(answer: str) -> list[str]:
+    return [
+        "Менеджер: Могу показать три варианта: букет нежный пастельный — 4200 ₽, букет яркий микс — 5500 ₽, премиум яркий букет — 9000 ₽. Что ближе?",
+        f"Клиент: {answer}",
+    ]
+
+
+def test_catalog_option_choice_by_ordinal_level_name_or_price_fills_budget_and_preferences():
+    cases = [
+        ("давайте второй", 5500, "букет яркий микс"),
+        ("средний", 5500, "букет яркий микс"),
+        ("букет яркий микс", 5500, "букет яркий микс"),
+        ("5500", 5500, "букет яркий микс"),
+        ("подороже", 9000, "премиум яркий букет"),
+        ("дешевле", 4200, "букет нежный пастельный"),
+    ]
+
+    for answer, budget, preference in cases:
+        state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
+        assert state.budget == budget, answer
+        assert state.colors == [preference], answer
+
+
+def test_catalog_option_choice_closes_preferences_step():
+    from amelia_manager.order_policy import get_next_step
+
+    state = extract_order_state(
+        [
+            *_option_dialog("средний"),
+            "Клиент: доставка завтра к 14:00 на Ленина 5",
+        ],
+        today=date(2026, 8, 19),
+    )
+
+    assert state.budget == 5500
+    assert state.colors == ["букет яркий микс"]
+    assert get_next_step(state).code == "ask_when_where"
+    assert get_next_step(state).code != "ask_bouquet_preferences"
+
+
+def test_catalog_option_negative_answers_do_not_fill_budget_or_preferences():
+    for answer in ("а есть что-то другое?", "ни один не подходит", "не эти", "пока подумаю"):
+        state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
+        assert state.budget is None, answer
+        assert state.colors == [], answer

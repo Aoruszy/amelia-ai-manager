@@ -47,7 +47,10 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
     manager_schedule_text = _manager_scheduling_text(messages)
     original = "\n".join(client_messages)
     contacts = _extract_contacts_by_dialog_context(messages)
+    catalog_choice = _extract_catalog_option_choice(messages)
     budget_candidates = [*_extract_budget_candidates(text), *_extract_budget_by_dialog_context(messages)]
+    if catalog_choice is not None:
+        budget_candidates.append((catalog_choice[0], catalog_choice[1]))
     budget = max(budget_candidates, key=lambda item: item[0])[1] if budget_candidates else None
     recipient_name = contacts.get("recipient_name") or _extract_recipient_name(original)
     recipient_phone = contacts.get("recipient_phone") or _extract_recipient_phone(original)
@@ -58,7 +61,7 @@ def extract_order_state(messages: list[str], *, today: date | None = None, timez
     return OrderState(
         occasion=_extract_occasion(text),
         budget=budget,
-        colors=_extract_colors(text),
+        colors=[catalog_choice[2]] if catalog_choice is not None else _extract_colors(text),
         forbidden_flowers=_extract_forbidden_flowers(text),
         fulfillment_type=_extract_fulfillment_type(text),
         delivery_date=_extract_delivery_date(text, latest_client_text, manager_schedule_text, today=reference_date),
@@ -452,6 +455,80 @@ def _extract_budget_by_dialog_context(messages: list[str]) -> list[tuple[int, in
             pending_budget = False
         position += len(lowered) + 1
     return candidates
+
+
+def _extract_catalog_option_choice(messages: list[str]) -> tuple[int, int, str] | None:
+    options: list[tuple[str, int]] = []
+    position = 0
+    for message in messages:
+        stripped = _strip_role(message)
+        lowered = stripped.lower().replace("ё", "е")
+        if message.lower().startswith(("менеджер:", "алина:")):
+            parsed = _parse_catalog_options_from_manager_text(stripped)
+            if parsed:
+                options = parsed
+            continue
+        if not _is_client_message(message):
+            continue
+        if options:
+            chosen = _match_catalog_option_choice(lowered, options)
+            if chosen is not None:
+                name, price = chosen
+                preference = name if name != "вариант" else f"вариант за {price} ₽"
+                return (position, price, preference)
+        position += len(lowered) + 1
+    return None
+
+
+def _parse_catalog_options_from_manager_text(text: str) -> list[tuple[str, int]]:
+    normalized = text.lower().replace("ё", "е")
+    if "что ближе" not in normalized and "вариант" not in normalized:
+        return []
+    options: list[tuple[str, int]] = []
+    for match in re.finditer(r"(?:«(?P<quoted>[^»]+)»|(?P<plain>[а-яa-z0-9\s-]{3,60}?))\s+[—-]\s*(?P<price>[1-9]\d{2,5})\s*₽", normalized):
+        name = (match.group("quoted") or match.group("plain") or "вариант").strip(" ,.:;—-")
+        name = re.sub(r"^(?:могу\s+(?:показать|предложить)\s+(?:три\s+)?вариант[а-я]*:|и\s+)", "", name).strip(" ,.:;—-")
+        options.append((name or "вариант", int(match.group("price"))))
+    if options:
+        return options
+    for match in re.finditer(r"(?<!\d)([1-9]\d{2,5})\s*₽", normalized):
+        options.append(("вариант", int(match.group(1))))
+    return options
+
+
+def _match_catalog_option_choice(text: str, options: list[tuple[str, int]]) -> tuple[str, int] | None:
+    if re.search(r"\b(?:ни\s+один|никак\w*|друго\w*|не\s+подход\w*|не\s+эти|подумаю)\b", text):
+        return None
+    ordinal_indexes = {
+        "первый": 0,
+        "первая": 0,
+        "первое": 0,
+        "1": 0,
+        "второй": 1,
+        "вторая": 1,
+        "второе": 1,
+        "2": 1,
+        "третий": 2,
+        "третья": 2,
+        "третье": 2,
+        "3": 2,
+    }
+    for word, index in ordinal_indexes.items():
+        if re.search(rf"(?<!\d)\b{re.escape(word)}\b(?!\d)", text) and index < len(options):
+            return options[index]
+    if re.search(r"\b(?:средн\w*)\b", text):
+        return options[(len(options) - 1) // 2]
+    if re.search(r"\b(?:дешев\w*|подешевле|бюджетн\w*)\b", text):
+        return options[0]
+    if re.search(r"\b(?:дорог\w*|подороже|премиум)\b", text):
+        return options[-1]
+    for name, price in options:
+        if re.search(rf"(?<!\d){price}(?!\d)", text):
+            return (name, price)
+        normalized_name = name.lower().replace("ё", "е")
+        if normalized_name != "вариант" and normalized_name in text:
+            return (name, price)
+    return None
 
 
 def _extract_contacts_by_dialog_context(messages: list[str]) -> dict[str, str]:

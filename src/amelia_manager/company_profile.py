@@ -102,6 +102,7 @@ class CompanyProfile:
     composition_units: tuple[str, ...] = ("букет", "композиция", "корзина")
     budget_options_reply_template: str = "Могу показать три варианта: {options}. Что ближе?"
     budget_levels_reply_template: str = "Могу предложить уровни по бюджету: {options}. Что ближе?"
+    catalog_recommendation_min_options: int = 2
     default_fulfillment_choice_reply_template: str = "Самовывоз с {pickup_address} — самый простой вариант. Если удобнее доставка, тоже оформим."
     default_date_offset_days: int = 1
     default_time_value: str = "14:00"
@@ -175,6 +176,7 @@ _DEFAULT_PROFILES = {
         composition_units=("букет", "композиция", "корзина"),
         budget_options_reply_template="Могу показать три варианта: {options}. Что ближе?",
         budget_levels_reply_template="Могу предложить уровни по бюджету: {options}. Что ближе?",
+        catalog_recommendation_min_options=2,
         followup_fallbacks={
             "budget": "Если удобно, напишите примерный бюджет — подскажу варианты. Можно не отвечать, если уже неактуально.",
             "format": "Можем оформить самовывоз или доставку — как вам удобнее? Можно не отвечать, если уже неактуально.",
