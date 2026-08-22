@@ -66,6 +66,25 @@ def test_when_where_repeated_partial_pickup_time_gets_direct_reworded_prompt():
     assert "другими словами" in step.instruction.lower()
 
 
+def test_when_where_repeated_partial_delivery_time_gets_direct_single_field_prompt():
+    state = OrderState(
+        budget=7000,
+        colors=["синий"],
+        fulfillment_type="delivery",
+        delivery_date="2026-08-22",
+        address="Ленина 5",
+        custom_fields={"_asked_groups": {"ask_when_where": ("delivery_time",)}},
+    )
+
+    step = get_next_step(state)
+
+    assert step.code == "ask_when_where"
+    assert step.missing == ("delivery_time",)
+    assert "прямо" in step.instruction.lower()
+    assert "другими словами" in step.instruction.lower()
+    assert "адрес" not in step.instruction.lower()
+
+
 def test_when_where_partial_progress_does_not_trigger_repeat_guard():
     state = OrderState(
         budget=7000,
@@ -100,6 +119,51 @@ def test_contacts_repeated_partial_group_gets_direct_sender_prompt():
     assert step.code == "ask_contacts"
     assert step.missing == ("sender_name",)
     assert "прямо" in step.instruction.lower()
+
+
+def test_contacts_repeated_partial_recipient_name_gets_direct_single_field_prompt():
+    state = OrderState(
+        budget=7000,
+        colors=["синий"],
+        fulfillment_type="delivery",
+        delivery_date="2026-08-22",
+        delivery_time="14:00",
+        address="Ленина 5",
+        sender_name="Анна",
+        sender_phone="89990000001",
+        recipient_phone="89990000002",
+        custom_fields={"upsell_offered": True, "_asked_groups": {"ask_contacts": ("recipient_name",)}},
+    )
+
+    step = get_next_step(state)
+
+    assert step.code == "ask_contacts"
+    assert step.missing == ("recipient_name",)
+    assert "прямо" in step.instruction.lower()
+    assert "другими словами" in step.instruction.lower()
+    assert "телефон" not in step.instruction.lower()
+
+
+def test_contacts_first_partial_recipient_prompt_is_not_direct_interrogation():
+    state = OrderState(
+        budget=7000,
+        colors=["синий"],
+        fulfillment_type="delivery",
+        delivery_date="2026-08-22",
+        delivery_time="14:00",
+        address="Ленина 5",
+        sender_name="Анна",
+        sender_phone="89990000001",
+        recipient_phone="89990000002",
+        custom_fields={"upsell_offered": True},
+    )
+
+    step = get_next_step(state)
+
+    assert step.code == "ask_contacts"
+    assert step.missing == ("recipient_name",)
+    assert "прямо" not in step.instruction.lower()
+    assert "другими словами" not in step.instruction.lower()
 
 
 def test_action_patch_merges_nested_asked_groups_without_erasing_previous_group():

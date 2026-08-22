@@ -33,6 +33,7 @@ class NextStep:
     code: str
     instruction: str
     missing: tuple[str, ...] = ()
+    fulfillment_type: str | None = None
 
 
 def next_step_codes_for_profile(profile: CompanyProfile) -> list[str]:
@@ -68,7 +69,12 @@ def get_next_step(
     when_where_missing = _missing_when_where_fields(state)
     if when_where_missing:
         profile = company_profile or load_company_profile("amelia_flowers")
-        return NextStep("ask_when_where", _when_where_instruction(when_where_missing, state, profile), missing=when_where_missing)
+        return NextStep(
+            "ask_when_where",
+            _when_where_instruction(when_where_missing, state, profile),
+            missing=when_where_missing,
+            fulfillment_type=state.fulfillment_type,
+        )
     if state.fulfillment_type == "pickup" and not _is_pickup_time_within_shop_hours(
         state.delivery_time,
         company_profile=company_profile,
@@ -88,7 +94,12 @@ def get_next_step(
         )
     contacts_missing = _missing_contact_fields(state)
     if contacts_missing:
-        return NextStep("ask_contacts", _contacts_instruction(contacts_missing, state), missing=contacts_missing)
+        return NextStep(
+            "ask_contacts",
+            _contacts_instruction(contacts_missing, state),
+            missing=contacts_missing,
+            fulfillment_type=state.fulfillment_type,
+        )
     if state.fulfillment_type == "pickup":
         return NextStep(
             "confirm_pickup_order",
@@ -168,6 +179,7 @@ def _group_repeated_without_progress(state: OrderState, group_code: str, missing
 
 
 def _when_where_instruction(missing: tuple[str, ...], state: OrderState, profile: CompanyProfile) -> str:
+    repeated = _group_was_asked(state, "ask_when_where") and len(missing) == 1
     if missing == ("fulfillment_type",):
         return "Уточни прямо одним вопросом: доставка или самовывоз."
     if set(missing) == {"fulfillment_type", "address"}:
@@ -186,26 +198,47 @@ def _when_where_instruction(missing: tuple[str, ...], state: OrderState, profile
     joined = " и ".join(parts)
     if state.fulfillment_type == "pickup":
         pickup_address = profile.pickup_address or "адрес самовывоза"
-        if missing == ("delivery_time",) and _group_was_asked(state, "ask_when_where"):
+        if missing == ("delivery_time",) and repeated:
             return f"Спроси прямо, другими словами: к какому времени клиент заберёт букет самовывозом с {pickup_address}?"
         if missing == ("delivery_time",):
             return f"Уточни только время для самовывоза с {pickup_address}."
+        if repeated:
+            return f"Спроси прямо, другими словами: {joined} для самовывоза."
         return f"Уточни только {joined} для самовывоза."
+    if repeated:
+        return f"Спроси прямо, другими словами: {joined}."
     return f"Уточни только {joined}. Не повторяй уже заполненные поля группы."
 
 
 def _contacts_instruction(missing: tuple[str, ...], state: OrderState) -> str:
     need_sender = any(field.startswith("sender_") for field in missing)
     need_recipient = any(field.startswith("recipient_") for field in missing)
+    repeated = _group_was_asked(state, "ask_contacts") and len(missing) == 1
     if need_sender and need_recipient:
-        if _group_repeated_without_progress(state, "ask_contacts", list(missing)):
-            return "Спроси прямо, другими словами: ваше имя и телефон для связи по заказу."
+        if _group_was_asked(state, "ask_contacts"):
+            first_field = missing[0]
+            if first_field == "sender_name":
+                return "Спроси прямо, другими словами: ваше имя для связи по заказу."
+            if first_field == "sender_phone":
+                return "Спроси прямо, другими словами: ваш телефон для связи по заказу."
+            if first_field == "recipient_name":
+                return "Спроси прямо, другими словами: имя получателя."
+            if first_field == "recipient_phone":
+                return "Спроси прямо, другими словами: телефон получателя."
         return "Попроси имя и телефон отправителя, и имя с телефоном получателя."
     if need_sender:
-        if _group_was_asked(state, "ask_contacts"):
-            return "Спроси прямо, другими словами: недостающие имя или телефон отправителя для связи по заказу."
+        if repeated:
+            if missing == ("sender_name",):
+                return "Спроси прямо, другими словами: ваше имя для связи по заказу."
+            if missing == ("sender_phone",):
+                return "Спроси прямо, другими словами: ваш телефон для связи по заказу."
         return "Попроси только недостающие имя или телефон отправителя для связи по заказу."
     if need_recipient:
+        if repeated:
+            if missing == ("recipient_name",):
+                return "Спроси прямо, другими словами: имя получателя."
+            if missing == ("recipient_phone",):
+                return "Спроси прямо, другими словами: телефон получателя."
         return "Попроси только недостающие имя или телефон получателя."
     return "Попроси недостающие контакты по заказу."
 

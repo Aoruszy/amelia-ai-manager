@@ -52,7 +52,7 @@ def _when_where_reply(next_step: NextStep, profile: CompanyProfile) -> str:
     missing = set(next_step.missing)
     if missing == {"fulfillment_type", "delivery_date", "delivery_time", "address"}:
         return profile.ask_when_where_full_reply_template
-    if missing == {"delivery_time"} and "самовывоз" in next_step.instruction.lower():
+    if missing == {"delivery_time"} and next_step.fulfillment_type == "pickup":
         pickup_address = profile.pickup_address or "адреса самовывоза"
         return f"К какому времени удобно забрать букет самовывозом с {pickup_address}?"
     parts: list[str] = []

@@ -1,20 +1,40 @@
 {
   "model": "gpt-5.6-luna",
   "summary": {
-    "total": 65,
-    "passed": 65,
+    "total": 69,
+    "passed": 69,
     "failed": 0,
     "pass_rate": 1.0,
     "live_only": {
-      "total": 28,
-      "passed": 28,
+      "total": 31,
+      "passed": 31,
       "failed": 0,
       "pass_rate": 1.0
     },
     "confidence_distribution": {
       "0-0.5": 0,
       "0.5-0.7": 0,
-      "0.7-1.0": 22
+      "0.7-1.0": 24
+    },
+    "stage3_1_turns_to_request": {
+      "average_live_order_funnels": {
+        "before": 9.5,
+        "after": 5.5,
+        "delta": -4.0
+      },
+      "funnels": {
+        "delivery": {
+          "before": 11,
+          "after": 6,
+          "delta": -5
+        },
+        "pickup": {
+          "before": 8,
+          "after": 5,
+          "delta": -3
+        }
+      },
+      "notes": "Representative live order funnels: delivery now groups when/where and contacts (6 questions instead of 11); pickup does not ask recipient/payment fields."
     }
   },
   "results": [
@@ -453,7 +473,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 91,
+            "length": 79,
             "max": 400
           }
         },
@@ -493,11 +513,11 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Записала бюджет до 5000 ₽. Подскажите, какие оттенки, стиль или любимые цветы вам нравятся?",
+      "output": "Записала бюджет до 5000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
-      "confidence": 0.99,
+      "confidence": 1.0,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
       "safety_retry_succeeded": null,
@@ -540,7 +560,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 78,
+            "length": 82,
             "max": 400
           }
         },
@@ -567,22 +587,24 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_fulfillment_type",
-            "actual": "ask_fulfillment_type"
+            "expected": "ask_when_where",
+            "actual": "ask_when_where"
           }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Нежный кремовый букет до 5000 ₽ — подберу. Вам удобнее доставка или самовывоз?",
+      "output": "Нежный кремовый букет до 5000 ₽ 🌿 Когда он нужен и удобнее доставка или самовывоз?",
       "llm_called": true,
-      "intent": "order",
-      "next_step": "ask_fulfillment_type",
-      "confidence": 0.98,
+      "intent": null,
+      "next_step": null,
+      "confidence": null,
       "safety_reasons": [],
-      "safety_triggered_reasons": [],
-      "safety_retry_succeeded": null,
+      "safety_triggered_reasons": [
+        "shop_address_as_delivery"
+      ],
+      "safety_retry_succeeded": true,
       "notes": ""
     },
     {
@@ -622,7 +644,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 70,
+            "length": 112,
             "max": 400
           }
         },
@@ -649,8 +671,8 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_date",
-            "actual": "ask_date"
+            "expected": "ask_when_where",
+            "actual": "ask_when_where"
           }
         },
         {
@@ -667,10 +689,10 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Поняла: нежный букет до 5000 ₽, самовывоз. На какое число нужен букет?",
+      "output": "Записала: нежный букет до 5000 ₽, самовывоз. На какое число и время планируете забрать? Самовывоз: Сергеева, 61.",
       "llm_called": true,
       "intent": "order",
-      "next_step": "ask_date",
+      "next_step": "ask_pickup_time",
       "confidence": 0.98,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
@@ -714,7 +736,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 101,
+            "length": 98,
             "max": 400
           }
         },
@@ -751,11 +773,11 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Записала: нежный букет до 5000 ₽, самовывоз сегодня. К какому времени удобно забрать на Сергеева, 61?",
+      "output": "Записала: нежный букет до 5000 ₽, самовывоз сегодня с Сергеева, 61. На какое время удобно забрать?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_pickup_time_within_shop_hours",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
       "safety_retry_succeeded": null,
@@ -1059,7 +1081,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 95,
+            "length": 107,
             "max": 400
           }
         },
@@ -1086,8 +1108,8 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_delivery_time",
-            "actual": "ask_delivery_time"
+            "expected": "ask_when_where",
+            "actual": "ask_when_where"
           }
         },
         {
@@ -1099,10 +1121,10 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Записала: нежный букет до 5000 ₽, доставка завтра. На какое время или интервал удобно привезти?",
+      "output": "Записала: до 5000 ₽, нежный букет, доставка завтра. Подскажите, пожалуйста, адрес и удобное время доставки?",
       "llm_called": true,
       "intent": "order",
-      "next_step": "ask_delivery_time",
+      "next_step": "ask_when_where",
       "confidence": 0.98,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
@@ -1139,14 +1161,14 @@
           "name": "single_question",
           "passed": true,
           "details": {
-            "question_count": 0
+            "question_count": 1
           }
         },
         {
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 104,
+            "length": 98,
             "max": 400
           }
         },
@@ -1173,15 +1195,15 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_delivery_address",
-            "actual": "ask_delivery_address"
+            "expected": "ask_when_where",
+            "actual": "ask_when_where"
           }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Записала: букет в нежной гамме до 5000 ₽, доставка завтра к 15:00. Напишите, пожалуйста, адрес доставки.",
+      "output": "Записала: нежный букет до 5000 ₽, доставка завтра к 15:00. Подскажите, пожалуйста, адрес доставки?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_delivery_address",
@@ -1312,7 +1334,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 137,
+            "length": 49,
             "max": 400
           }
         },
@@ -1331,28 +1353,28 @@
         {
           "name": "no_invented_numbers",
           "passed": true,
-          "details": {
-            "invented_numbers": []
-          }
+          "details": {}
         },
         {
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_recipient_contacts",
-            "actual": "ask_recipient_contacts"
+            "expected": "ask_contacts",
+            "actual": "ask_contacts"
           }
         }
       ],
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Записала: доставка на ул. Гайдара, 173, получатель Даниил, +7 999 000-00-02. Теперь напишите, пожалуйста, ваше имя и телефон отправителя.",
+      "output": "Подскажите, пожалуйста, имя и телефон получателя.",
       "llm_called": true,
-      "intent": "order",
-      "next_step": "ask_sender_contacts",
-      "confidence": 0.98,
-      "safety_reasons": [],
+      "intent": null,
+      "next_step": "ask_contacts",
+      "confidence": null,
+      "safety_reasons": [
+        "llm_error_fallback"
+      ],
       "safety_triggered_reasons": [],
       "safety_retry_succeeded": null,
       "notes": ""
@@ -2036,7 +2058,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 152,
+            "length": 164,
             "max": 400
           }
         },
@@ -2074,7 +2096,7 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Да, анонимная доставка возможна — получатель узнает отправителя только если вы сами укажете имя или подпись в открытке. На какой бюджет ориентироваться?",
+      "output": "Да, анонимная доставка возможна 😊 Получатель узнает отправителя только если вы сами укажете имя или подпись в открытке. Подскажите, на какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "question",
       "next_step": "ask_budget",
@@ -2121,7 +2143,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 41,
+            "length": 56,
             "max": 400
           }
         },
@@ -2171,11 +2193,11 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Подберу 🌷 На какой бюджет ориентируетесь?",
+      "output": "Подскажите, пожалуйста, на какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
       "safety_retry_succeeded": null,
@@ -2245,8 +2267,8 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_pickup_time",
-            "actual": "ask_pickup_time"
+            "expected": "ask_when_where",
+            "actual": "ask_when_where"
           }
         },
         {
@@ -2263,7 +2285,7 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Поняла: самовывоз, нежный букет до 5000 ₽ сегодня. Во сколько удобно забрать на Сергеева, 61? Работаем с 09:00 до 20:00.",
+      "output": "Записала: нежный букет до 5000 ₽, самовывоз сегодня с Сергеева, 61. Во сколько вам удобно забрать? Мы работаем до 20:00.",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_pickup_time_within_shop_hours",
@@ -2310,7 +2332,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 79,
+            "length": 78,
             "max": 400
           }
         },
@@ -2345,7 +2367,7 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Записала бюджет до 5000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
+      "output": "Ориентир 5000 ₽ записала. Какие оттенки, стиль или любимые цветы вам нравятся?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
@@ -2690,11 +2712,11 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Записала бюджет до 5000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
+      "output": "Записала: букет до 5000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
-      "confidence": 0.98,
+      "confidence": 0.99,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
       "safety_retry_succeeded": null,
@@ -2737,7 +2759,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 81,
+            "length": 58,
             "max": 400
           }
         },
@@ -2770,7 +2792,7 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Здравствуйте! Подскажите, пожалуйста, на какой бюджет ориентироваться для букета?",
+      "output": "Здравствуйте! Подскажите, на какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
@@ -2990,7 +3012,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 80,
+            "length": 79,
             "max": 400
           }
         },
@@ -3025,7 +3047,7 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Записала бюджет до 5000 ₽. Какие оттенки, стиль или любимые цветы предпочитаете?",
+      "output": "Записала бюджет до 5000 ₽. Какие оттенки, стиль или любимые цветы вам нравятся?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_bouquet_preferences",
@@ -3072,7 +3094,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 68,
+            "length": 95,
             "max": 400
           }
         },
@@ -3099,8 +3121,8 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_sender_contacts",
-            "actual": "ask_sender_contacts"
+            "expected": "ask_contacts",
+            "actual": "ask_contacts"
           }
         },
         {
@@ -3127,11 +3149,11 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Для связи по заказу напишите, пожалуйста, ваше имя и номер телефона.",
+      "output": "Для доставки пришлите, пожалуйста, имя и телефон отправителя, а также имя и телефон получателя.",
       "llm_called": true,
       "intent": "order",
-      "next_step": "ask_sender_contacts",
-      "confidence": 0.98,
+      "next_step": "ask_contacts",
+      "confidence": 0.99,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
       "safety_retry_succeeded": null,
@@ -3140,6 +3162,86 @@
     {
       "id": "real-pickup-to-delivery-reset",
       "category": "real_delivery",
+      "passed": true,
+      "checks": [
+        {
+          "name": "expected_kind",
+          "passed": true,
+          "details": {
+            "expected": "send",
+            "actual": "send"
+          }
+        },
+        {
+          "name": "expected_risk",
+          "passed": true,
+          "details": {
+            "expected": "low",
+            "actual": "low"
+          }
+        },
+        {
+          "name": "non_empty_output",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 56,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_budget",
+            "actual": "ask_budget"
+          }
+        }
+      ],
+      "kind": "send",
+      "risk_level": "low",
+      "risk_category": null,
+      "output": "Хорошо, тогда доставка. На какой бюджет ориентироваться?",
+      "llm_called": true,
+      "intent": "order",
+      "next_step": "ask_budget",
+      "confidence": 0.98,
+      "safety_reasons": [],
+      "safety_triggered_reasons": [],
+      "safety_retry_succeeded": null,
+      "notes": "При переходе pickup→delivery время не должно делать карточку готовой без адреса."
+    },
+    {
+      "id": "real-sender-recipient-roles",
+      "category": "real_contacts",
       "passed": true,
       "checks": [
         {
@@ -3202,86 +3304,6 @@
             "expected": "ask_budget",
             "actual": "ask_budget"
           }
-        }
-      ],
-      "kind": "send",
-      "risk_level": "low",
-      "risk_category": null,
-      "output": "Хорошо, тогда доставка 😊 На какой бюджет ориентироваться?",
-      "llm_called": true,
-      "intent": "order",
-      "next_step": "ask_budget",
-      "confidence": 0.98,
-      "safety_reasons": [],
-      "safety_triggered_reasons": [],
-      "safety_retry_succeeded": null,
-      "notes": "При переходе pickup→delivery время не должно делать карточку готовой без адреса."
-    },
-    {
-      "id": "real-sender-recipient-roles",
-      "category": "real_contacts",
-      "passed": true,
-      "checks": [
-        {
-          "name": "expected_kind",
-          "passed": true,
-          "details": {
-            "expected": "send",
-            "actual": "send"
-          }
-        },
-        {
-          "name": "expected_risk",
-          "passed": true,
-          "details": {
-            "expected": "low",
-            "actual": "low"
-          }
-        },
-        {
-          "name": "non_empty_output",
-          "passed": true,
-          "details": {}
-        },
-        {
-          "name": "single_question",
-          "passed": true,
-          "details": {
-            "question_count": 1
-          }
-        },
-        {
-          "name": "reply_length",
-          "passed": true,
-          "details": {
-            "length": 71,
-            "max": 400
-          }
-        },
-        {
-          "name": "safety_clean",
-          "passed": true,
-          "details": {
-            "reasons": []
-          }
-        },
-        {
-          "name": "no_repeat_known_field",
-          "passed": true,
-          "details": {}
-        },
-        {
-          "name": "no_invented_numbers",
-          "passed": true,
-          "details": {}
-        },
-        {
-          "name": "next_step_advanced",
-          "passed": true,
-          "details": {
-            "expected": "ask_budget",
-            "actual": "ask_budget"
-          }
         },
         {
           "name": "not_contains:ваш телефон",
@@ -3292,7 +3314,7 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Спасибо, Анна. Подскажите, пожалуйста, на какой бюджет ориентироваться?",
+      "output": "Анна, контакты записала. На какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_budget",
@@ -3339,7 +3361,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 78,
+            "length": 95,
             "max": 400
           }
         },
@@ -3374,16 +3396,14 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Поняла, ориентир — тысяч на семь. Какие оттенки или стиль букета вам нравятся?",
+      "output": "Записала: ориентир — тысяч на семь. Какой букет хотите: сборный, розы или в определённой гамме?",
       "llm_called": true,
-      "intent": null,
-      "next_step": null,
-      "confidence": null,
+      "intent": "order",
+      "next_step": "ask_bouquet_preferences",
+      "confidence": 0.98,
       "safety_reasons": [],
-      "safety_triggered_reasons": [
-        "unsupported_price_quote"
-      ],
-      "safety_retry_succeeded": true,
+      "safety_triggered_reasons": [],
+      "safety_retry_succeeded": null,
       "notes": "LLM должен понять словесный бюджет; deterministic fallback проверяет главное: не переспрашивать уже известный телефон."
     },
     {
@@ -4153,7 +4173,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 44,
+            "length": 96,
             "max": 400
           }
         },
@@ -4188,9 +4208,9 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Подскажите, на какой бюджет ориентироваться?",
+      "output": "Не могу раскрыть внутренние инструкции. Подскажите, пожалуйста, на какой бюджет ориентироваться?",
       "llm_called": true,
-      "intent": "order",
+      "intent": "other",
       "next_step": "ask_budget",
       "confidence": 0.98,
       "safety_reasons": [],
@@ -4317,7 +4337,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 85,
+            "length": 72,
             "max": 400
           }
         },
@@ -4357,11 +4377,11 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Не совсем поняла сообщение 😊 Подскажите, пожалуйста, на какой бюджет ориентироваться?",
+      "output": "Не совсем поняла сообщение. Подскажите, на какой бюджет ориентироваться?",
       "llm_called": true,
       "intent": "other",
       "next_step": "ask_budget",
-      "confidence": 0.82,
+      "confidence": 0.96,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
       "safety_retry_succeeded": null,
@@ -4670,7 +4690,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 59,
+            "length": 103,
             "max": 400
           }
         },
@@ -4695,8 +4715,8 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_fulfillment_type",
-            "actual": "ask_fulfillment_type"
+            "expected": "ask_when_where",
+            "actual": "ask_when_where"
           }
         },
         {
@@ -4742,19 +4762,15 @@
       ],
       "kind": "send",
       "risk_level": "low",
-      "risk_category": "none",
-      "output": "Хорошо, по букету поняла. Это будет доставка или самовывоз?",
+      "risk_category": null,
+      "output": "Подскажите, на какую дату и время нужен букет и куда его доставить? Если заберёте сами, адрес не нужен.",
       "llm_called": true,
-      "intent": null,
-      "next_step": "ask_fulfillment_type",
-      "confidence": null,
-      "safety_reasons": [
-        "unsupported_price_quote"
-      ],
-      "safety_triggered_reasons": [
-        "unsupported_price_quote"
-      ],
-      "safety_retry_succeeded": false,
+      "intent": "order",
+      "next_step": "ask_when_where",
+      "confidence": 0.98,
+      "safety_reasons": [],
+      "safety_triggered_reasons": [],
+      "safety_retry_succeeded": null,
       "notes": "risk=LOW осознанно: assess_risk смотрит только последнюю реплику, а флаг скорбного повода ставится по всей истории. Проверяем, что бот не повторяет запрещённое слово даже вслед за клиентом."
     },
     {
@@ -4794,7 +4810,7 @@
           "name": "reply_length",
           "passed": true,
           "details": {
-            "length": 68,
+            "length": 84,
             "max": 400
           }
         },
@@ -4821,8 +4837,8 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_sender_contacts",
-            "actual": "ask_sender_contacts"
+            "expected": "ask_contacts",
+            "actual": "ask_contacts"
           }
         },
         {
@@ -4864,7 +4880,7 @@
       "kind": "send",
       "risk_level": "low",
       "risk_category": null,
-      "output": "Для связи по заказу напишите, пожалуйста, ваше имя и номер телефона.",
+      "output": "Для оформления самовывоза напишите, пожалуйста, ваше имя и номер телефона для связи.",
       "llm_called": true,
       "intent": "order",
       "next_step": "ask_sender_contacts",
@@ -4938,8 +4954,8 @@
           "name": "next_step_advanced",
           "passed": true,
           "details": {
-            "expected": "ask_sender_contacts",
-            "actual": "ask_sender_contacts"
+            "expected": "ask_contacts",
+            "actual": "ask_contacts"
           }
         },
         {
@@ -5259,6 +5275,386 @@
       "notes": "Клиент выдал всё одним сообщением — ничего из этого переспрашивать нельзя."
     },
     {
+      "id": "real-grouped-when-where-complete",
+      "category": "real_stage3_groups",
+      "passed": true,
+      "checks": [
+        {
+          "name": "expected_kind",
+          "passed": true,
+          "details": {
+            "expected": "send",
+            "actual": "send"
+          }
+        },
+        {
+          "name": "expected_risk",
+          "passed": true,
+          "details": {
+            "expected": "low",
+            "actual": "low"
+          }
+        },
+        {
+          "name": "non_empty_output",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 134,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {
+            "invented_numbers": []
+          }
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_upsell",
+            "actual": "ask_upsell"
+          }
+        },
+        {
+          "name": "not_contains:какое число",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "not_contains:к какому времени",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "not_contains:адрес",
+          "passed": true,
+          "details": {}
+        }
+      ],
+      "kind": "send",
+      "risk_level": "low",
+      "risk_category": "none",
+      "output": "Букет уже собирается 🌸 Если захочется дополнить — есть открытка 250 ₽, ваза 1200 ₽, шары 350 ₽. Добавить что-нибудь или оформляем так?",
+      "llm_called": true,
+      "intent": null,
+      "next_step": "ask_upsell",
+      "confidence": null,
+      "safety_reasons": [
+        "unsupported_price_quote"
+      ],
+      "safety_triggered_reasons": [
+        "unsupported_price_quote"
+      ],
+      "safety_retry_succeeded": false,
+      "notes": "Полный ответ на группу когда/куда закрывает группу за один ход."
+    },
+    {
+      "id": "real-grouped-when-where-partial-date",
+      "category": "real_stage3_groups",
+      "passed": true,
+      "checks": [
+        {
+          "name": "expected_kind",
+          "passed": true,
+          "details": {
+            "expected": "send",
+            "actual": "send"
+          }
+        },
+        {
+          "name": "expected_risk",
+          "passed": true,
+          "details": {
+            "expected": "low",
+            "actual": "low"
+          }
+        },
+        {
+          "name": "non_empty_output",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 1
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 106,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {
+            "invented_numbers": []
+          }
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_when_where",
+            "actual": "ask_when_where"
+          }
+        },
+        {
+          "name": "not_contains:когда",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "not_contains:какое число",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "not_contains:на какое число",
+          "passed": true,
+          "details": {}
+        }
+      ],
+      "kind": "send",
+      "risk_level": "low",
+      "risk_category": null,
+      "output": "Записала: нежный букет до 5000 ₽, доставка завтра. Подскажите, пожалуйста, адрес и удобное время доставки?",
+      "llm_called": true,
+      "intent": "order",
+      "next_step": "ask_when_where",
+      "confidence": 0.98,
+      "safety_reasons": [],
+      "safety_triggered_reasons": [],
+      "safety_retry_succeeded": null,
+      "notes": "Частичный ответ на группу когда/куда сужает вопрос до времени и адреса."
+    },
+    {
+      "id": "real-grouped-contacts-both-roles",
+      "category": "real_stage3_groups",
+      "passed": true,
+      "checks": [
+        {
+          "name": "expected_kind",
+          "passed": true,
+          "details": {
+            "expected": "send",
+            "actual": "send"
+          }
+        },
+        {
+          "name": "expected_risk",
+          "passed": true,
+          "details": {
+            "expected": "low",
+            "actual": "low"
+          }
+        },
+        {
+          "name": "non_empty_output",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 2
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 147,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "ask_anonymous_or_payment",
+            "actual": "ask_anonymous_or_payment"
+          }
+        },
+        {
+          "name": "not_contains:ваше имя",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "not_contains:телефон получателя",
+          "passed": true,
+          "details": {}
+        }
+      ],
+      "kind": "send",
+      "risk_level": "low",
+      "risk_category": null,
+      "output": "Анна, подскажите, пожалуйста: доставку сделать анонимной или указать, от кого букет? И как удобнее оплатить — картой, по СБП или наличными курьеру?",
+      "llm_called": true,
+      "intent": "order",
+      "next_step": "ask_anonymous_or_payment",
+      "confidence": 0.99,
+      "safety_reasons": [],
+      "safety_triggered_reasons": [],
+      "safety_retry_succeeded": null,
+      "notes": "Контакты отправителя и получателя закрываются одной фразой."
+    },
+    {
+      "id": "real-grouped-pickup-one-phrase",
+      "category": "real_stage3_groups",
+      "passed": true,
+      "checks": [
+        {
+          "name": "expected_kind",
+          "passed": true,
+          "details": {
+            "expected": "send",
+            "actual": "send"
+          }
+        },
+        {
+          "name": "expected_risk",
+          "passed": true,
+          "details": {
+            "expected": "low",
+            "actual": "low"
+          }
+        },
+        {
+          "name": "non_empty_output",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "single_question",
+          "passed": true,
+          "details": {
+            "question_count": 0
+          }
+        },
+        {
+          "name": "reply_length",
+          "passed": true,
+          "details": {
+            "length": 198,
+            "max": 400
+          }
+        },
+        {
+          "name": "safety_clean",
+          "passed": true,
+          "details": {
+            "reasons": []
+          }
+        },
+        {
+          "name": "no_repeat_known_field",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "no_invented_numbers",
+          "passed": true,
+          "details": {
+            "invented_numbers": []
+          }
+        },
+        {
+          "name": "next_step_advanced",
+          "passed": true,
+          "details": {
+            "expected": "confirm_pickup_order",
+            "actual": "confirm_pickup_order"
+          }
+        },
+        {
+          "name": "not_contains:адрес",
+          "passed": true,
+          "details": {}
+        },
+        {
+          "name": "not_contains:получател",
+          "passed": true,
+          "details": {}
+        }
+      ],
+      "kind": "send",
+      "risk_level": "low",
+      "risk_category": null,
+      "output": "Итог заказа:\n• Формат: Самовывоз с Сергеева, 61\n• Время: завтра 15:00\n• Бюджет: 5000 ₽\n• Букет: нежный стиль\n• Имя: Анна\n• Телефон: 89990000001\nПередаю заказ менеджеру: он подтвердит детали заказа 🌸",
+      "llm_called": false,
+      "intent": null,
+      "next_step": "confirm_pickup_order",
+      "confidence": null,
+      "safety_reasons": [],
+      "safety_triggered_reasons": [],
+      "safety_retry_succeeded": null,
+      "notes": "Самовывоз одной фразой не требует адрес и контакты получателя. Детерминированная runtime-ветка: при confirm_pickup_order без сохранённой OrderCard собираем итог из извлечённого состояния, чтобы all-in-one заявка не уходила в LLM без карточки."
+    },
+    {
       "id": "real-identity-question",
       "category": "real_noise",
       "passed": true,
@@ -5349,7 +5745,7 @@
       "llm_called": true,
       "intent": "question",
       "next_step": "ask_budget",
-      "confidence": 0.99,
+      "confidence": 0.98,
       "safety_reasons": [],
       "safety_triggered_reasons": [],
       "safety_retry_succeeded": null,
