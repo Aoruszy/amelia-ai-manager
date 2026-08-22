@@ -151,6 +151,7 @@ def update_active_order_from_messages(
         messages_for_extraction,
         today=today,
         timezone_name=(company_profile or load_company_profile("amelia_flowers")).timezone_name,
+        catalog_options=_stored_catalog_options(order.card),
     )
     ignored_field_codes, extracted = _pop_ignored_extracted_fields(extracted)
     card = merge_order_state(order.card, extracted)
@@ -191,6 +192,7 @@ async def update_active_order_from_messages_with_llm(
         company_profile=profile,
         today=today,
         timezone_name=profile.timezone_name,
+        catalog_options=_stored_catalog_options(order.card),
     )
     extracted = extraction.state
     ignored_field_codes, extracted = _pop_ignored_extracted_fields(extracted)
@@ -208,6 +210,11 @@ def _pop_ignored_extracted_fields(extracted):
     if isinstance(stored, list):
         field_codes.extend(str(item) for item in stored)
     return list(dict.fromkeys(field_codes)), replace(extracted, custom_fields=custom_fields)
+
+
+def _stored_catalog_options(card: OrderCard) -> list[dict[str, object]] | None:
+    value = card.custom_fields.get("_last_catalog_options")
+    return value if isinstance(value, list) else None
 
 
 def _record_ignored_extracted_fields(repo: SQLiteRepository, *, client_id: int, order_id: int, field_codes: list[str]) -> None:

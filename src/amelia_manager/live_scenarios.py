@@ -395,9 +395,18 @@ def build_live_scenarios() -> list[DialogueScenario]:
                 "Менеджер: Могу показать три варианта: букет нежный пастельный — 4200 ₽, букет яркий микс — 5500 ₽, премиум яркий букет — 9000 ₽. Что ближе?",
                 "Клиент: средний",
             ],
+            order_card=OrderCard(
+                budget=5500,
+                colors=["букет яркий микс"],
+                custom_fields={"_last_catalog_options": [
+                    {"name": "букет нежный пастельный", "price": 4200, "unit": "букет"},
+                    {"name": "букет яркий микс", "price": 5500, "unit": "букет"},
+                    {"name": "премиум яркий букет", "price": 9000, "unit": "букет"},
+                ]},
+            ),
             expected_next_step="ask_when_where",
             must_not_contain=("какие оттенки", "какие цветы", "бюджет"),
-            notes="Выбор показанного варианта закрывает бюджет и пожелания, поэтому следующий шаг — когда/куда.",
+            notes="Выбор показанного варианта уже внесён в карточку из сохранённых _last_catalog_options; сценарий должен доходить до модели на обычном ask_when_where.",
         ),
         DialogueScenario(
             "real-stage3-2-client-rejects-all-options",

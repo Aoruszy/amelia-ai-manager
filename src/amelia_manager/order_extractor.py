@@ -55,6 +55,7 @@ async def extract_order_state_with_llm(
     company_profile: CompanyProfile | None = None,
     today=None,
     timezone_name: str = "Europe/Kaliningrad",
+    catalog_options: list[dict[str, object]] | None = None,
 ) -> OrderState:
     return (
         await extract_order_state_with_llm_result(
@@ -63,6 +64,7 @@ async def extract_order_state_with_llm(
             company_profile=company_profile,
             today=today,
             timezone_name=timezone_name,
+            catalog_options=catalog_options,
         )
     ).state
 
@@ -74,8 +76,9 @@ async def extract_order_state_with_llm_result(
     company_profile: CompanyProfile | None = None,
     today=None,
     timezone_name: str = "Europe/Kaliningrad",
+    catalog_options: list[dict[str, object]] | None = None,
 ) -> ExtractionResult:
-    regex_state = extract_order_state(recent_messages, today=today, timezone_name=timezone_name)
+    regex_state = extract_order_state(recent_messages, today=today, timezone_name=timezone_name, catalog_options=catalog_options)
     try:
         raw = await generate_with_optional_schema(
             llm,

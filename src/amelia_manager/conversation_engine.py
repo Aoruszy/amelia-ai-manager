@@ -18,7 +18,7 @@ from amelia_manager.model_decision import ModelDecision, parse_model_decision
 from amelia_manager.order_fields import normalize_order_patch_keys
 from amelia_manager.order_card import OrderCard, format_budget_display, merge_order_patch, merge_order_state
 from amelia_manager.order_policy import NextStep, get_next_step
-from amelia_manager.order_state import OrderState, extract_order_state, is_deferred_date_choice, is_deferred_fulfillment_choice, is_deferred_time_choice
+from amelia_manager.order_state import extract_order_state, is_deferred_date_choice, is_deferred_fulfillment_choice, is_deferred_time_choice
 from amelia_manager.prompts import build_manager_prompt
 from amelia_manager.risk import RiskCategory, RiskLevel, assess_risk
 from amelia_manager.safety import SafetyResult, check_reply_safety, safety_retry_guidance_for_reasons
@@ -228,23 +228,7 @@ class ConversationEngine:
                     messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
                     risk_level=risk_level,
                     next_step=next_step.code,
-                )
-
-        if next_step.code == "ask_when_where" and _has_prior_catalog_options_prompt(recent_messages) and isinstance(order_state, OrderState) and order_state.budget and order_state.colors:
-            reply = deterministic_order_reply(
-                next_step,
-                order_card if isinstance(order_card, OrderCard) else None,
-                recent_messages=recent_messages,
-                stock_context=stock_context or "",
-                company_profile=self.company_profile,
-                budget_options=budget_options,
-            )
-            if reply:
-                return ConversationAction(
-                    kind="send",
-                    messages=_finalize_messages(reply, sensitive_occasion=sensitive_occasion, company_profile=self.company_profile),
-                    risk_level=risk_level,
-                    next_step=next_step.code,
+                    order_patch=_catalog_options_patch(budget_options),
                 )
 
         if next_step.code == "ask_budget" and is_budget_unknown_answer(last_client_text):
@@ -655,12 +639,18 @@ def _has_budget_options(budget_options: BudgetOptions | list[BudgetOption] | Non
     return False
 
 
-def _has_prior_catalog_options_prompt(messages: list[str]) -> bool:
-    for message in messages:
-        lowered = message.lower().replace("ё", "е")
-        if lowered.startswith(("менеджер:", "алина:")) and "что ближе" in lowered and "₽" in lowered:
-            return True
-    return False
+def _catalog_options_patch(budget_options: BudgetOptions | list[BudgetOption] | None) -> dict[str, object]:
+    options = budget_options.items if isinstance(budget_options, BudgetOptions) else budget_options
+    if not options:
+        return {}
+    return {
+        "custom_fields": {
+            "_last_catalog_options": [
+                {"name": option.name, "price": option.price, "unit": option.unit}
+                for option in options[:3]
+            ]
+        }
+    }
 
 
 def _is_upsell_decline(text: str) -> bool:

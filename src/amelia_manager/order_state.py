@@ -40,15 +40,22 @@ class OrderState:
         return self.postcard_text
 
 
-def extract_order_state(messages: list[str], *, today: date | None = None, timezone_name: str = "Europe/Kaliningrad") -> OrderState:
+def extract_order_state(
+    messages: list[str],
+    *,
+    today: date | None = None,
+    timezone_name: str = "Europe/Kaliningrad",
+    catalog_options: list[dict[str, Any]] | None = None,
+) -> OrderState:
     client_messages = [_strip_role(message) for message in messages if _is_client_message(message)]
     text = "\n".join(client_messages).lower().replace("ё", "е")
     latest_client_text = (client_messages[-1] if client_messages else "").lower().replace("ё", "е")
     manager_schedule_text = _manager_scheduling_text(messages)
     original = "\n".join(client_messages)
     contacts = _extract_contacts_by_dialog_context(messages)
-    catalog_choice = _extract_catalog_option_choice(messages)
-    preference_text = _client_text_after_catalog_choice(messages) if catalog_choice is not None else text
+    shown_options = _normalize_catalog_options(catalog_options)
+    catalog_choice = _extract_catalog_option_choice(messages, shown_options)
+    preference_text = _client_text_after_catalog_choice(messages, shown_options) if catalog_choice is not None else text
     budget_candidates = [*_extract_budget_candidates(text), *_extract_budget_by_dialog_context(messages)]
     if catalog_choice is not None:
         budget_candidates.append((catalog_choice[0], catalog_choice[1]))
@@ -463,64 +470,53 @@ def _extract_budget_by_dialog_context(messages: list[str]) -> list[tuple[int, in
     return candidates
 
 
-def _extract_catalog_option_choice(messages: list[str]) -> tuple[int, int, str] | None:
-    options: list[tuple[str, int]] = []
+def _extract_catalog_option_choice(messages: list[str], shown_options: list[tuple[str, int]] | None) -> tuple[int, int, str] | None:
+    if not shown_options:
+        return None
     position = 0
     for message in messages:
         stripped = _strip_role(message)
         lowered = stripped.lower().replace("ё", "е")
         if message.lower().startswith(("менеджер:", "алина:")):
-            parsed = _parse_catalog_options_from_manager_text(stripped)
-            if parsed:
-                options = parsed
             continue
         if not _is_client_message(message):
             continue
-        if options:
-            chosen = _match_catalog_option_choice(lowered, options)
-            if chosen is not None:
-                name, price = chosen
-                preference = name if name != "вариант" else f"вариант за {price} ₽"
-                return (position, price, preference)
+        chosen = _match_catalog_option_choice(lowered, shown_options)
+        if chosen is not None:
+            name, price = chosen
+            preference = name if name != "вариант" else f"вариант за {price} ₽"
+            return (position, price, preference)
         position += len(lowered) + 1
     return None
 
 
-def _parse_catalog_options_from_manager_text(text: str) -> list[tuple[str, int]]:
-    normalized = text.lower().replace("ё", "е")
-    if "что ближе" not in normalized and "вариант" not in normalized:
-        return []
-    options: list[tuple[str, int]] = []
-    for match in re.finditer(r"(?:«(?P<quoted>[^»]+)»|(?P<plain>[а-яa-z0-9\s-]{3,60}?))\s+[—-]\s*(?P<price>[1-9]\d{2,5})\s*₽", normalized):
-        name = (match.group("quoted") or match.group("plain") or "вариант").strip(" ,.:;—-")
-        name = re.sub(r"^(?:могу\s+(?:показать|предложить)\s+(?:три\s+)?вариант[а-я]*:|и\s+)", "", name).strip(" ,.:;—-")
-        options.append((name or "вариант", int(match.group("price"))))
-    if options:
-        return options
-    for match in re.finditer(r"(?<!\d)([1-9]\d{2,5})\s*₽", normalized):
-        options.append(("вариант", int(match.group(1))))
-    return options
+def _normalize_catalog_options(catalog_options: list[dict[str, Any]] | None) -> list[tuple[str, int]] | None:
+    if not catalog_options:
+        return None
+    normalized: list[tuple[str, int]] = []
+    for option in catalog_options:
+        name = str(option.get("name") or "вариант").lower().replace("ё", "е")
+        price = option.get("price")
+        if isinstance(price, int):
+            normalized.append((name, price))
+    return normalized or None
 
 
-def _client_text_after_catalog_choice(messages: list[str]) -> str:
-    options: list[tuple[str, int]] = []
+def _client_text_after_catalog_choice(messages: list[str], shown_options: list[tuple[str, int]] | None) -> str:
+    if not shown_options:
+        return ""
     after_choice: list[str] = []
     choice_seen = False
     for message in messages:
         stripped = _strip_role(message)
         lowered = stripped.lower().replace("ё", "е")
         if message.lower().startswith(("менеджер:", "алина:")):
-            parsed = _parse_catalog_options_from_manager_text(stripped)
-            if parsed:
-                options = parsed
-                after_choice = []
-                choice_seen = False
             continue
         if not _is_client_message(message):
             continue
         if choice_seen:
             after_choice.append(lowered)
-        elif options and _match_catalog_option_choice(lowered, options) is not None:
+        elif _match_catalog_option_choice(lowered, shown_options) is not None:
             choice_seen = True
     return "\n".join(after_choice)
 

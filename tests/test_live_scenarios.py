@@ -115,6 +115,8 @@ async def test_live_scenarios_run_through_deterministic_pipeline_without_errors(
 
     assert report["summary"]["total"] == 42
     assert all("llm_called" in result for result in report["results"])
+    by_id = {result["id"]: result for result in report["results"]}
+    assert by_id["real-stage3-2-client-chooses-middle-option"]["llm_called"] is True
 
 
 @pytest.mark.asyncio

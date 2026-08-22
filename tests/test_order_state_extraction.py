@@ -154,6 +154,22 @@ def _option_dialog(answer: str) -> list[str]:
     ]
 
 
+def _shown_catalog_options() -> list[dict[str, object]]:
+    return [
+        {"name": "букет нежный пастельный", "price": 4200, "unit": "букет"},
+        {"name": "букет яркий микс", "price": 5500, "unit": "букет"},
+        {"name": "премиум яркий букет", "price": 9000, "unit": "букет"},
+    ]
+
+
+def _extract_option_dialog(answer: str, *, messages: list[str] | None = None):
+    return extract_order_state(
+        messages or _option_dialog(answer),
+        today=date(2026, 8, 19),
+        catalog_options=_shown_catalog_options(),
+    )
+
+
 def test_catalog_option_choice_by_ordinal_level_name_or_price_fills_budget_and_preferences():
     cases = [
         ("давайте второй", 5500, "букет яркий микс"),
@@ -165,7 +181,7 @@ def test_catalog_option_choice_by_ordinal_level_name_or_price_fills_budget_and_p
     ]
 
     for answer, budget, preference in cases:
-        state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
+        state = _extract_option_dialog(answer)
         assert state.budget == budget, answer
         assert state.colors == [preference], answer
 
@@ -179,6 +195,7 @@ def test_catalog_option_choice_closes_preferences_step():
             "Клиент: доставка завтра к 14:00 на Ленина 5",
         ],
         today=date(2026, 8, 19),
+        catalog_options=_shown_catalog_options(),
     )
 
     assert state.budget == 5500
@@ -189,7 +206,7 @@ def test_catalog_option_choice_closes_preferences_step():
 
 def test_catalog_option_negative_answers_do_not_fill_budget_or_preferences():
     for answer in ("а есть что-то другое?", "ни один не подходит", "не эти", "пока подумаю"):
-        state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
+        state = _extract_option_dialog(answer)
         assert state.budget is None, answer
         assert state.colors == [], answer
 
@@ -202,7 +219,7 @@ def test_catalog_option_numeric_choice_does_not_capture_dates_or_quantities():
     ]
 
     for answer, expected_date in cases:
-        state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
+        state = _extract_option_dialog(answer)
         assert state.budget is None, answer
         assert state.colors == [], answer
         assert state.delivery_date == expected_date, answer
@@ -210,7 +227,7 @@ def test_catalog_option_numeric_choice_does_not_capture_dates_or_quantities():
 
 def test_catalog_option_numeric_choice_accepts_only_explicit_option_number():
     for answer in ("2", "2)", "вариант 2"):
-        state = extract_order_state(_option_dialog(answer), today=date(2026, 8, 19))
+        state = _extract_option_dialog(answer)
         assert state.budget == 5500, answer
         assert state.colors == ["букет яркий микс"], answer
 
@@ -222,6 +239,7 @@ def test_catalog_option_choice_preserves_later_client_preferences_and_forbidden_
             "Клиент: только белые, без лилий, завтра к 15 на Ленина 5",
         ],
         today=date(2026, 8, 19),
+        catalog_options=_shown_catalog_options(),
     )
     without_choice = extract_order_state(
         ["Клиент: только белые, без лилий, завтра к 15 на Ленина 5"],
@@ -233,3 +251,21 @@ def test_catalog_option_choice_preserves_later_client_preferences_and_forbidden_
     assert "лилии" in with_choice.forbidden_flowers
     assert without_choice.colors == ["белый"]
     assert "лилии" in without_choice.forbidden_flowers
+
+
+def test_catalog_option_choice_uses_stored_options_not_rendered_message_format():
+    state = extract_order_state(
+        [
+            "Менеджер: Могу показать: Нежность — 3500 руб.; Пионовидный микс — 5500 руб.; Премиум — 9000 руб.",
+            "Клиент: второй",
+        ],
+        today=date(2026, 8, 19),
+        catalog_options=[
+            {"name": "Нежность", "price": 3500, "unit": "букет"},
+            {"name": "Пионовидный микс", "price": 5500, "unit": "букет"},
+            {"name": "Премиум", "price": 9000, "unit": "букет"},
+        ],
+    )
+
+    assert state.budget == 5500
+    assert state.colors == ["пионовидный микс"]

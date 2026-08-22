@@ -207,6 +207,15 @@ async def test_budget_step_gets_catalog_options_without_unknown_answer():
     assert action.next_step == "ask_budget"
     assert "букет нежный пастельный — 4200 ₽" in text
     assert "букет яркий микс — 5500 ₽" in text
+    assert action.order_patch == {
+        "custom_fields": {
+            "_last_catalog_options": [
+                {"name": "букет нежный пастельный", "price": 4200, "unit": "букет"},
+                {"name": "букет яркий микс", "price": 5500, "unit": "букет"},
+                {"name": "премиум яркий букет", "price": 9000, "unit": "букет"},
+            ]
+        }
+    }
 
 
 @pytest.mark.asyncio
