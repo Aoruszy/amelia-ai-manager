@@ -100,6 +100,24 @@ def test_when_where_partial_progress_does_not_trigger_repeat_guard():
     assert "другими словами" not in step.instruction.lower()
 
 
+def test_when_where_progress_to_one_missing_field_does_not_trigger_repeat_wording():
+    state = OrderState(
+        budget=7000,
+        colors=["синий"],
+        fulfillment_type="delivery",
+        delivery_date="2026-08-22",
+        address="Ленина 5",
+        custom_fields={"_asked_groups": {"ask_when_where": ("fulfillment_type", "delivery_date", "delivery_time", "address")}},
+    )
+
+    step = get_next_step(state)
+
+    assert step.code == "ask_when_where"
+    assert step.missing == ("delivery_time",)
+    assert "прямо" not in step.instruction.lower()
+    assert "другими словами" not in step.instruction.lower()
+
+
 def test_contacts_repeated_partial_group_gets_direct_sender_prompt():
     state = OrderState(
         budget=7000,
@@ -156,6 +174,31 @@ def test_contacts_first_partial_recipient_prompt_is_not_direct_interrogation():
         sender_phone="89990000001",
         recipient_phone="89990000002",
         custom_fields={"upsell_offered": True},
+    )
+
+    step = get_next_step(state)
+
+    assert step.code == "ask_contacts"
+    assert step.missing == ("recipient_name",)
+    assert "прямо" not in step.instruction.lower()
+    assert "другими словами" not in step.instruction.lower()
+
+
+def test_contacts_progress_to_one_missing_field_does_not_trigger_repeat_wording():
+    state = OrderState(
+        budget=7000,
+        colors=["синий"],
+        fulfillment_type="delivery",
+        delivery_date="2026-08-22",
+        delivery_time="14:00",
+        address="Ленина 5",
+        sender_name="Анна",
+        sender_phone="89990000001",
+        recipient_phone="89990000002",
+        custom_fields={
+            "upsell_offered": True,
+            "_asked_groups": {"ask_contacts": ("sender_name", "sender_phone", "recipient_name", "recipient_phone")},
+        },
     )
 
     step = get_next_step(state)

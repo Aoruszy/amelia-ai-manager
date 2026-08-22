@@ -138,7 +138,6 @@ async def run_dialogue_eval(
             "confidence_distribution": _confidence_distribution(
                 [result["confidence"] for result in results if isinstance(result.get("confidence"), int | float)]
             ),
-            "stage3_1_turns_to_request": _stage3_1_turns_to_request_metric(),
         },
         "results": results,
     }
@@ -154,32 +153,6 @@ def _confidence_distribution(values: list[float]) -> dict[str, int]:
         else:
             buckets["0.7-1.0"] += 1
     return buckets
-
-
-def _stage3_1_turns_to_request_metric() -> dict[str, Any]:
-    funnels = {
-        "delivery": {"before": 11, "after": 6},
-        "pickup": {"before": 8, "after": 5},
-    }
-    with_delta = {
-        name: {**values, "delta": values["after"] - values["before"]}
-        for name, values in funnels.items()
-    }
-    count = len(with_delta)
-    before_average = sum(values["before"] for values in with_delta.values()) / count
-    after_average = sum(values["after"] for values in with_delta.values()) / count
-    return {
-        "average_live_order_funnels": {
-            "before": before_average,
-            "after": after_average,
-            "delta": after_average - before_average,
-        },
-        "funnels": with_delta,
-        "notes": (
-            "Representative live order funnels: delivery now groups when/where and contacts "
-            "(6 questions instead of 11); pickup does not ask recipient/payment fields."
-        ),
-    }
 
 
 async def write_dialogue_eval_report(

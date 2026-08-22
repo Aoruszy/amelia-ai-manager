@@ -113,10 +113,7 @@ async def test_live_scenarios_run_through_deterministic_pipeline_without_errors(
 
 
 @pytest.mark.asyncio
-async def test_live_eval_summary_reports_stage3_1_turns_to_request_delta():
+async def test_live_eval_summary_does_not_report_unmeasured_stage3_1_turns_metric():
     report = await dialogue_eval.run_dialogue_eval(build_live_scenarios(), llm=StaticLLM(), use_cache=False)
 
-    metric = report["summary"]["stage3_1_turns_to_request"]
-    assert metric["average_live_order_funnels"] == {"before": 9.5, "after": 5.5, "delta": -4.0}
-    assert metric["funnels"]["delivery"] == {"before": 11, "after": 6, "delta": -5}
-    assert metric["funnels"]["pickup"] == {"before": 8, "after": 5, "delta": -3}
+    assert "stage3_1_turns_to_request" not in report["summary"]

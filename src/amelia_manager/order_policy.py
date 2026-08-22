@@ -179,7 +179,7 @@ def _group_repeated_without_progress(state: OrderState, group_code: str, missing
 
 
 def _when_where_instruction(missing: tuple[str, ...], state: OrderState, profile: CompanyProfile) -> str:
-    repeated = _group_was_asked(state, "ask_when_where") and len(missing) == 1
+    repeated = _group_repeated_without_progress(state, "ask_when_where", list(missing))
     if missing == ("fulfillment_type",):
         return "Уточни прямо одним вопросом: доставка или самовывоз."
     if set(missing) == {"fulfillment_type", "address"}:
@@ -213,9 +213,9 @@ def _when_where_instruction(missing: tuple[str, ...], state: OrderState, profile
 def _contacts_instruction(missing: tuple[str, ...], state: OrderState) -> str:
     need_sender = any(field.startswith("sender_") for field in missing)
     need_recipient = any(field.startswith("recipient_") for field in missing)
-    repeated = _group_was_asked(state, "ask_contacts") and len(missing) == 1
+    repeated = _group_repeated_without_progress(state, "ask_contacts", list(missing))
     if need_sender and need_recipient:
-        if _group_was_asked(state, "ask_contacts"):
+        if repeated:
             first_field = missing[0]
             if first_field == "sender_name":
                 return "Спроси прямо, другими словами: ваше имя для связи по заказу."
