@@ -1,127 +1,131 @@
-# Universal AI Manager / Amelia profile
+# Amelia AI Manager
 
-AI Telegram manager core with a first company profile for Amelia Flowers.
+Telegram-менеджер для цветочного магазина. Помогает подобрать букет, собирает детали заказа и передаёт заявку человеку. В репозитории есть профиль Amelia Flowers; настройки компании и правила оформления заказа вынесены отдельно от обработки сообщений.
 
-## MVP defaults
+Основная задача проекта — сохранить смысл заказа в переписке. Клиент может прислать несколько сообщений подряд, поменять доставку на самовывоз или вернуться с новым заказом. Менеджеру нужно учитывать эти изменения, не спрашивать уже известные данные и не переносить старый адрес в новую заявку.
 
-- Telegram user account via Telethon.
-- Manager persona: Алина.
-- Company profile: `COMPANY_PROFILE_NAME=amelia_flowers`.
-- Admin notifications in Telegram via `ADMIN_CHAT_ID`.
-- Auto-reply can be enabled for everyone who writes to the account.
-- Current LLM target: OpenAI Responses API by default (`LLM_PROVIDER=openai`); Gemini remains supported through `LLM_PROVIDER=gemini`.
+## Что умеет
 
-## Setup
+- Вести диалог в Telegram от пользовательского аккаунта через Telethon.
+- Собирать карточку заказа: бюджет, пожелания, дату, время, способ получения и контакты.
+- Предлагать варианты из каталога с учётом бюджета.
+- Обрабатывать фотографии и объединять сообщения, отправленные подряд.
+- Передавать сложные вопросы и готовые заявки менеджеру.
+- Планировать повторные сообщения и напоминания, учитывать рабочие часы и отказ от дальнейших сообщений.
+- Показывать переписки, каталог, метрики и загрузку в веб-панели.
+
+Каталог хранится в SQLite. Его можно менять в панели `/catalog` или командой `/stock` в Telegram. Скрытие позиции сохраняет её в базе и истории. Google Sheets используется для записи заказов, но не служит источником наличия товаров.
+
+## Как устроена обработка
+
+Входящие сообщения попадают в буфер, после чего собирается контекст диалога и текущего заказа. Дальше движок определяет следующий шаг: уточнить данные, предложить товар, показать итог или передать разговор человеку.
+
+Для генерации ответов и извлечения данных используется LLM. Правила заполнения заказа, проверки ответа и решение о передаче менеджеру находятся в коде. По умолчанию подключён OpenAI Responses API, также поддерживается Gemini.
+
+Стек: Python 3.11+, Telethon, FastAPI, SQLite, Pydantic, httpx и Jinja2.
+
+## Локальный запуск
+
+Понадобятся Python 3.11+, `uv`, данные Telegram API для пользовательского аккаунта и ключ выбранного LLM-провайдера.
 
 ```bash
+git clone https://github.com/Aoruszy/amelia-ai-manager.git
+cd amelia-ai-manager
 uv sync --extra dev
 cp .env.example .env
-# fill TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE, ADMIN_CHAT_ID, LLM_API_KEY
-# fill ADMIN_USERNAME and ADMIN_PASSWORD before starting admin UI
-uv run pytest -q
+```
+
+В `.env` заполните:
+
+| Переменная | Для чего нужна |
+| --- | --- |
+| `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` | Подключение к Telegram API |
+| `TELEGRAM_PHONE` | Номер аккаунта, от которого работает менеджер |
+| `ADMIN_CHAT_ID` | Чат для передачи заявок и уведомлений |
+| `LLM_API_KEY`, `LLM_MODEL` | Ключ и модель выбранного провайдера |
+| `LLM_PROVIDER` | `openai` или `gemini` |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Доступ к веб-панели; добавляются в `.env` вручную |
+
+Для первого запуска оставьте `AUTO_REPLY_ENABLED=false`. В этом режиме приложение обрабатывает сообщения, но не отправляет ответы клиентам и уведомления администратору и не отмечает заявки как отправленные. Подключение к Telegram и запросы к LLM при этом остаются настоящими.
+
+```bash
 uv run python -m amelia_manager.telegram_runtime
 ```
 
-## Measurement reports
+При первом подключении Telethon запросит авторизацию аккаунта. Это приложение для пользовательского аккаунта, поэтому токен Telegram-бота здесь не подходит.
 
-Keep only the declared baseline report and the latest eval run in `reports/`: today that means `eval_baseline_after_review.json` and the current `eval_round*.json`. When committing a new eval run, remove the previous round report in the same commit; change the baseline only by an explicit decision, never automatically. Do not add `reports/` to `.gitignore` because prompt/model changes are reviewed against committed eval output.
-
-## Admin UI
-
-If you open the panel through a tunnel or a reverse proxy, set `ADMIN_ALLOWED_HOSTS` to its public
-hostname. A tunnel usually rewrites `Host` to the internal address, and without this the CSRF check
-rejects your own POST requests as cross-site.
-
-The admin UI is a separate FastAPI app. It is protected with Basic Auth, rate-limits failed logins in memory, and refuses to start with empty/default admin credentials. Basic Auth sends credentials as base64, not encryption, so expose the panel only behind a TLS terminator such as Cloudflare Tunnel or Caddy; never publish it over plain HTTP.
-
-All logged-in users have the same access level: dialogs, catalog, and metrics. Give the password only to people trusted with customer messages and contacts, and rotate it when staff changes.
-
-### Catalog source of truth
-
-Assortment and prices live in the local SQLite `catalog_items` table and are edited in `/catalog`. Google Sheets is not used for stock availability anymore; order rows are still written to Sheets through `order_sheet.py`.
-
-The `/stock` Telegram command still works as a fast mobile update path and writes into the same catalog, so the bot reads the change immediately. Items are never physically deleted from the admin UI: hiding sets `is_active = 0` and keeps history. Each catalog change records `catalog_updated` with item name, changed field, and editor only — no prices or quantities in the event payload.
-
-Required `.env` values:
+Для проверки отправки на тестовых пользователях укажите:
 
 ```env
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=use-a-strong-password-here
+ALLOW_ONLY_TEST_USERS=true
+TEST_ALLOWLIST_IDS=123456789
+AUTO_REPLY_ENABLED=true
 ```
 
-Run locally:
+Замените ID на свой; несколько ID разделяются запятыми. Если отключить ограничение тестовыми пользователями, автоответы могут получать все, кто пишет аккаунту.
+
+## Веб-панель
+
+Панель запускается отдельным процессом из корня проекта:
 
 ```bash
 uv run uvicorn amelia_manager.admin:app --host 127.0.0.1 --port 8000
 ```
 
-### Safe external access
+Адрес: [http://127.0.0.1:8000](http://127.0.0.1:8000). Потребуются `ADMIN_USERNAME` и собственный пароль: приложение отклоняет пустые и стандартные учётные данные.
 
-#### Quick access: Cloudflare Tunnel
+Авторизация — Basic Auth, с ограничением неудачных попыток входа в памяти процесса. У всех вошедших пользователей одинаковый доступ к перепискам, каталогу и метрикам; отдельных ролей пока нет.
 
-```bash
-cloudflared tunnel --url http://localhost:8000
-```
+Для внешнего доступа панель должна работать за HTTPS-прокси, например Caddy или Cloudflare Tunnel. Basic Auth не шифрует пароль. Не публикуйте панель напрямую по HTTP и не открывайте её порт на роутере. Приложение лучше оставлять на `127.0.0.1`; привязка к `0.0.0.0` допустима только за доверенным HTTPS-прокси.
 
-Cloudflare gives an HTTPS URL and you do not need to open router/firewall ports.
+Публичное имя панели укажите в `ADMIN_ALLOWED_HOSTS`. В `ADMIN_TRUSTED_PROXY_IPS` перечислите только адреса доверенных прокси: от них приложение принимает заголовки с исходным адресом и именем хоста. Пароль панели даёт доступ к сообщениям и контактам клиентов; при смене сотрудников его нужно менять.
 
-#### Permanent access: VPS + Caddy
-
-Run the admin app on localhost only:
+## Тесты и проверка диалогов
 
 ```bash
-uv run uvicorn amelia_manager.admin:app --host 127.0.0.1 --port 8000
+uv run pytest -q
 ```
 
-Caddy reverse proxy example:
+В тестах есть сценарии изменения заказа, ошибок LLM, повторной отправки, передачи менеджеру, доступа к панели и удаления старых данных.
 
-```caddy
-admin.example.com {
-    reverse_proxy 127.0.0.1:8000
-}
-```
-
-Caddy obtains and renews Let's Encrypt certificates automatically.
-
-#### Do not do this
-
-- Do not expose the admin UI over plain HTTP without TLS.
-- Do not forward a home-router port directly to the admin UI.
-- Do not bind the admin UI to `0.0.0.0` unless it is behind a trusted TLS reverse proxy.
-- Do not run with default or empty admin credentials.
-
-## Safety notes
-
-Never commit runtime secrets or customer data. The repository intentionally ignores:
-
-- `.env`
-- `data/` and Telethon `*.session` files
-- `logs/`
-- `.venv/`
-- Python/test caches
-
-Use `AUTO_REPLY_ENABLED=false` for dry-runs. In dry-run mode the runtime should not send customer/admin messages or mark admin requests as sent.
-
-## Privacy and retention
-
-Runtime data is stored locally in the SQLite database configured by `DATABASE_URL` (default: `data/amelia_manager.sqlite3`). This can include Telegram IDs/usernames, message history, order cards, phone numbers, names, addresses, postcard text, and company stock notes. Keep `data/` out of git and restrict access on the deployment host.
-
-`PII_RETENTION_DAYS` controls automatic cleanup at listener startup and in the daily `RETENTION_CLEANUP_INTERVAL_HOURS` background loop:
-
-- messages older than the retention window are deleted;
-- old completed/sent order cards are anonymized by clearing names, phones, delivery address, postcard text, and profile-specific `custom_fields`;
-- recent active orders are kept intact so the manager can continue the current conversation.
-
-Default message/order-card retention is 30 days. `EVENT_RETENTION_DAYS` defaults to 90 days because anonymized events intentionally outlive messages for metrics. For SQLite backups, use the online `.backup` command rather than copying the database file directly; see `docs/operations.md`. For manual deletion requests, use the repository erasure helper from a maintenance shell:
+Для отдельной проверки диалоговых сценариев без обращения к модели:
 
 ```bash
-uv run python - <<'PY'
+uv run python -m amelia_manager.dialogue_eval --output reports/eval_round_local.json
+```
+
+Для прогона с настроенной моделью:
+
+```bash
+uv run python -m amelia_manager.dialogue_eval --live --no-cache --output reports/eval_round_live.json
+```
+
+Второй вариант делает запросы к API и расходует его лимиты. Отчёт показывает результат на заданном наборе сценариев; он не гарантирует такое же поведение в любой переписке.
+
+В `reports/` сохраняются базовый отчёт `eval_baseline_after_review.json` и последний прогон. При добавлении нового отчёта предыдущий прогон нужно удалить в том же коммите. Базовый отчёт меняется только отдельным осознанным решением. Каталог `reports/` остаётся в Git, чтобы можно было сравнивать изменения промптов и моделей.
+
+## Данные и резервные копии
+
+По умолчанию база находится в `data/amelia_manager.sqlite3`. В ней могут храниться история сообщений, Telegram ID, карточки заказов, имена, телефоны и адреса. Фотографии каталога и клиентов хранятся рядом с базой, в `data/media/`.
+
+`.env`, каталог `data/`, файлы сессий Telethon `*.session`, логи и виртуальное окружение не должны попадать в Git. Файл сессии даёт доступ к Telegram-аккаунту, поэтому его нужно хранить так же внимательно, как ключи API.
+
+Очистка запускается при старте обработчика и затем с интервалом `RETENTION_CLEANUP_INTERVAL_HOURS` — по умолчанию раз в сутки. Сообщения старше `PII_RETENTION_DAYS` удаляются, старые завершённые или отправленные карточки обезличиваются. Свежие активные заказы сохраняются. Срок хранения сообщений и карточек по умолчанию — 30 дней, событий для метрик — 90 дней (`EVENT_RETENTION_DAYS`).
+
+Для ручного удаления данных клиента:
+
+```python
 from amelia_manager.config import Settings
 from amelia_manager.db.repository import SQLiteRepository, path_from_sqlite_url
 
 repo = SQLiteRepository(path_from_sqlite_url(Settings().database_url))
-print(repo.delete_client_data_by_telegram_id(123456789))
-PY
+repo.delete_client_data_by_telegram_id(123456789)
 ```
 
-Replace `123456789` with the customer's Telegram ID. The helper removes that client's messages, orders, and client row.
+Запускайте из окружения проекта, подставив Telegram ID клиента. Метод удаляет его сообщения, заказы и запись клиента.
+
+Для резервной копии работающей SQLite используйте online backup, а не копирование одного файла базы. Вместе со снимком нужно сохранять каталог с фотографиями. Команды и порядок восстановления описаны в [docs/operations.md](docs/operations.md).
+
+## Что ещё требует работы
+
+В проекте уже много правил и проверок для цветочного магазина. При подключении другой компании нужно проверить её профиль и сценарии, особенно обязательные поля заказа. Крупные модули обработки Telegram и работы с БД стоит разделить, а в панели добавить отдельные роли для сотрудников.
